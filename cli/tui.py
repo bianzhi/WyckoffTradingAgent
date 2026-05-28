@@ -523,6 +523,10 @@ class WyckoffTUI(App):
     Screen {
         layout: vertical;
     }
+    Screen > .screen--selection {
+        background: $accent 50%;
+        color: $text;
+    }
     #chat-log {
         height: 1fr;
         border: round $primary;

@@ -729,18 +729,14 @@ class WyckoffTUI(App):
         self._save_and_exit()
 
     def action_smart_copy(self) -> None:
-        """Ctrl+C: 选中文本→复制；无选区有最后回复→复制回复；执行中→中断；空闲双击1s内→退出。"""
+        """Ctrl+C / Cmd+C: 选中文本→复制；无选区→双击退出/中断/复制回复。"""
         text = self.screen.get_selected_text()
         if text:
             self.app.copy_to_clipboard(text)
             self.screen.clear_selection()
             self.notify("已复制", timeout=1)
             return
-        # 无选区时，尝试复制最后一条助手回复
-        if self._last_assistant_text.strip():
-            self.app.copy_to_clipboard(self._last_assistant_text)
-            self.notify(f"已复制回复（{len(self._last_assistant_text)} 字符）", timeout=1)
-            return
+        # 无选区时，优先处理退出/中断，再尝试复制回复
         if self._busy:
             self._cancel_event.set()
             self.notify("已中断", timeout=1)
@@ -748,8 +744,12 @@ class WyckoffTUI(App):
         now = time.monotonic()
         if now - self._last_ctrl_c < 1.0:
             self._save_and_exit()
+            return
+        self._last_ctrl_c = now
+        if self._last_assistant_text.strip():
+            self.app.copy_to_clipboard(self._last_assistant_text)
+            self.notify(f"已复制回复（{len(self._last_assistant_text)} 字符）", timeout=1)
         else:
-            self._last_ctrl_c = now
             self.notify("再按一次 Ctrl+C 退出", timeout=1)
 
     def action_switch_model(self) -> None:

@@ -9,7 +9,22 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy via SSH
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Package & transfer code to ECS
+        uses: appleboy/scp-action@v0
+        with:
+          host: ${{ secrets.ECS_HOST }}
+          username: ${{ secrets.ECS_USER }}
+          password: ${{ secrets.ECS_PASSWORD }}
+          port: ${{ secrets.ECS_PORT || 22 }}
+          source: "web,deploy"
+          target: /tmp/wyckoff-deploy/
+          strip_components: 0
+          rm: true
+
+      - name: Rebuild & restart on ECS
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.ECS_HOST }}
@@ -18,16 +33,24 @@ jobs:
           port: ${{ secrets.ECS_PORT || 22 }}
           script: |
             set -e
+
+            # 备份 .env.production（不在 git 里，rsync --delete 会删掉）
+            cp /root/WyckoffTradingAgent/deploy/.env.production /tmp/.env.production.bak 2>/dev/null || true
+
+            # 同步代码
+            rsync -a --delete /tmp/wyckoff-deploy/web/ /root/WyckoffTradingAgent/web/
+            rsync -a --delete /tmp/wyckoff-deploy/deploy/ /root/WyckoffTradingAgent/deploy/
+
+            # 恢复 .env.production
+            cp /tmp/.env.production.bak /root/WyckoffTradingAgent/deploy/.env.production 2>/dev/null || true
+
             COMPOSE_FILE=/root/WyckoffTradingAgent/deploy/docker-compose.yml
             cd /root/WyckoffTradingAgent
 
-            echo "[1/3] git pull..."
-            git pull origin main
-
-            echo "[2/3] docker compose build..."
+            echo "[1/2] docker compose build..."
             docker compose -f $COMPOSE_FILE build --no-cache
 
-            echo "[3/3] docker compose up -d..."
+            echo "[2/2] docker compose up -d..."
             docker compose -f $COMPOSE_FILE up -d
 
             sleep 5

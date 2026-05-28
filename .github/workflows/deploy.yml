@@ -45,6 +45,9 @@ jobs:
             # 恢复 .env.production
             cp /tmp/.env.production.bak /root/WyckoffTradingAgent/deploy/.env.production 2>/dev/null || true
 
+            # 导出 VITE_ 构建参数（docker compose 需要 shell 环境变量）
+            export $(grep -v '^#' /root/WyckoffTradingAgent/deploy/.env.production | xargs) 2>/dev/null || true
+
             COMPOSE_FILE=/root/WyckoffTradingAgent/deploy/docker-compose.yml
             cd /root/WyckoffTradingAgent
 

@@ -158,8 +158,15 @@ export function LoginPage() {
     setLoading(true)
     try {
       if (isRegister) {
-        const { error } = await supabase.auth.signUp({ email, password })
+        const { data, error } = await supabase.auth.signUp({ email, password })
         if (error) throw error
+        // 邮箱验证模式：注册成功但无 session，提示用户查收邮件
+        if (!data.session) {
+          setError(t('login.checkEmail') || '注册成功！请检查邮箱并点击确认链接，然后返回登录。')
+          setLoading(false)
+          return
+        }
+        setAuth(data.user, data.session)
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) throw error

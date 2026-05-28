@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { generateText as GenerateTextFn } from 'ai'
 import { fetchValueSnapshotWithFetch, isCnSymbol, normalizeTickFlowSymbol, type ValueSnapshot } from './kline'
 import { buildValuePrompt, buildValueScore } from './value-analysis'
+import { loadSystemConfig } from './system-config'
 
 export interface KlineRow {
   date: string
@@ -60,10 +61,20 @@ export async function fetchUserDataKeys(deps: ToolDeps, userId: string): Promise
     .from('user_settings')
     .select('tickflow_api_key, tushare_token')
     .eq('user_id', userId)
-    .single()
-  return {
-    tickflow: String(data?.tickflow_api_key || '').trim() || null,
-    tushare: String(data?.tushare_token || '').trim() || null,
+    .maybeSingle()
+  const tickflow = String(data?.tickflow_api_key || '').trim() || null
+  const tushare = String(data?.tushare_token || '').trim() || null
+
+  // Fallback to system config if user has no personal keys
+  if (tickflow && tushare) return { tickflow, tushare }
+  try {
+    const sys = await loadSystemConfig()
+    return {
+      tickflow: tickflow || sys.tickflow_api_key,
+      tushare: tushare || sys.tushare_token,
+    }
+  } catch {
+    return { tickflow, tushare }
   }
 }
 
@@ -586,7 +597,7 @@ export async function execAnalyzeStock(
     fetchValueSnapshotForAgent(deps, code, keys).catch((): ValueSnapshot => ({ symbol: code, source: 'none', metrics: null, reason: 'not-found' })),
   ])
   if (kline.length === 0) {
-    return `无法获取 ${code} ${name || ''} 的K线数据。美股/港股请使用 TickFlow 标准代码（如 AAPL.US / 00700.HK）。推荐购买 TickFlow 获取实时行情：https://tickflow.org/auth/register?ref=5N4NKTCPL4`
+    return `无法获取 ${code} ${name || ''} 的K线数据。美股/港股请使用 TickFlow 标准代码（如 AAPL.US / 00700.HK）。`
   }
 
   const digest = buildKlineDigest(kline)

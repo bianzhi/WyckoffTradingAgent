@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useLocation } from 'react-router'
-import { AlertTriangle, BarChart3, Bot, Briefcase, CalendarDays, CheckCircle2, CloudCog, Download, ExternalLink, GitBranch, MessageSquare, Moon, RadioTower, Rocket, Settings, Swords, Terminal, TrendingUp, Users, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, BarChart3, Bot, Briefcase, CalendarDays, CheckCircle2, CloudCog, Download, GitBranch, MessageSquare, Moon, RadioTower, Rocket, Settings, Swords, Terminal, TrendingUp, Users, type LucideIcon } from 'lucide-react'
 import { usePreferences, type Locale, type TranslationKey } from '@/lib/preferences'
 
 const workflows = [
@@ -63,7 +63,7 @@ const capabilityCopy = {
   'zh-CN': {
     eyebrow: '能力边界',
     title: 'Web 是日常工作台，后台负责重任务',
-    intro: '当前 Web 端已经覆盖读盘、单股、多股、持仓、跟踪和导出这些高频动作；全市场漏斗、回测、回刷和运维任务继续放在 GitHub Actions、CLI 或数据库后台，避免把长任务和敏感权限塞进浏览器。',
+    intro: '当前 Web 端已经覆盖读盘、单股、多股、持仓、跟踪和导出这些高频动作；全市场漏斗、回测、回刷和运维任务继续放在后台任务系统、CLI 或数据库后台，避免把长任务和敏感权限塞进浏览器。',
     webTitle: 'Web 端已经接入',
     webItems: ['单股 320 日日线结构图、价值快照、AI 报告与本地历史', '多股对抗的相对强弱、叠加/分图、价值面校准与本地历史', '持仓诊断支持数据库持仓和手动持仓，结果保存在当前浏览器', '形态跟踪、尾盘记录、批量行情导出、模型和数据源配置'],
     gapTitle: '系统有，但不放在 Web 里主跑',
@@ -74,7 +74,7 @@ const capabilityCopy = {
   'en-US': {
     eyebrow: 'Capability Map',
     title: 'The web UI is the daily desk; background jobs carry the heavy work',
-    intro: 'The web UI now covers the high-frequency loops: reading, single-stock analysis, stock battle, portfolio diagnosis, tracking, and export. Full-market funnels, backtests, repricing, and maintenance stay in GitHub Actions, CLI, or database-side jobs instead of pushing long jobs and sensitive permissions into the browser.',
+    intro: 'The web UI now covers the high-frequency loops: reading, single-stock analysis, stock battle, portfolio diagnosis, tracking, and export. Full-market funnels, backtests, repricing, and maintenance stay in background jobs, CLI, or database-side jobs instead of pushing long jobs and sensitive permissions into the browser.',
     webTitle: 'Covered by the web UI',
     webItems: ['Single-stock 320-day chart, value snapshot, AI report, and local history', 'Stock battle with relative strength, overlay/separate charts, value calibration, and local history', 'Portfolio diagnosis for database or manual positions, with browser-local result history', 'Pattern tracking, tail-buy logs, batch market-data export, model and data-source settings'],
     gapTitle: 'Available in the system, but not browser-first',
@@ -96,7 +96,7 @@ const capabilityCopy = {
 
 const capabilityGaps = {
   'zh-CN': [
-    ['全市场漏斗任务', 'A股、港股、美股每日全市场扫描、L1-L4 分层、信号写库与飞书推送仍主要跑在 GitHub Actions。'],
+    ['全市场漏斗任务', 'A股、港股、美股每日全市场扫描、L1-L4 分层、信号写库与飞书推送仍主要跑在后台任务系统。'],
     ['LLM 输入预览与飞书产物', '每日审核输入、完整报告、文件/文档分发更适合由 Actions 产出，Web 只承接查询和轻量分析。'],
     ['回测与参数网格', '牛熊周期、TopN、止损/止盈/持仓天数等批量计算适合后台长任务，Web 目前只展示部分结果。'],
     ['信号生命周期与补价回刷', 'pending/confirmed/expired、推荐表现回刷、30 个交易日保留、MFE/MAE 统计都在后台维护。'],
@@ -105,7 +105,7 @@ const capabilityGaps = {
     ['维护与数据库任务', '缓存清理、RLS/服务端密钥操作、日志 artifact、全量清库/回刷属于运维能力，Web 只保留安全入口。'],
   ],
   'en-US': [
-    ['Full-market funnel jobs', 'A-share, HK, and US market scans, L1-L4 layering, signal writes, and Feishu pushes mainly run in GitHub Actions.'],
+    ['Full-market funnel jobs', 'A-share, HK, and US market scans, L1-L4 layering, signal writes, and Feishu pushes mainly run in background jobs.'],
     ['LLM input previews and Feishu artifacts', 'Daily review inputs, full reports, and file/doc distribution fit Actions better; the web UI handles querying and lightweight analysis.'],
     ['Backtests and parameter grids', 'Bull/bear windows, TopN, stop-loss, take-profit, and holding-day grids are long-running backend workloads.'],
     ['Signal lifecycle and repricing', 'pending/confirmed/expired updates, recommendation repricing, 30-trading-day retention, and MFE/MAE stats run in background jobs.'],
@@ -148,13 +148,13 @@ const capabilityLaunch = {
 
 const capabilityAccess = {
   'zh-CN': [
-    ['GitHub Actions', '漏斗、审核输入、飞书产物、回测、回刷、维护任务'],
+     ['后端任务系统', '漏斗、审核输入、飞书产物、回测、回刷、维护任务'],
     ['本地 CLI', '准点触发、长任务、本地密钥、诊断导出和文件工作流'],
     ['运维脚本 / 数据库控制台', '偏后台的配置、调试和数据库维护能力'],
     ['Web 端', '读盘、单股、多股、持仓、跟踪、导出、配置和本地历史'],
   ],
   'en-US': [
-    ['GitHub Actions', 'Funnel, review input, Feishu artifacts, backtest, repricing, maintenance jobs'],
+     ['Backend jobs', 'Funnel, review input, Feishu artifacts, backtest, repricing, maintenance jobs'],
     ['Local CLI', 'On-time triggers, long jobs, local secrets, diagnostic exports, and file workflows'],
     ['Ops scripts / database console', 'Admin-like configuration, debugging, and database maintenance'],
     ['Web UI', 'Reading, single-stock, battle, portfolio, tracking, export, settings, and local history'],
@@ -275,7 +275,7 @@ function CapabilityBoundarySection({ locale }: { locale: Locale }) {
         <CapabilityGapCard title={copy.gapTitle} locale={locale} />
       </div>
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <CapabilityListCard icon={AlertTriangle} title={copy.whyTitle} items={capabilityReasons[locale]} costLinkText={copy.costLinkText} tone="warning" />
+        <CapabilityListCard icon={AlertTriangle} title={copy.whyTitle} items={capabilityReasons[locale]} tone="warning" />
         <CapabilityAccessCard title={copy.accessTitle} locale={locale} />
       </div>
     </section>
@@ -353,7 +353,7 @@ function CapabilityGapCard({ title, locale }: { title: string; locale: Locale })
   )
 }
 
-function CapabilityListCard({ icon: Icon, title, items, costLinkText, tone }: { icon: LucideIcon; title: string; items: string[]; costLinkText: string; tone: 'warning' }) {
+function CapabilityListCard({ icon: Icon, title, items, tone }: { icon: LucideIcon; title: string; items: string[]; tone: 'warning' }) {
   return (
     <article className="rounded-xl border border-border bg-background/80 p-4">
       <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
@@ -363,15 +363,6 @@ function CapabilityListCard({ icon: Icon, title, items, costLinkText, tone }: { 
       <ul className="space-y-2 text-sm leading-6 text-muted-foreground">
         {items.map((item) => <li key={item}>• {item}</li>)}
       </ul>
-      <a
-        className="mt-3 inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning/10 px-3 py-1.5 text-xs font-medium text-warning transition hover:bg-warning/15"
-        href="https://github.com/YoungCan-Wang/WyckoffTradingAgent/blob/main/docs/COST_MODEL.md"
-        rel="noreferrer"
-        target="_blank"
-      >
-        {costLinkText}
-        <ExternalLink size={13} />
-      </a>
     </article>
   )
 }

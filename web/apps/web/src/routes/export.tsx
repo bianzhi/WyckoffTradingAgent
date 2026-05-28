@@ -32,7 +32,7 @@ async function getTickFlowKey(userId: string): Promise<string | null> {
     .from('user_settings')
     .select('tickflow_api_key')
     .eq('user_id', userId)
-    .single()
+    .maybeSingle()
   return data?.tickflow_api_key || null
 }
 

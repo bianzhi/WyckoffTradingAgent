@@ -5,11 +5,21 @@ import { useAuthStore } from '@/stores/auth'
 import { PROVIDERS, PROVIDER_LABELS, PROVIDER_BASE_URLS } from '@wyckoff/shared'
 import type { Provider } from '@wyckoff/shared'
 import { usePreferences } from '@/lib/preferences'
+import { loadSystemConfig } from '@/lib/system-config'
 
 interface ProviderConfig {
   api_key: string
   model: string
   base_url: string
+}
+
+interface SystemConfigState {
+  llm_provider: string | null
+  llm_api_key: string | null
+  llm_model: string | null
+  llm_base_url: string | null
+  tickflow_api_key: string | null
+  tushare_token: string | null
 }
 
 export function SettingsPage() {
@@ -27,6 +37,7 @@ export function SettingsPage() {
   const [toast, setToast] = useState('')
   const [toastKind, setToastKind] = useState<'success' | 'error'>('success')
   const toastTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const [systemConfig, setSystemConfig] = useState<SystemConfigState | null>(null)
 
   useEffect(() => {
     if (!user) return
@@ -36,58 +47,84 @@ export function SettingsPage() {
   useEffect(() => () => clearTimeout(toastTimerRef.current), [])
 
   async function loadSettings() {
-    const { data } = await supabase
-      .from('user_settings')
-      .select('*')
-      .eq('user_id', user!.id)
-      .single()
+    const [{ data }, sys] = await Promise.all([
+      supabase
+        .from('user_settings')
+        .select('*')
+        .eq('user_id', user!.id)
+        .maybeSingle(),
+      loadSystemConfig().catch(() => null),
+    ])
 
-    if (!data) return
+    if (sys) {
+      setSystemConfig({
+        llm_provider: sys.llm_provider,
+        llm_api_key: sys.llm_api_key,
+        llm_model: sys.llm_model,
+        llm_base_url: sys.llm_base_url,
+        tickflow_api_key: sys.tickflow_api_key,
+        tushare_token: sys.tushare_token,
+      })
+    }
 
-    const savedProvider = data.chat_provider as Provider
-    setChatProvider(PROVIDERS.includes(savedProvider) ? savedProvider : '1route')
-    setTickflowKey(data.tickflow_api_key || '')
-    setFeishuWebhook(data.feishu_webhook || '')
-    setWecomWebhook(data.wecom_webhook || '')
-    setDingtalkWebhook(data.dingtalk_webhook || '')
-    setTgBotToken(data.tg_bot_token || '')
-    setTgChatId(data.tg_chat_id || '')
+    // Use system TickFlow/Tushare keys if user hasn't set their own
+    if (!data?.tickflow_api_key && sys?.tickflow_api_key) {
+      setTickflowKey(sys.tickflow_api_key)
+    } else {
+      setTickflowKey(data?.tickflow_api_key || '')
+    }
 
-    const custom = typeof data.custom_providers === 'string'
-      ? JSON.parse(data.custom_providers || '{}')
-      : (data.custom_providers || {})
-
+    // Pre-fill LLM provider configs from user data or system defaults
     const cfgs: Record<string, ProviderConfig> = {}
+    const custom = data ? (typeof data.custom_providers === 'string'
+      ? JSON.parse(data.custom_providers || '{}')
+      : (data.custom_providers || {})) : {}
+    const sysProvider = sys?.llm_provider || ''
+
+    if (data) {
+      const savedProvider = data.chat_provider as Provider
+      setChatProvider(PROVIDERS.includes(savedProvider) ? savedProvider : '1route')
+      setFeishuWebhook(data.feishu_webhook || '')
+      setWecomWebhook(data.wecom_webhook || '')
+      setDingtalkWebhook(data.dingtalk_webhook || '')
+      setTgBotToken(data.tg_bot_token || '')
+      setTgChatId(data.tg_chat_id || '')
+    } else if (sysProvider) {
+      // New user with no settings — use system provider as default
+      setChatProvider(sysProvider as Provider)
+    }
+
     for (const p of PROVIDERS) {
+      const isSysProvider = p === sysProvider
       if (p === 'gemini') {
         cfgs[p] = {
-          api_key: data.gemini_api_key || '',
-          model: data.gemini_model || '',
-          base_url: data.gemini_base_url || '',
+          api_key: data?.gemini_api_key || '',
+          model: data?.gemini_model || '',
+          base_url: data?.gemini_base_url || '',
         }
       } else if (p === 'openai') {
         cfgs[p] = {
-          api_key: data.openai_api_key || '',
-          model: data.openai_model || '',
-          base_url: data.openai_base_url || PROVIDER_BASE_URLS.openai,
+          api_key: data?.openai_api_key || '',
+          model: data?.openai_model || '',
+          base_url: data?.openai_base_url || PROVIDER_BASE_URLS.openai,
         }
       } else if (p === 'deepseek') {
         cfgs[p] = {
-          api_key: data.deepseek_api_key || '',
-          model: data.deepseek_model || '',
-          base_url: data.deepseek_base_url || PROVIDER_BASE_URLS.deepseek,
+          api_key: data?.deepseek_api_key || (isSysProvider ? (sys?.llm_api_key || '') : ''),
+          model: data?.deepseek_model || (isSysProvider ? (sys?.llm_model || 'deepseek-chat') : ''),
+          base_url: data?.deepseek_base_url || (isSysProvider ? (sys?.llm_base_url || 'https://api.deepseek.com/v1') : PROVIDER_BASE_URLS.deepseek),
         }
       } else if (p === 'anthropic') {
         cfgs[p] = {
-          api_key: data.anthropic_api_key || '',
-          model: data.anthropic_model || '',
-          base_url: data.anthropic_base_url || '',
+          api_key: data?.anthropic_api_key || (isSysProvider ? (sys?.llm_api_key || '') : ''),
+          model: data?.anthropic_model || (isSysProvider ? (sys?.llm_model || '') : ''),
+          base_url: data?.anthropic_base_url || '',
         }
       } else {
         const info = custom[p] || {}
         cfgs[p] = {
-          api_key: info.apikey || info.api_key || '',
-          model: info.model || '',
+          api_key: info.apikey || info.api_key || (isSysProvider ? (sys?.llm_api_key || '') : ''),
+          model: info.model || (isSysProvider ? (sys?.llm_model || '') : ''),
           base_url: info.baseurl || info.base_url || PROVIDER_BASE_URLS[p] || '',
         }
       }
@@ -151,6 +188,12 @@ export function SettingsPage() {
     <div className="h-full overflow-auto p-6">
       <div className="mx-auto max-w-2xl">
       <h1 className="mb-6 text-xl font-semibold">{t('settings.title')}</h1>
+
+      {systemConfig?.llm_api_key && (
+        <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200">
+          管理员已配置系统默认大模型与数据源，新用户无需额外设置即可直接使用。您也可以在下方填入个人密钥覆盖默认值。
+        </div>
+      )}
 
       {toast && (
         <div className={`mb-4 rounded-lg px-4 py-2 text-sm ${toastKind === 'error' ? 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-200' : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-200'}`}>

@@ -3,6 +3,7 @@ import { cors } from 'hono/cors'
 import { chatRoutes } from './routes/chat'
 import { portfolioRoutes } from './routes/portfolio'
 import { settingsRoutes } from './routes/settings'
+import { llmProxyRoutes } from './routes/llm-proxy'
 
 export type Env = {
   SUPABASE_URL: string
@@ -23,5 +24,6 @@ app.get('/api/health', (c) => c.json({ status: 'ok' }))
 app.route('/api/chat', chatRoutes)
 app.route('/api/portfolio', portfolioRoutes)
 app.route('/api/settings', settingsRoutes)
+app.route('/api/llm-proxy', llmProxyRoutes)
 
 export default app

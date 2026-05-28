@@ -1,0 +1,7 @@
+# Wyckoff API - 开发环境变量 (Cloudflare Workers)
+# 复制此文件为 .dev.vars 并根据需要修改
+
+SUPABASE_URL=http://127.0.0.1:54321
+SUPABASE_ANON_KEY=your-supabase-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
+TICKFLOW_API_BASE=https://api.tickflow.com

@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { loadSystemConfig } from './system-config'
 
 export interface KlineData {
   date: string
@@ -36,7 +37,7 @@ export interface ValueSnapshot {
   reason?: ValueSnapshotReason
 }
 
-export const TICKFLOW_PURCHASE = 'https://tickflow.org/auth/register?ref=5N4NKTCPL4'
+export const TICKFLOW_PURCHASE = 'https://tickflow.org/auth/register'
 type Fetcher = typeof globalThis.fetch
 
 export function normalizeCode(code: string | number): string {
@@ -370,10 +371,21 @@ export async function getUserDataKeys(userId: string): Promise<{ tickflow: strin
     .from('user_settings')
     .select('tickflow_api_key, tushare_token')
     .eq('user_id', userId)
-    .single()
-  return {
-    tickflow: String(data?.tickflow_api_key || '').trim() || null,
-    tushare: String(data?.tushare_token || '').trim() || null,
+    .maybeSingle()
+  const tickflow = String(data?.tickflow_api_key || '').trim() || null
+  const tushare = String(data?.tushare_token || '').trim() || null
+
+  if (tickflow && tushare) return { tickflow, tushare }
+
+  // Fallback to system config
+  try {
+    const sys = await loadSystemConfig()
+    return {
+      tickflow: tickflow || sys.tickflow_api_key,
+      tushare: tushare || sys.tushare_token,
+    }
+  } catch {
+    return { tickflow, tushare }
   }
 }
 

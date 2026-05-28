@@ -344,9 +344,7 @@ export function ChatPage() {
             </div>
             <div className="mt-8 rounded-lg border border-dashed border-border/60 px-4 py-2.5 text-center">
               <p className="text-[11px] text-muted-foreground/70">
-                {t('chat.fullVersionPrefix')} ·{' '}
-                <code className="rounded bg-muted px-1 py-0.5 text-[10px]">curl -fsSL https://raw.githubusercontent.com/YoungCan-Wang/Wyckoff-Analysis/main/install.sh | bash</code>{' '}
-                {t('chat.unlockFull')}
+                {t('chat.fullVersionPrefix')} · {t('chat.unlockFull')}
               </p>
             </div>
           </div>

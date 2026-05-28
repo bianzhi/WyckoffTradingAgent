@@ -1,6 +1,6 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router'
 import { useEffect } from 'react'
-import { MessageSquare, Briefcase, TrendingUp, Settings, LogOut, BarChart3, Moon, FileDown, BookOpen, Home, Github, Sun, Languages, Swords, Map, History, type LucideIcon } from 'lucide-react'
+import { MessageSquare, Briefcase, TrendingUp, Settings, LogOut, BarChart3, Moon, FileDown, BookOpen, Sun, Languages, Swords, Map, History, type LucideIcon } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
 import { MarketBar } from '@/components/market-bar'
@@ -20,33 +20,6 @@ const navItems = [
   { to: '/guide#capability-boundary', icon: Map, labelKey: 'nav.capabilities' },
   { to: '/settings', icon: Settings, labelKey: 'nav.settings' },
 ] satisfies { to: string; icon: LucideIcon; labelKey: TranslationKey }[]
-
-const externalLinks = [
-  { href: 'https://youngcan-wang.github.io/wyckoff-homepage/', icon: Home, labelKey: 'external.home' },
-] satisfies { href: string; icon: LucideIcon; labelKey: TranslationKey }[]
-
-const GITHUB_REPO = 'YoungCan-Wang/WyckoffTradingAgent'
-
-function GitHubStarBadge({ repo }: { repo: string }) {
-  return (
-    <a
-      href={`https://github.com/${repo}`}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="mb-2 flex w-fit items-center overflow-hidden rounded-md border border-border text-xs transition-colors hover:border-muted-foreground/50"
-    >
-      <span className="flex items-center gap-1.5 bg-muted/60 px-2.5 py-1.5 font-medium text-foreground">
-        <Github size={14} />
-        Star
-      </span>
-      <img
-        src={`https://img.shields.io/github/stars/${repo}?style=social&label=`}
-        alt="stars"
-        className="h-[26px] border-l border-border bg-background px-2"
-      />
-    </a>
-  )
-}
 
 function PreferenceControls() {
   const { locale, setLocale, theme, toggleTheme, t } = usePreferences()
@@ -85,21 +58,6 @@ function SidebarFooter({ email, onLogout }: { email: string; onLogout: () => voi
   return (
     <div className="border-t border-border p-3">
       <PreferenceControls />
-      {externalLinks.map(({ href, icon: Icon, labelKey }) => (
-        <a
-          key={href}
-          href={href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mb-2 flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        >
-          <Icon size={14} />
-          {t(labelKey)}
-        </a>
-      ))}
-      <div className="px-3">
-        <GitHubStarBadge repo={GITHUB_REPO} />
-      </div>
       <div className="mb-2 truncate px-3 text-[11px] text-muted-foreground">{email}</div>
       <button
         onClick={onLogout}

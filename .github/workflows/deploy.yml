@@ -34,12 +34,13 @@ jobs:
           script: |
             set -e
 
-            # 备份 .env.production（不在 git 里，rsync --delete 会删掉）
+            # 备份 .env.production（不在 git 里，清理目录会删掉）
             cp /root/WyckoffTradingAgent/deploy/.env.production /tmp/.env.production.bak 2>/dev/null || true
 
-            # 同步代码
-            rsync -a --delete /tmp/wyckoff-deploy/web/ /root/WyckoffTradingAgent/web/
-            rsync -a --delete /tmp/wyckoff-deploy/deploy/ /root/WyckoffTradingAgent/deploy/
+            # 同步代码（cp 替代 rsync，ECS 没装 rsync）
+            rm -rf /root/WyckoffTradingAgent/web/ /root/WyckoffTradingAgent/deploy/
+            cp -a /tmp/wyckoff-deploy/web/ /root/WyckoffTradingAgent/web/
+            cp -a /tmp/wyckoff-deploy/deploy/ /root/WyckoffTradingAgent/deploy/
 
             # 恢复 .env.production
             cp /tmp/.env.production.bak /root/WyckoffTradingAgent/deploy/.env.production 2>/dev/null || true

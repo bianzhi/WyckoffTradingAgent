@@ -146,6 +146,7 @@ function useLoginSubmit(
   isRegister: boolean,
   rememberEmail: boolean,
   email: string,
+  password: string,
   setError: (msg: string) => void,
   setLoading: (v: boolean) => void,
   onSuccess: () => void,
@@ -159,7 +160,7 @@ function useLoginSubmit(
     setLoading(true)
     try {
       if (isRegister) {
-        const { data, error } = await supabase.auth.signUp({ email, password: '' })
+        const { data, error } = await supabase.auth.signUp({ email, password })
         if (error) throw error
         if (!data.session) {
           setError(t('login.checkEmail') || '注册成功！请检查邮箱并点击确认链接，然后返回登录。')
@@ -168,7 +169,7 @@ function useLoginSubmit(
         }
         setAuth(data.user, data.session)
       } else {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password: '' })
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) throw error
         if (data.session) setAuth(data.user, data.session)
       }
@@ -192,7 +193,7 @@ export function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const handleSubmit = useLoginSubmit(isRegister, rememberEmail, email, setError, setLoading, () => {
+  const handleSubmit = useLoginSubmit(isRegister, rememberEmail, email, password, setError, setLoading, () => {
     setAuth(null, null)
     navigate('/', { replace: true })
   })

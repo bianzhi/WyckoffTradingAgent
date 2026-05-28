@@ -253,6 +253,56 @@ function parseCustomProviders(raw: unknown): Record<string, Record<string, strin
 // loadSystemConfig / SystemConfig re-exported from system-config.ts for convenience
 export { loadSystemConfig, type SystemConfig } from './system-config'
 
+const PROVIDER_LABELS: Record<string, string> = {
+  '1route': '1Route', gemini: 'Gemini', openai: 'OpenAI',
+  deepseek: 'DeepSeek', anthropic: 'Anthropic',
+}
+const PROVIDER_DEFAULT_BASE_URLS: Record<string, string> = {
+  '1route': 'https://www.1route.dev/v1',
+  gemini: 'https://generativelanguage.googleapis.com/v1beta/openai',
+  openai: 'https://api.openai.com/v1',
+  deepseek: 'https://api.deepseek.com/v1',
+  anthropic: 'https://api.anthropic.com',
+}
+
+function resolveProviderKey(data: Record<string, unknown> | null): {
+  api_key: string; model: string; base_url: string; protocol: 'openai' | 'anthropic'
+} {
+  let api_key = '', model = '', base_url = ''
+  let protocol: 'openai' | 'anthropic' = 'openai'
+
+  if (!data) return { api_key, model, base_url, protocol }
+
+  const provider = (data.chat_provider as string) || '1route'
+  if (RETIRED_PROVIDERS.has(provider)) return { api_key, model, base_url, protocol }
+
+  if (provider === 'gemini') {
+    api_key = (data.gemini_api_key as string) || ''
+    model = (data.gemini_model as string) || 'gemini-2.0-flash'
+    base_url = (data.gemini_base_url as string) || 'https://generativelanguage.googleapis.com/v1beta/openai'
+  } else if (provider === 'openai') {
+    api_key = (data.openai_api_key as string) || ''
+    model = (data.openai_model as string) || 'gpt-4o'
+    base_url = (data.openai_base_url as string) || 'https://api.openai.com/v1'
+  } else if (provider === 'deepseek') {
+    api_key = (data.deepseek_api_key as string) || ''
+    model = (data.deepseek_model as string) || 'deepseek-chat'
+    base_url = (data.deepseek_base_url as string) || 'https://api.deepseek.com/v1'
+  } else if (provider === 'anthropic') {
+    api_key = (data.anthropic_api_key as string) || ''
+    model = (data.anthropic_model as string) || 'claude-sonnet-4-20250514'
+    base_url = (data.anthropic_base_url as string) || 'https://api.anthropic.com'
+    protocol = 'anthropic'
+  } else {
+    const custom = parseCustomProviders(data.custom_providers)
+    const info = custom[provider] || {}
+    api_key = info.apikey || info.api_key || ''
+    model = info.model || ''
+    base_url = info.baseurl || info.base_url || ''
+  }
+  return { api_key, model, base_url, protocol }
+}
+
 export async function loadLLMConfig(userId: string): Promise<LLMConfig | null> {
   const { data } = await supabase
     .from('user_settings')
@@ -260,45 +310,14 @@ export async function loadLLMConfig(userId: string): Promise<LLMConfig | null> {
     .eq('user_id', userId)
     .maybeSingle()
 
-  // Extract user-configured key for the selected provider
-  let api_key = '', model = '', base_url = ''
-  let protocol: 'openai' | 'anthropic' = 'openai'
-  let provider = ''
-
-  if (data) {
-    provider = data.chat_provider || '1route'
-    if (RETIRED_PROVIDERS.has(provider)) return null
-
-    if (provider === 'gemini') {
-      api_key = data.gemini_api_key || ''
-      model = data.gemini_model || 'gemini-2.0-flash'
-      base_url = data.gemini_base_url || 'https://generativelanguage.googleapis.com/v1beta/openai'
-    } else if (provider === 'openai') {
-      api_key = data.openai_api_key || ''
-      model = data.openai_model || 'gpt-4o'
-      base_url = data.openai_base_url || 'https://api.openai.com/v1'
-    } else if (provider === 'deepseek') {
-      api_key = data.deepseek_api_key || ''
-      model = data.deepseek_model || 'deepseek-chat'
-      base_url = data.deepseek_base_url || 'https://api.deepseek.com/v1'
-    } else if (provider === 'anthropic') {
-      api_key = data.anthropic_api_key || ''
-      model = data.anthropic_model || 'claude-sonnet-4-20250514'
-      base_url = data.anthropic_base_url || 'https://api.anthropic.com'
-      protocol = 'anthropic'
-    } else {
-      const custom = parseCustomProviders(data.custom_providers)
-      const info = custom[provider] || {}
-      api_key = info.apikey || info.api_key || ''
-      model = info.model || ''
-      base_url = info.baseurl || info.base_url || ''
+  const userConfig = resolveProviderKey(data as Record<string, unknown> | null)
+  if (userConfig.api_key) {
+    return {
+      api_key: userConfig.api_key, model: userConfig.model,
+      base_url: userConfig.base_url, protocol: userConfig.protocol,
     }
   }
 
-  // If user has a key, use it directly
-  if (api_key) return { api_key, model, base_url, protocol }
-
-  // Fallback to system-level config
   const sys = await loadSystemConfig()
   if (sys.llm_api_key) {
     return {
@@ -312,6 +331,55 @@ export async function loadLLMConfig(userId: string): Promise<LLMConfig | null> {
   return null
 }
 
+function collectKnownProviderModels(
+  data: Record<string, unknown>,
+  models: ModelOption[],
+): void {
+  const known = ['gemini', 'openai', 'deepseek', 'anthropic'] as const
+  for (const p of known) {
+    const key = data[`${p}_api_key`]
+    const m = data[`${p}_model`]
+    if (key && m) {
+      models.push({
+        provider: p, label: PROVIDER_LABELS[p] || p, model: m,
+        api_key: key,
+        base_url: (data[`${p}_base_url`] as string) || PROVIDER_DEFAULT_BASE_URLS[p] || '',
+        protocol: p === 'anthropic' ? 'anthropic' : 'openai',
+      })
+    }
+  }
+
+  const custom = parseCustomProviders(data.custom_providers)
+  for (const [p, info] of Object.entries(custom) as [string, Record<string, string>][]) {
+    if (RETIRED_PROVIDERS.has(p)) continue
+    const key = info.apikey || info.api_key
+    const m = info.model
+    if (key && m) {
+      models.push({
+        provider: p, label: PROVIDER_LABELS[p] || p, model: m,
+        api_key: key,
+        base_url: info.baseurl || info.base_url || PROVIDER_DEFAULT_BASE_URLS[p] || '',
+      })
+    }
+  }
+}
+
+function maybeInsertSystemFallback(
+  models: ModelOption[],
+  sys: SystemConfig | null,
+): void {
+  if (models.length > 0 || !sys?.llm_api_key) return
+  const provider = sys.llm_provider || 'deepseek'
+  models.push({
+    provider,
+    label: `${PROVIDER_LABELS[provider] || provider} (系统)`,
+    model: sys.llm_model || 'deepseek-chat',
+    api_key: sys.llm_api_key,
+    base_url: sys.llm_base_url || PROVIDER_DEFAULT_BASE_URLS[provider] || 'https://api.deepseek.com/v1',
+    protocol: 'openai' as const,
+  })
+}
+
 export async function loadAllModels(userId: string): Promise<ModelOption[]> {
   const [{ data }, sys] = await Promise.all([
     supabase
@@ -322,60 +390,9 @@ export async function loadAllModels(userId: string): Promise<ModelOption[]> {
     loadSystemConfig().catch(() => null),
   ])
 
-  const LABELS: Record<string, string> = {
-    '1route': '1Route', gemini: 'Gemini', openai: 'OpenAI',
-    deepseek: 'DeepSeek', anthropic: 'Anthropic',
-  }
-  const BASE_URLS: Record<string, string> = {
-    '1route': 'https://www.1route.dev/v1',
-    gemini: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    openai: 'https://api.openai.com/v1',
-    deepseek: 'https://api.deepseek.com/v1',
-    anthropic: 'https://api.anthropic.com',
-  }
-
   const models: ModelOption[] = []
-
-  if (data) {
-    const known = ['gemini', 'openai', 'deepseek', 'anthropic'] as const
-    for (const p of known) {
-      const key = data[`${p}_api_key`]
-      const m = data[`${p}_model`]
-      if (key && m) {
-        models.push({
-          provider: p, label: LABELS[p] || p, model: m,
-          api_key: key, base_url: data[`${p}_base_url`] || BASE_URLS[p] || '',
-          protocol: p === 'anthropic' ? 'anthropic' : 'openai',
-        })
-      }
-    }
-
-    const custom = parseCustomProviders(data.custom_providers)
-    for (const [p, info] of Object.entries(custom) as [string, Record<string, string>][]) {
-      if (RETIRED_PROVIDERS.has(p)) continue
-      const key = info.apikey || info.api_key
-      const m = info.model
-      if (key && m) {
-        models.push({
-          provider: p, label: LABELS[p] || p, model: m,
-          api_key: key, base_url: info.baseurl || info.base_url || BASE_URLS[p] || '',
-        })
-      }
-    }
-  }
-
-  // If user has no models, fallback to system config
-  if (models.length === 0 && sys?.llm_api_key) {
-    models.push({
-      provider: sys.llm_provider || 'deepseek',
-      label: `${LABELS[sys.llm_provider || ''] || sys.llm_provider || 'System'} (系统)`,
-      model: sys.llm_model || 'deepseek-chat',
-      api_key: sys.llm_api_key,
-      base_url: sys.llm_base_url || BASE_URLS[sys.llm_provider || ''] || 'https://api.deepseek.com/v1',
-      protocol: 'openai' as const,
-    })
-  }
-
+  if (data) collectKnownProviderModels(data, models)
+  maybeInsertSystemFallback(models, sys)
   return models
 }
 

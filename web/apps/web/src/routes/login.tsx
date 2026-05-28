@@ -142,6 +142,47 @@ function RegisterSwitch(props: { isRegister: boolean; onToggle: () => void }) {
   )
 }
 
+function useLoginSubmit(
+  isRegister: boolean,
+  rememberEmail: boolean,
+  email: string,
+  setError: (msg: string) => void,
+  setLoading: (v: boolean) => void,
+  onSuccess: () => void,
+) {
+  const { t } = usePreferences()
+  const setAuth = useAuthStore((s) => s.setAuth)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    try {
+      if (isRegister) {
+        const { data, error } = await supabase.auth.signUp({ email, password: '' })
+        if (error) throw error
+        if (!data.session) {
+          setError(t('login.checkEmail') || '注册成功！请检查邮箱并点击确认链接，然后返回登录。')
+          setLoading(false)
+          return
+        }
+        setAuth(data.user, data.session)
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password: '' })
+        if (error) throw error
+        if (data.session) setAuth(data.user, data.session)
+      }
+      saveRememberedEmail(rememberEmail, email)
+      onSuccess()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('login.operationFailed'))
+    } finally {
+      setLoading(false)
+    }
+  }
+  return handleSubmit
+}
+
 export function LoginPage() {
   const { checkingSession, navigate, setAuth } = useSessionRedirect()
   const { t } = usePreferences()
@@ -152,34 +193,10 @@ export function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
-    try {
-      if (isRegister) {
-        const { data, error } = await supabase.auth.signUp({ email, password })
-        if (error) throw error
-        // 邮箱验证模式：注册成功但无 session，提示用户查收邮件
-        if (!data.session) {
-          setError(t('login.checkEmail') || '注册成功！请检查邮箱并点击确认链接，然后返回登录。')
-          setLoading(false)
-          return
-        }
-        setAuth(data.user, data.session)
-      } else {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-        if (error) throw error
-        if (data.session) setAuth(data.user, data.session)
-      }
-      saveRememberedEmail(rememberEmail, email)
-      navigate('/', { replace: true })
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('login.operationFailed'))
-    } finally {
-      setLoading(false)
-    }
-  }
+  const handleSubmit = useLoginSubmit(isRegister, rememberEmail, email, setError, setLoading, () => {
+    setAuth(null as any)
+    navigate('/', { replace: true })
+  })
 
   if (checkingSession) return <LoadingSession />
   return (

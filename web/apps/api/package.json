@@ -4,17 +4,20 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "build": "wrangler deploy --dry-run",
+    "build": "node build-server.mjs",
+    "start": "node dist/server.js",
     "deploy": "wrangler deploy",
     "lint": "eslint ."
   },
   "dependencies": {
+    "@hono/node-server": "^1.13.0",
     "@supabase/supabase-js": "^2.49.0",
     "hono": "^4.12.18",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241218.0",
+    "esbuild": "^0.24.0",
     "typescript": "^5.7.0",
     "wrangler": "^4.87.0"
   }

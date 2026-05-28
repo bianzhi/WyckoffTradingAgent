@@ -118,7 +118,7 @@ _patch_driver_no_kitty()
 # Widget
 # ---------------------------------------------------------------------------
 from cli.runtime import AgentCancelled, AgentRuntime
-from cli.scratchpad import AgentScratchpad
+from cli.scratchpad import AgentScratchpad, wyckoff_home
 from core.prompts import with_current_time
 
 
@@ -158,12 +158,45 @@ def _write_counted(log_widget, renderable) -> int:
 
 
 class ChatLog(RichLog):
+    ALLOW_SELECT = True
+
     DEFAULT_CSS = """
     ChatLog {
         background: $surface;
         scrollbar-size: 1 1;
     }
     """
+
+    def get_selection(self, selection) -> tuple[str, str] | None:
+        """Extract selected text from RichLog content."""
+        text_parts: list[str] = []
+        for i, line_strip in enumerate(self.lines):
+            line_text = "".join(seg.text for seg in line_strip)
+            text_parts.append(line_text)
+            if i < len(self.lines) - 1:
+                text_parts.append("\n")
+        full_text = "".join(text_parts)
+        if not full_text:
+            return None
+        extracted = selection.extract(full_text)
+        return extracted, "\n"
+
+    def render_line(self, y: int) -> "Strip":
+        from textual.strip import Strip
+        from rich.segment import Segment
+        from rich.style import Style
+
+        scroll_x, scroll_y = self.scroll_offset
+        abs_y = scroll_y + y
+        line = super().render_line(y)
+
+        # Embed offset metadata so the compositor can map screen coords → content coords
+        meta_style = Style.from_meta({"offset": (0, abs_y)})
+        segments: list[Segment] = []
+        for seg in line:
+            combined = seg.style + meta_style if seg.style else meta_style
+            segments.append(Segment(seg.text, combined, seg.control))
+        return Strip(segments)
 
 
 class StatusBar(Static):
@@ -488,6 +521,7 @@ class WyckoffTUI(App):
     CSS = """
     Screen {
         layout: vertical;
+        allow-select: true;
     }
     #chat-log {
         height: 1fr;
@@ -506,9 +540,8 @@ class WyckoffTUI(App):
 
     BINDINGS = [
         Binding("ctrl+c", "smart_copy", show=False, priority=True),
-        Binding("ctrl+q", "quit", "退出", show=False),
-        Binding("ctrl+n", "new_chat", "新对话"),
-        Binding("ctrl+l", "clear_chat", "清屏"),
+        Binding("super+c", "smart_copy", show=False, priority=True),
+        Binding("escape", "cancel", show=False),
     ]
 
     def __init__(
@@ -533,6 +566,7 @@ class WyckoffTUI(App):
         self._last_ctrl_c: float = 0.0
         self._queue: deque[str] = deque()
         self._session_id = uuid.uuid4().hex[:12]
+        self._last_assistant_text: str = ""
         self._agent_log = _get_agent_logger()
         # 后台任务管理
         from cli.background import BackgroundTaskManager
@@ -549,6 +583,8 @@ class WyckoffTUI(App):
         from cli.scheduler import load_schedules
 
         self._schedules = load_schedules()
+        # 对话镜像文件（纯文本，方便选择/复制）
+        self._transcript_path = self._init_transcript()
 
     def compose(self) -> ComposeResult:
         yield StatusBar(self._build_status_text(), id="status-bar")
@@ -575,13 +611,15 @@ class WyckoffTUI(App):
         log.write(
             Text.from_markup(
                 "[bold]Wyckoff 读盘室[/bold]\n"
-                "[dim]直接输入问题开始对话  ·  /help 查看命令  ·  Ctrl+P 命令面板  ·  Ctrl+C 复制/退出[/dim]\n"
+                "[dim]直接输入问题开始对话  ·  /help 查看命令  ·  /copy 复制回复  ·  /export 导出对话  ·  Ctrl+C 退出[/dim]\n"
             )
         )
         if not self._provider:
             log.write(Text.from_markup("[yellow]⚠ 未配置模型，请输入 /model add 添加[/yellow]\n"))
         if self._session_expired:
             log.write(Text.from_markup("[yellow]⚠ 登录已过期，请输入 /login 重新登录[/yellow]\n"))
+        # 显示对话镜像文件路径
+        log.write(Text.from_markup(f"[dim]📄 对话镜像: {self._transcript_path}[/dim]\n"))
         self.query_one("#chat-input", Input).focus()
         if self._schedules:
             self.set_interval(60.0, self._check_schedules)
@@ -657,16 +695,51 @@ class WyckoffTUI(App):
         self._save_memory_async(wait_timeout=5, skip_layers=True)
         self.exit()
 
+    def _init_transcript(self) -> str:
+        """创建对话镜像文件（纯文本），返回文件路径。"""
+        from datetime import datetime
+
+        out_dir = wyckoff_home() / "sessions" / "transcripts"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+        path = out_dir / f"wyckoff-{self._session_id[:8]}-{stamp}.txt"
+        path.write_text(
+            f"Wyckoff 读盘室 — 对话记录\n"
+            f"会话 ID: {self._session_id}\n"
+            f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"{'─' * 50}\n\n",
+            encoding="utf-8",
+        )
+        return str(path)
+
+    def _write_transcript(self, role: str, content: str) -> None:
+        """追加一行到对话镜像文件。"""
+        if not content.strip():
+            return
+        try:
+            with open(self._transcript_path, "a", encoding="utf-8") as f:
+                if role == "user":
+                    f.write(f"❯ {content}\n\n")
+                elif role == "assistant":
+                    f.write(f"{content}\n\n{'─' * 50}\n\n")
+        except Exception:
+            pass  # 镜像写入失败不影响主流程
+
     def action_quit(self) -> None:
         self._save_and_exit()
 
     def action_smart_copy(self) -> None:
-        """Ctrl+C: 选中文本→复制；执行中→中断；空闲双击1s内→退出。"""
+        """Ctrl+C: 选中文本→复制；无选区有最后回复→复制回复；执行中→中断；空闲双击1s内→退出。"""
         text = self.screen.get_selected_text()
         if text:
-            self.copy_to_clipboard(text)
+            self.app.copy_to_clipboard(text)
             self.screen.clear_selection()
             self.notify("已复制", timeout=1)
+            return
+        # 无选区时，尝试复制最后一条助手回复
+        if self._last_assistant_text.strip():
+            self.app.copy_to_clipboard(self._last_assistant_text)
+            self.notify(f"已复制回复（{len(self._last_assistant_text)} 字符）", timeout=1)
             return
         if self._busy:
             self._cancel_event.set()
@@ -747,37 +820,48 @@ class WyckoffTUI(App):
     # ----- 输入处理 -----
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        inp = self.query_one("#chat-input", ChatInput)
-        text = (inp.consume_pasted() or event.value).strip()
-        inp.clear()
-        inp._pasted_text = None
+        try:
+            inp = self.query_one("#chat-input", ChatInput)
+            # event.value 在 CSI-u patch 下可能为空，兜底取 inp.value
+            text = (inp.consume_pasted() or event.value or inp.value or "").strip()
+            inp.clear()
+            inp._pasted_text = None
 
-        # 交互式多步输入
-        if self._input_mode != _InputState.NONE:
-            self._handle_interactive_input(text)
-            return
+            # 交互式多步输入
+            if self._input_mode != _InputState.NONE:
+                self._handle_interactive_input(text)
+                return
 
-        if not text:
-            return
+            if not text:
+                return
 
-        log = self.query_one("#chat-log", ChatLog)
+            log = self.query_one("#chat-log", ChatLog)
 
-        # 斜杠命令
-        if text.startswith("/"):
-            self._handle_command(text)
-            return
+            # 斜杠命令
+            if text.startswith("/"):
+                self._handle_command(text)
+                return
 
-        if not self._provider:
-            log.write(Text.from_markup("[yellow]⚠ 未配置模型，请先输入 /model add[/yellow]"))
-            return
+            if not self._provider:
+                # 先回显用户消息，让用户看到内容已收到
+                log.write(Text.from_markup(f"[bold cyan]❯[/bold cyan] {text}"))
+                log.write(
+                    Text.from_markup(
+                        "[bold red]⚠ 未配置模型，请先输入 /model add 添加[/bold red]\n"
+                        "[dim]示例: /model add[/dim]"
+                    )
+                )
+                return
 
-        if self._busy:
-            self._queue.append(text)
-            log.write(Text.from_markup("  [dim]📋 已排队（等待当前回复完成后自动发送）[/dim]"))
-            return
+            if self._busy:
+                self._queue.append(text)
+                log.write(Text.from_markup("  [dim]📋 已排队（等待当前回复完成后自动发送）[/dim]"))
+                return
 
-        # 用户消息
-        self._send_message(text)
+            # 用户消息
+            self._send_message(text)
+        except Exception:
+            logger.exception("on_input_submitted failed")
 
     def _send_message(self, text: str) -> None:
         log = self.query_one("#chat-log", ChatLog)
@@ -800,6 +884,7 @@ class WyckoffTUI(App):
         if mem_ctx:
             user_message["_memory_context"] = mem_ctx
         self._messages.append(user_message)
+        self._write_transcript("user", text)
         self._start_spinner("thinking")
         self._run_agent()
 
@@ -836,6 +921,8 @@ class WyckoffTUI(App):
                     "  /schedule— 定时任务（list/add/rm/on/off）\n"
                     "  /resume  — 恢复历史对话\n"
                     "  /fork    — 分叉当前会话\n"
+                    "  /copy    — 复制最后回复到剪贴板\n"
+                    "  /export  — 导出对话到文本文件\n"
                     "  /new     — 新对话 (Ctrl+N)\n"
                     "  /clear   — 清屏 (Ctrl+L)\n"
                     "  /quit    — 退出 (Ctrl+Q)\n"
@@ -846,7 +933,7 @@ class WyckoffTUI(App):
                     "  Ctrl+C   — 复制选中文本 / 退出\n"
                     "  Ctrl+N   — 新对话\n"
                     "  Ctrl+L   — 清屏\n"
-                    "  鼠标拖选  — 选择文本\n"
+                    "  Shift+鼠标拖选  — 选择文本（Ctrl+C 复制）\n"
                 )
             )
         elif cmd == "/token":
@@ -909,6 +996,18 @@ class WyckoffTUI(App):
             self.action_fork_session()
         elif cmd == "/schedule":
             self._handle_schedule_cmd(raw, log)
+        elif cmd == "/copy":
+            if self._last_assistant_text.strip():
+                self.app.copy_to_clipboard(self._last_assistant_text)
+                log.write(
+                    Text.from_markup(
+                        f"  [green]✓ 已复制最后回复（{len(self._last_assistant_text)} 字符）[/green]"
+                    )
+                )
+            else:
+                log.write(Text.from_markup("  [dim]暂无回复可复制[/dim]"))
+        elif cmd == "/export":
+            self.action_export_session()
         else:
             self._try_skill(raw, log)
 
@@ -1134,14 +1233,15 @@ class WyckoffTUI(App):
         log.write(Text.from_markup(f"  [green]✓ 默认模型已设为 {model_id}[/green]"))
         self._rebuild_provider()
 
-    def _rebuild_provider(self) -> None:
+    def _rebuild_provider(self) -> str | None:
+        """重建 provider，返回错误消息（如果有），成功返回 None。"""
         from cli.auth import load_default_model_id, load_fallback_model_id, load_model_configs
 
         configs = load_model_configs()
         default_id = load_default_model_id()
         if not configs:
             self._provider = None
-            return
+            return None
         default_cfg = next((c for c in configs if c["id"] == default_id), configs[0])
         if len(configs) == 1:
             from cli._provider_factory import _create_provider
@@ -1152,8 +1252,11 @@ class WyckoffTUI(App):
                 default_cfg.get("model", ""),
                 default_cfg.get("base_url", ""),
             )
-            if not err:
-                self._provider = provider
+            if err:
+                self._provider = None
+                self._update_status()
+                return err
+            self._provider = provider
         else:
             from cli.providers.fallback import FallbackProvider
 
@@ -1162,6 +1265,7 @@ class WyckoffTUI(App):
         if self._tools and self._provider:
             self._tools.set_provider(self._provider)
         self._update_status()
+        return None
 
     def _show_selector(self, options: list[tuple[str, str]], callback_id: str) -> None:
         """显示模态选择器。options: [(value, label), ...]"""
@@ -1384,12 +1488,15 @@ class WyckoffTUI(App):
             )
             if env_key:
                 os.environ[env_key] = buf["api_key"]
-            self._rebuild_provider()
-            log.write(
-                Text.from_markup(
-                    f"  [green]✓ 已添加 {entry['id']} ({self._provider.name if self._provider else '?'})[/green]"
+            err = self._rebuild_provider()
+            if err:
+                log.write(Text.from_markup(f"  [yellow]⚠ 已保存，但初始化失败: {err}[/yellow]"))
+            else:
+                log.write(
+                    Text.from_markup(
+                        f"  [green]✓ 已添加 {entry['id']} ({self._provider.name if self._provider else '?'})[/green]"
+                    )
                 )
-            )
         except Exception as e:
             log.write(Text.from_markup(f"  [red]配置失败: {e}[/red]"))
 
@@ -1851,6 +1958,9 @@ class WyckoffTUI(App):
                     _spinner_stop()
                     _flush_stream_line()
                     final_text = event.get("text", "")
+                    if final_text:
+                        self._last_assistant_text = final_text
+                        self._write_transcript("assistant", final_text)
                     final_usage = event.get("usage", final_usage)
                     final_elapsed = float(event.get("elapsed", time.monotonic() - t_start))
                     final_rounds = int(event.get("rounds", 0))

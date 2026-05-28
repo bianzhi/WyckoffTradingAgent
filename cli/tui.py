@@ -10,6 +10,7 @@ import contextlib
 import json
 import logging
 import re
+import sys
 import threading
 import time
 import uuid
@@ -539,10 +540,12 @@ class WyckoffTUI(App):
     COMMANDS = set()  # will be populated below after class definition
 
     BINDINGS = [
-        Binding("ctrl+c", "smart_copy", show=False, priority=True),
         Binding("super+c", "smart_copy", show=False, priority=True),
         Binding("escape", "cancel", show=False),
-    ]
+    ] + (
+        [] if sys.platform == "darwin" else
+        [Binding("ctrl+c", "smart_copy", show=False, priority=True)]
+    )
 
     def __init__(
         self,

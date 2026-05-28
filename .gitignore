@@ -50,3 +50,5 @@ analysis/
 test-results/
 .traces/
 wiki_repo_new/
+deploy/.env.production
+deploy/.env

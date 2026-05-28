@@ -1,0 +1,61 @@
+# ============================================
+# Wyckoff Trading Agent — Docker Compose
+# 启动: docker compose up -d
+# 构建: docker compose build
+# ============================================
+
+services:
+  api:
+    build:
+      context: ../web
+      dockerfile: ../deploy/Dockerfile
+      target: api
+    container_name: wyckoff-api
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      - NODE_ENV=production
+      - PORT=8787
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8787/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - wyckoff
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  nginx:
+    build:
+      context: ../web
+      dockerfile: ../deploy/Dockerfile
+      target: web
+      additional_contexts:
+        deploy: ../deploy
+        data: ../data
+      args:
+        - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+        - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
+    container_name: wyckoff-web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - wyckoff
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  wyckoff:
+    driver: bridge

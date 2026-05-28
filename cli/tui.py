@@ -518,13 +518,14 @@ def _friendly_error(e: Exception) -> str:
 class WyckoffTUI(App):
     """威科夫终端读盘室。"""
 
+    ALLOW_SELECT = True
     TITLE = "Wyckoff 读盘室"
     CSS = """
     Screen {
         layout: vertical;
     }
     Screen > .screen--selection {
-        background: $accent 50%;
+        background: $boost;
         color: $text;
     }
     #chat-log {

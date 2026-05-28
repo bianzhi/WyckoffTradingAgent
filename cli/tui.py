@@ -522,7 +522,6 @@ class WyckoffTUI(App):
     CSS = """
     Screen {
         layout: vertical;
-        allow-select: true;
     }
     #chat-log {
         height: 1fr;

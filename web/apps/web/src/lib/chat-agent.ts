@@ -3,7 +3,7 @@ import { createOpenAI } from '@ai-sdk/openai'
 import { generateText, stepCountIs, streamText, tool } from 'ai'
 import { z } from 'zod'
 import { supabase } from './supabase'
-import { loadSystemConfig } from './system-config'
+import { loadSystemConfig, type SystemConfig } from './system-config'
 import type { ToolDeps } from './chat-tools'
 import {
   execSearchStock, execViewPortfolio, execMarketOverview,
@@ -341,8 +341,8 @@ function collectKnownProviderModels(
     const m = data[`${p}_model`]
     if (key && m) {
       models.push({
-        provider: p, label: PROVIDER_LABELS[p] || p, model: m,
-        api_key: key,
+        provider: p, label: PROVIDER_LABELS[p] || p, model: m as string,
+        api_key: key as string,
         base_url: (data[`${p}_base_url`] as string) || PROVIDER_DEFAULT_BASE_URLS[p] || '',
         protocol: p === 'anthropic' ? 'anthropic' : 'openai',
       })

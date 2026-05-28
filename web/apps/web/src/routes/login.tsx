@@ -185,7 +185,6 @@ function useLoginSubmit(
 
 export function LoginPage() {
   const { checkingSession, navigate, setAuth } = useSessionRedirect()
-  const { t } = usePreferences()
   const [email, setEmail] = useState(readRememberedEmail)
   const [password, setPassword] = useState('')
   const [rememberEmail, setRememberEmail] = useState(() => Boolean(readRememberedEmail()))
@@ -194,7 +193,7 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = useLoginSubmit(isRegister, rememberEmail, email, setError, setLoading, () => {
-    setAuth(null as any)
+    setAuth(null, null)
     navigate('/', { replace: true })
   })
 

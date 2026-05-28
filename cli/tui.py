@@ -183,7 +183,7 @@ class ChatLog(RichLog):
         return extracted, "\n"
 
     def render_line(self, y: int) -> "Strip":
-        from textual.strip import Strip
+        from textual.strip import Strip as _S
         from rich.segment import Segment
         from rich.style import Style
 
@@ -191,13 +191,43 @@ class ChatLog(RichLog):
         abs_y = scroll_y + y
         line = super().render_line(y)
 
+        # Apply selection highlight
+        selection = self.text_selection
+        if selection is not None:
+            span = selection.get_span(abs_y)
+            if span is not None:
+                start, end = span
+                if end == -1:
+                    end = line.cell_length
+                end = min(end, line.cell_length)
+                if 0 <= start < end:
+                    sel_style = self.screen.get_component_rich_style(
+                        "screen--selection", partial=True
+                    )
+                    # Build selected portion with sel_style overriding the existing background
+                    selected_segs: list[Segment] = []
+                    for seg in line.crop(start, end):
+                        combined = (seg.style or Style.null()) + sel_style
+                        selected_segs.append(
+                            Segment(seg.text, combined, seg.control)
+                        )
+                    sel_piece = _S(selected_segs)
+
+                    pieces: list[_S] = []
+                    if start > 0:
+                        pieces.append(line.crop(0, start))
+                    pieces.append(sel_piece)
+                    if end < line.cell_length:
+                        pieces.append(line.crop(end, line.cell_length))
+                    line = _S.join(pieces)
+
         # Embed offset metadata so the compositor can map screen coords → content coords
         meta_style = Style.from_meta({"offset": (0, abs_y)})
         segments: list[Segment] = []
         for seg in line:
             combined = seg.style + meta_style if seg.style else meta_style
             segments.append(Segment(seg.text, combined, seg.control))
-        return Strip(segments)
+        return _S(segments)
 
 
 class StatusBar(Static):

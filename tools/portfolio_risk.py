@@ -146,18 +146,11 @@ STRESS_SCENARIOS = [
 ]
 
 
-def stress_test(
-    positions: list[dict],
-    total_value: float,
+def _compute_betas(
     returns_dict: dict[str, np.ndarray],
-    index_returns: np.ndarray | None = None,
-) -> list[dict]:
-    """对组合进行多情景压力测试。"""
-    results = []
-    if not positions or total_value <= 0:
-        return results
-
-    # 计算每只股票的 beta
+    index_returns: np.ndarray | None,
+) -> dict[str, float]:
+    """计算每只股票相对指数的 beta 系数。"""
     betas: dict[str, float] = {}
     if index_returns is not None and len(index_returns) > 5:
         for code, rets in returns_dict.items():
@@ -174,6 +167,21 @@ def stress_test(
     else:
         for code in returns_dict:
             betas[code] = 1.0
+    return betas
+
+
+def stress_test(
+    positions: list[dict],
+    total_value: float,
+    returns_dict: dict[str, np.ndarray],
+    index_returns: np.ndarray | None = None,
+) -> list[dict]:
+    """对组合进行多情景压力测试。"""
+    results = []
+    if not positions or total_value <= 0:
+        return results
+
+    betas = _compute_betas(returns_dict, index_returns)
 
     for scenario in STRESS_SCENARIOS:
         loss = 0.0
@@ -220,6 +228,52 @@ def _load_index_returns(days: int = 252) -> np.ndarray | None:
         return None
 
 
+def _fetch_one(
+    code: str,
+    shares: float,
+    cost_price: float,
+    start: str,
+    end: str,
+    returns_dict: dict[str, np.ndarray],
+    prices: dict[str, float],
+    fetch_errors: list[str],
+    position_details: list[dict],
+) -> None:
+    """拉取单只股票日线数据，追加到 returns_dict / prices / errors / details 中。"""
+    try:
+        df = fetch_stock_hist(code, start, end, adjust="qfq")
+        if df is None or df.empty:
+            fetch_errors.append(f"{code}: 无K线数据")
+            position_details.append(_pos_error(code, shares, cost_price, "无数据"))
+            return
+
+        close = pd.to_numeric(df["收盘"], errors="coerce").dropna()
+        if len(close) < 10:
+            fetch_errors.append(f"{code}: K线不足10日")
+            position_details.append(_pos_detail(code, shares, cost_price, float(close.iloc[-1]), "数据不足"))
+            return
+
+        rets = _daily_returns(close)
+        returns_dict[code] = rets.values[-252:]
+        latest_price = float(close.iloc[-1])
+        prices[code] = latest_price
+        position_value = shares * latest_price
+        pnl_pct = (latest_price / cost_price - 1) * 100 if cost_price > 0 else 0
+
+        position_details.append(
+            {
+                "code": code,
+                "shares": shares,
+                "cost_price": cost_price,
+                "latest_price": latest_price,
+                "position_value": round(position_value, 2),
+                "pnl_pct": round(pnl_pct, 2),
+            }
+        )
+    except Exception as e:
+        fetch_errors.append(f"{code}: {e}")
+
+
 def _fetch_position_data(
     positions: list[dict], start: str, end: str
 ) -> tuple[dict[str, np.ndarray], dict[str, float], list[str], list[dict]]:
@@ -233,42 +287,9 @@ def _fetch_position_data(
         code = str(p.get("code", "")).strip()
         shares = float(p.get("shares", 0) or 0)
         cost_price = float(p.get("cost_price", 0) or 0)
-
         if not code or shares <= 0:
             continue
-
-        try:
-            df = fetch_stock_hist(code, start, end, adjust="qfq")
-            if df is None or df.empty:
-                fetch_errors.append(f"{code}: 无K线数据")
-                position_details.append(_pos_error(code, shares, cost_price, "无数据"))
-                continue
-
-            close = pd.to_numeric(df["收盘"], errors="coerce").dropna()
-            if len(close) < 10:
-                fetch_errors.append(f"{code}: K线不足10日")
-                position_details.append(_pos_detail(code, shares, cost_price, float(close.iloc[-1]), "数据不足"))
-                continue
-
-            rets = _daily_returns(close)
-            returns_dict[code] = rets.values[-252:]
-            latest_price = float(close.iloc[-1])
-            prices[code] = latest_price
-            position_value = shares * latest_price
-            pnl_pct = (latest_price / cost_price - 1) * 100 if cost_price > 0 else 0
-
-            position_details.append(
-                {
-                    "code": code,
-                    "shares": shares,
-                    "cost_price": cost_price,
-                    "latest_price": latest_price,
-                    "position_value": round(position_value, 2),
-                    "pnl_pct": round(pnl_pct, 2),
-                }
-            )
-        except Exception as e:
-            fetch_errors.append(f"{code}: {e}")
+        _fetch_one(code, shares, cost_price, start, end, returns_dict, prices, fetch_errors, position_details)
 
     return returns_dict, prices, fetch_errors, position_details
 

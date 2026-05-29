@@ -1923,6 +1923,33 @@ def _atr_trailing_price(
     return trailing_price, f"ATR动态跟踪止损({tag}ATR={atr:.3f}, mult={cfg.exit_atr_mult})"
 
 
+def _compute_accum_stop(
+    close: pd.Series,
+    low: pd.Series,
+    high: pd.Series,
+    stage: str,
+    cfg: FunnelConfig,
+    recent_high: float,
+    ma_short: float | None,
+) -> tuple[float | None, str]:
+    """吸筹阶段止损：破位防守 / 利润保护（ATR 跟踪）。"""
+    last_close = float(close.iloc[-1])
+    lookback_w = max(int(cfg.accum_lookback_days), 2)
+    accum_low = float(low.tail(lookback_w).min())
+    if last_close >= accum_low * (1.0 + cfg.exit_trailing_active_pct / 100.0):
+        atr_result = _atr_trailing_price(high, low, close, recent_high, ma_short, cfg, "利润保护")
+        if atr_result:
+            return atr_result
+        drawdown_pct = cfg.exit_trailing_drawdown_pct / 100.0
+        price = (
+            max(recent_high * (1.0 + drawdown_pct), float(ma_short) * 0.98)
+            if ma_short
+            else recent_high * (1.0 + drawdown_pct)
+        )
+        return price, "已脱离底部，触发利润保护(动态跟踪止损)"
+    return accum_low * (1.0 + cfg.exit_stop_loss_pct / 100.0), f"破位防守(跌破 {stage} 吸筹底线)"
+
+
 def _compute_stop_loss(
     close: pd.Series,
     low: pd.Series,
@@ -1948,20 +1975,7 @@ def _compute_stop_loss(
 
     # 吸筹阶段
     if stage.startswith("Accum_"):
-        lookback_w = max(int(cfg.accum_lookback_days), 2)
-        accum_low = float(low.tail(lookback_w).min())
-        if last_close >= accum_low * (1.0 + cfg.exit_trailing_active_pct / 100.0):
-            atr_result = _atr_trailing_price(high, low, close, recent_high, ma_short, cfg, "利润保护")
-            if atr_result:
-                return atr_result
-            drawdown_pct = cfg.exit_trailing_drawdown_pct / 100.0
-            price = (
-                max(recent_high * (1.0 + drawdown_pct), float(ma_short) * 0.98)
-                if ma_short
-                else recent_high * (1.0 + drawdown_pct)
-            )
-            return price, "已脱离底部，触发利润保护(动态跟踪止损)"
-        return accum_low * (1.0 + cfg.exit_stop_loss_pct / 100.0), f"破位防守(跌破 {stage} 吸筹底线)"
+        return _compute_accum_stop(close, low, high, stage, cfg, recent_high, ma_short)
 
     # 主升阶段
     atr_result = _atr_trailing_price(high, low, close, recent_high, ma_short, cfg, "主升")

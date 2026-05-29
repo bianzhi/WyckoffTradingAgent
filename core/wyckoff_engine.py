@@ -254,6 +254,17 @@ class FunnelConfig:
     dist_vol_dry_ratio: float = 0.5  # 高位缩量比
     dist_confirm_days: int = 3  # 需要连续确认 N 日
 
+    # 高级出场策略（Phase 2.3）
+    # ATR 动态跟踪止损（Chandelier Exit）
+    exit_enable_atr_trailing: bool = True
+    exit_atr_period: int = 14  # ATR 计算周期
+    exit_atr_mult: float = 3.0  # ATR 倍数，从最高点减去 N×ATR 作为止损价
+    # 时间止损：持仓 N 日无进展则离场（0 = 禁用）
+    exit_time_stop_days: int = 15  # 耐心天数
+    exit_time_stop_min_return_pct: float = 1.0  # 最低预期收益%，低于此值触发时间止损
+    # 波动率扩张止损：当前 ATR 超过入场日 N 倍时离场（0 = 禁用）
+    exit_vol_expansion_mult: float = 2.5  # ATR 扩张倍数阈值
+
 
 class FunnelResult(NamedTuple):
     layer1_symbols: list[str]
@@ -1769,6 +1780,86 @@ def _is_holiday_grace(df_s: pd.DataFrame, grace_days: int) -> bool:
     return False
 
 
+def _compute_atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> float | None:
+    """计算截止最新日的 ATR (Average True Range)。"""
+    if len(close) < period + 1:
+        return None
+    h = high.tail(period + 1).astype(float)
+    l = low.tail(period + 1).astype(float)
+    c = close.tail(period + 1).astype(float).shift(1)
+    tr = pd.concat([h - l, (h - c).abs(), (l - c).abs()], axis=1).max(axis=1)
+    tr = tr.dropna()
+    if len(tr) < period:
+        return None
+    return float(tr.tail(period).mean())
+
+
+def _compute_atr_lookback(
+    high: pd.Series, low: pd.Series, close: pd.Series, period: int, lookback: int,
+) -> float | None:
+    """计算 lookback 天前的 ATR（用于波动率对比）。"""
+    if len(close) < period + lookback + 1:
+        return None
+    end = -lookback if lookback > 0 else None
+    start = end - period - 1
+    h = high.iloc[start:end].astype(float)
+    l = low.iloc[start:end].astype(float)
+    c = close.iloc[start:end].astype(float).shift(1)
+    tr = pd.concat([h - l, (h - c).abs(), (l - c).abs()], axis=1).max(axis=1)
+    tr = tr.dropna()
+    if len(tr) < period:
+        return None
+    return float(tr.tail(period).mean())
+
+
+def _check_volatility_stop(
+    high: pd.Series, low: pd.Series, close: pd.Series, last_close: float, cfg: FunnelConfig,
+) -> tuple[float, str] | None:
+    """波动率扩张检查：当前 ATR 超历史 N 倍时返回 (stop_price, reason)。"""
+    if cfg.exit_vol_expansion_mult <= 0:
+        return None
+    current_atr = _compute_atr(high, low, close, cfg.exit_atr_period)
+    hist_atr = _compute_atr_lookback(high, low, close, cfg.exit_atr_period, cfg.exit_atr_period)
+    if current_atr and hist_atr and hist_atr > 0:
+        if current_atr > hist_atr * cfg.exit_vol_expansion_mult:
+            return (last_close, "波动率异常扩张(ATR膨胀超阈值)，建议离场")
+    return None
+
+
+def _check_time_stop(
+    close: pd.Series, last_close: float, cfg: FunnelConfig,
+) -> tuple[float, str] | None:
+    """时间止损检查：横盘无进展时返回 (stop_price, reason)。"""
+    if cfg.exit_time_stop_days <= 0 or len(close) < cfg.exit_time_stop_days:
+        return None
+    window_close = close.tail(cfg.exit_time_stop_days).astype(float)
+    start_price = float(window_close.iloc[0])
+    if start_price <= 0:
+        return None
+    ret_over_window = (last_close - start_price) / start_price * 100.0
+    if ret_over_window < cfg.exit_time_stop_min_return_pct:
+        return (last_close, (
+            f"时间止损({cfg.exit_time_stop_days}日收益{ret_over_window:.1f}%<"
+            f"{cfg.exit_time_stop_min_return_pct}%)，横盘无效占用"
+        ))
+    return None
+
+
+def _atr_trailing_price(
+    high: pd.Series, low: pd.Series, close: pd.Series,
+    recent_high: float, ma_short: float | None, cfg: FunnelConfig, tag: str = "",
+) -> tuple[float, str] | None:
+    """ATR 动态跟踪止损价计算。返回 (stop_price, reason) 或 None（fallback 固定百分比）。"""
+    if not cfg.exit_enable_atr_trailing:
+        return None
+    atr = _compute_atr(high, low, close, cfg.exit_atr_period)
+    if not atr or atr <= 0:
+        return None
+    atr_stop = recent_high - cfg.exit_atr_mult * atr
+    trailing_price = max(atr_stop, float(ma_short) * 0.98) if ma_short else atr_stop
+    return trailing_price, f"ATR动态跟踪止损({tag}ATR={atr:.3f}, mult={cfg.exit_atr_mult})"
+
+
 def _compute_stop_loss(
     close: pd.Series,
     low: pd.Series,
@@ -1776,27 +1867,41 @@ def _compute_stop_loss(
     stage: str,
     cfg: FunnelConfig,
 ) -> tuple[float | None, str]:
-    """计算单只股票的止损价和原因。"""
+    """计算单只股票的止损价和原因。支持 ATR 跟踪/时间/波动率三种高级出场策略。"""
     last_close = float(close.iloc[-1])
     ma_short_series = close.rolling(cfg.ma_short).mean()
     ma_short = float(ma_short_series.iloc[-1]) if not ma_short_series.isna().all() else None
     recent_high = float(high.tail(60).max())
 
+    # 波动率扩张止损（最高优先级）
+    vol_stop = _check_volatility_stop(high, low, close, last_close, cfg)
+    if vol_stop:
+        return vol_stop
+
+    # 时间止损
+    time_stop = _check_time_stop(close, last_close, cfg)
+    if time_stop:
+        return time_stop
+
+    # 吸筹阶段
     if stage.startswith("Accum_"):
         lookback_w = max(int(cfg.accum_lookback_days), 2)
         accum_low = float(low.tail(lookback_w).min())
-        trailing_active_pct = cfg.exit_trailing_active_pct / 100.0
-        if last_close >= accum_low * (1.0 + trailing_active_pct):
+        if last_close >= accum_low * (1.0 + cfg.exit_trailing_active_pct / 100.0):
+            atr_result = _atr_trailing_price(high, low, close, recent_high, ma_short, cfg, "利润保护")
+            if atr_result:
+                return atr_result
             drawdown_pct = cfg.exit_trailing_drawdown_pct / 100.0
-            trailing_price = recent_high * (1.0 + drawdown_pct)
-            price = max(trailing_price, float(ma_short) * 0.98) if ma_short else trailing_price
+            price = max(recent_high * (1.0 + drawdown_pct), float(ma_short) * 0.98) if ma_short else recent_high * (1.0 + drawdown_pct)
             return price, "已脱离底部，触发利润保护(动态跟踪止损)"
-        price = accum_low * (1.0 + cfg.exit_stop_loss_pct / 100.0)
-        return price, f"破位防守(跌破 {stage} 吸筹底线)"
+        return accum_low * (1.0 + cfg.exit_stop_loss_pct / 100.0), f"破位防守(跌破 {stage} 吸筹底线)"
 
+    # 主升阶段
+    atr_result = _atr_trailing_price(high, low, close, recent_high, ma_short, cfg, "主升")
+    if atr_result:
+        return atr_result
     drawdown_pct = cfg.exit_trailing_drawdown_pct / 100.0
-    trailing_price = recent_high * (1.0 + drawdown_pct)
-    price = max(trailing_price, float(ma_short) * 0.98) if ma_short else trailing_price
+    price = max(recent_high * (1.0 + drawdown_pct), float(ma_short) * 0.98) if ma_short else recent_high * (1.0 + drawdown_pct)
     return price, "主升趋势破位(跌破MA50或高位回撤)"
 
 

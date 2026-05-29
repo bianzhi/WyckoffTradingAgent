@@ -89,10 +89,12 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Use aliyun mirror for faster apt in CI (deb.debian.org often times out)
-RUN sed -i 's|http://deb.debian.org|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+# Clean apt caches first — GitHub Actions runners often have low disk space
+RUN rm -rf /var/cache/apt/archives/* /var/lib/apt/lists/* \
+    && sed -i 's|http://deb.debian.org|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
     && apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Copy Python project files (from project root via additional_contexts)
 COPY --from=root pyproject.toml ./

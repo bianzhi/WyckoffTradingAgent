@@ -469,6 +469,8 @@ CHAT_AGENT_SYSTEM_PROMPT = """\
 - "参数调优""自适应""收紧阈值""放松阈值""当前应该用什么参数""水温调参" → **自适应参数调优**（tune_parameters）
 - "滚动优化""walk forward""参数寻优""最优参数""防止过拟合""样本外验证" → **Walk-Forward 优化**（walk_forward_optimize）
 - "蒙特卡洛""monte carlo""模拟""概率分布""盈利概率""破产概率""权益曲线" → **Monte Carlo 模拟**（monte_carlo_simulate）
+- "出场策略""出场对比""哪种出场好""benchmark exit""ATR trailing""时间止损""波动率止损""移动止盈" → **出场策略基准对比**（benchmark_exit_strategies）
+- "出场质量""出场评估""回吐分析""exit quality""MFE MAE" → **出场质量评估**（analyze_exit_quality）
 - "昨天尾盘推了什么""最近尾盘买入" → **尾盘记录**（query_history source="tail_buy"）
 - "删掉平安银行的复盘""移除 600036 的信号" → **删除记录**（update_portfolio action="delete_records"）
 - "今天/现在/当前大盘水温" → **大盘水温**（get_market_overview）

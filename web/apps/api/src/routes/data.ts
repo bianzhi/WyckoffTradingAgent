@@ -734,4 +734,84 @@ dataRoutes.post('/monte-carlo', async (c) => {
   }
 })
 
+// ── POST /api/data/benchmark-exit-strategies ──────────────
+
+dataRoutes.post('/benchmark-exit-strategies', async (c) => {
+  try {
+    const body = await c.req.json<{ ohlc_data: Record<string, Record<string, [number,number,number,number]>>; sorted_dates: Record<string, string[]>; trades: Array<Record<string, unknown>>; strategies?: string[]; extra_params?: Record<string, Record<string, unknown>> }>()
+    const { ohlc_data, sorted_dates, trades } = body
+    if (!ohlc_data || !sorted_dates || !Array.isArray(trades) || trades.length === 0) {
+      return c.json({ error: '请提供 ohlc_data, sorted_dates, trades' }, 400)
+    }
+    const strategies = body.strategies || null
+    const extraParams = body.extra_params || null
+    const { spawnSync } = await import('node:child_process')
+    const script = `
+from tools.exit_strategies import benchmark_exit_strategies
+import json, sys
+from datetime import date
+
+# 反序列化 date-keyed dicts
+def parse_ohlc(raw):
+    result = {}
+    for code, d in raw.items():
+        result[code] = {date.fromisoformat(k): tuple(v) for k, v in d.items()}
+    return result
+
+def parse_sdates(raw):
+    return {k: [date.fromisoformat(x) for x in v] for k, v in raw.items()}
+
+def parse_trades(raw):
+    for t in raw:
+        if 'entry_date' in t and isinstance(t['entry_date'], str):
+            t['entry_date'] = date.fromisoformat(t['entry_date'])
+    return raw
+
+ohlc = parse_ohlc(json.loads('''${JSON.stringify(ohlc_data).replace(/'/g, "\\'")}'''))
+sd = parse_sdates(json.loads('''${JSON.stringify(sorted_dates).replace(/'/g, "\\'")}'''))
+trades = parse_trades(json.loads('''${JSON.stringify(trades).replace(/'/g, "\\'")}'''))
+result = benchmark_exit_strategies(ohlc, sd, trades, ${strategies ? JSON.stringify(strategies) : 'None'}, ${extraParams ? JSON.stringify(extraParams) : 'None'})
+print(json.dumps(result, ensure_ascii=False, default=str))
+`.strip()
+    const proc = spawnSync('python3', ['-c', script], {
+      timeout: 60_000, encoding: 'utf-8',
+      env: { ...process.env, PYTHONPATH: process.env.PYTHONPATH || process.cwd() },
+      cwd: process.cwd(),
+    })
+    if ((proc as any).error) return c.json({ error: (proc as any).error.message }, 500)
+    try { return c.json(JSON.parse(proc.stdout?.trim() || '{}')) } catch {
+      return c.json({ error: 'parse error' }, 500)
+    }
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500)
+  }
+})
+
+// ── POST /api/data/analyze-exit-quality ────────────────────
+
+dataRoutes.post('/analyze-exit-quality', async (c) => {
+  try {
+    const body = await c.req.json<{ exits: Array<Record<string, unknown>> }>()
+    const exits = body.exits
+    if (!Array.isArray(exits) || exits.length === 0) {
+      return c.json({ error: '请提供出场记录 exits=[{exit_price, entry_price, peak_high, ...}]' }, 400)
+    }
+    const { spawnSync } = await import('node:child_process')
+    const proc = spawnSync('python3', [
+      '-c',
+      `from tools.exit_strategies import analyze_exit_quality; import json; print(json.dumps(analyze_exit_quality(${JSON.stringify(exits)}), ensure_ascii=False))`,
+    ], {
+      timeout: 15_000, encoding: 'utf-8',
+      env: { ...process.env, PYTHONPATH: process.env.PYTHONPATH || process.cwd() },
+      cwd: process.cwd(),
+    })
+    if (proc.error) return c.json({ error: proc.error.message }, 500)
+    try { return c.json(JSON.parse(proc.stdout?.trim() || '{}')) } catch {
+      return c.json({ error: 'parse error' }, 500)
+    }
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500)
+  }
+})
+
 export { dataRoutes }

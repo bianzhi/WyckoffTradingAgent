@@ -12,6 +12,7 @@ import {
   execMarketHistory, execIntradayAnalysis, execGetSignalQuality,
   execManageAlerts, execPortfolioRisk, execTuneParameters,
   execWalkForwardOptimize, execMonteCarloSimulate,
+  execBenchmarkExitStrategies, execAnalyzeExitQuality,
 } from './chat-tools'
 
 const SYSTEM_PROMPT = `# 角色设定
@@ -57,6 +58,8 @@ const SYSTEM_PROMPT = `# 角色设定
 - "参数调优""自适应""收紧阈值""放松阈值""当前应该用什么参数""水温调参" → tune_parameters
 - "滚动优化""walk forward""参数寻优""最优参数""防止过拟合""样本外验证" → walk_forward_optimize
 - "蒙特卡洛""monte carlo""模拟""概率分布""盈利概率""破产概率""权益曲线" → monte_carlo_simulate
+- "出场策略""出场对比""哪种出场好""benchmark exit""ATR trailing""时间止损""波动率止损""移动止盈" → benchmark_exit_strategies
+- "出场质量""出场评估""回吐分析""exit quality""MFE MAE" → analyze_exit_quality
 
 # 行为铁律
 
@@ -681,6 +684,27 @@ function buildTools(userId: string, config: LLMConfig, reasoningCache: string[])
       }),
       execute: ({ returns, nSimulations, nTrades, initialCapital }) =>
         execMonteCarloSimulate(returns ?? null, nSimulations ?? null, nTrades ?? null, initialCapital ?? null),
+    }),
+
+    benchmark_exit_strategies: tool({
+      description: '出场策略基准对比：对一批交易运行所有出场策略（ATR trailing、时间止损、波动率止损、MA出场、PSAR、混合），排名输出最佳策略。输入 ohlcData={code: {date: [o,h,l,c]}}, sortedDates={code: [date]}, trades=[{code, entry_date, entry_price}]。输出排名表 + 最佳策略推荐。',
+      inputSchema: z.object({
+        ohlcData: z.record(z.record(z.array(z.number()))).describe('OHLC 数据 {股票代码: {日期: [开盘,最高,最低,收盘]}}'),
+        sortedDates: z.record(z.array(z.string())).describe('排序后的日期 {股票代码: [日期字符串]}'),
+        trades: z.array(z.record(z.unknown())).describe('交易列表 [{code, entry_date, entry_price}]'),
+        strategies: z.array(z.string()).nullable().optional().describe('要对比的策略列表，默认全部'),
+        extraParams: z.record(z.record(z.unknown())).nullable().optional().describe('策略参数覆盖 {策略名: {参数: 值}}'),
+      }),
+      execute: ({ ohlcData, sortedDates, trades, strategies, extraParams }) =>
+        execBenchmarkExitStrategies(ohlcData, sortedDates, trades, strategies ?? undefined, extraParams ?? undefined),
+    }),
+
+    analyze_exit_quality: tool({
+      description: '出场质量评估：分析已有出场记录的过早离场率、利润回吐、MFE/MAE，给出 A-F 评级和改进建议。输入 exits=[{exit_price, entry_price, peak_high, trough_low, hold_days}]。输出评级 + 建议列表。',
+      inputSchema: z.object({
+        exits: z.array(z.record(z.unknown())).nullable().optional().describe('出场记录 [{exit_price, entry_price, peak_high, trough_low, hold_days}]'),
+      }),
+      execute: ({ exits }) => execAnalyzeExitQuality(exits ?? []),
     }),
   }
 }

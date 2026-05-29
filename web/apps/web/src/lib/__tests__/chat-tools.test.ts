@@ -15,6 +15,8 @@ import {
   execGetSignalQuality,
   execPortfolioRisk,
   execTuneParameters,
+  execBenchmarkExitStrategies,
+  execAnalyzeExitQuality,
 } from '../chat-tools'
 
 // ── mock DataSkill ─────────────────────────────────────────
@@ -33,6 +35,8 @@ vi.mock('../data-skill', () => ({
     fetchSignalQuality: vi.fn().mockResolvedValue({ report: '', error: 'no-key' }),
     fetchPortfolioRisk: vi.fn().mockResolvedValue({ error: 'no-key' }),
     fetchParameterTuning: vi.fn().mockResolvedValue({ error: 'no-key' }),
+    fetchBenchmarkExits: vi.fn().mockResolvedValue({ error: 'no-key' }),
+    fetchExitQuality: vi.fn().mockResolvedValue({ error: 'no-key' }),
   },
 }))
 
@@ -573,5 +577,85 @@ describe('execTuneParameters', () => {
     expect(result).toContain('✅')
     expect(result).toContain('—')
     expect(result).toContain('防守优先')
+  })
+})
+
+// ── execBenchmarkExitStrategies ─────────────────────────────
+
+describe('execBenchmarkExitStrategies', () => {
+  it('returns error from API', async () => {
+    vi.mocked(dataSkill.fetchBenchmarkExits).mockResolvedValue({ error: '数据不足' })
+    const result = await execBenchmarkExitStrategies({}, {}, [])
+    expect(result).toContain('失败')
+    expect(result).toContain('数据不足')
+  })
+
+  it('renders ranking table', async () => {
+    vi.mocked(dataSkill.fetchBenchmarkExits).mockResolvedValue({
+      rankings: [
+        { rank: 1, name: 'hybrid', avg_ret: 12.3, win_rate: 62.5, profit_factor: 2.1, sharpe_approx: 1.25, exit_rate: 78.0 },
+        { rank: 2, name: 'atr_trailing', avg_ret: 8.1, win_rate: 55.0, profit_factor: 1.5, sharpe_approx: 0.85, exit_rate: 65.0 },
+      ],
+      best_strategy: 'hybrid',
+      best_sharpe: 1.25,
+    })
+    const result = await execBenchmarkExitStrategies({}, {}, [])
+    expect(result).toContain('hybrid')
+    expect(result).toContain('12.3')
+    expect(result).toContain('62.5')
+    expect(result).toContain('🏆')
+    expect(result).toContain('最佳策略')
+  })
+
+  it('handles empty rankings', async () => {
+    vi.mocked(dataSkill.fetchBenchmarkExits).mockResolvedValue({ rankings: [] })
+    const result = await execBenchmarkExitStrategies({}, {}, [])
+    expect(result).toContain('排名')
+  })
+})
+
+// ── execAnalyzeExitQuality ──────────────────────────────────
+
+describe('execAnalyzeExitQuality', () => {
+  it('returns error from API', async () => {
+    vi.mocked(dataSkill.fetchExitQuality).mockResolvedValue({ error: '无数据' })
+    const result = await execAnalyzeExitQuality([])
+    expect(result).toContain('失败')
+    expect(result).toContain('无数据')
+  })
+
+  it('renders quality report with grade and advice', async () => {
+    vi.mocked(dataSkill.fetchExitQuality).mockResolvedValue({
+      early_exit_rate: 35.0,
+      profit_giveback_avg: 4.2,
+      mfe_avg: 8.5,
+      mae_avg: -3.1,
+      grade: 'C',
+      giveback_ratio: 0.49,
+      advice: ['收紧 trailing stop', '放宽 patience_days'],
+      sample_size: 120,
+    })
+    const result = await execAnalyzeExitQuality([])
+    expect(result).toContain('C')
+    expect(result).toContain('35')
+    expect(result).toContain('4.2')
+    expect(result).toContain('收紧 trailing stop')
+    expect(result).toContain('改进建议')
+  })
+
+  it('renders report without advice', async () => {
+    vi.mocked(dataSkill.fetchExitQuality).mockResolvedValue({
+      early_exit_rate: 10.0,
+      profit_giveback_avg: 1.0,
+      mfe_avg: 5.0,
+      mae_avg: -2.0,
+      grade: 'A',
+      giveback_ratio: 0.15,
+      advice: [],
+      sample_size: 50,
+    })
+    const result = await execAnalyzeExitQuality([])
+    expect(result).toContain('A')
+    expect(result).not.toContain('改进建议')
   })
 })

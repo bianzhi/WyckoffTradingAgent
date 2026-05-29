@@ -222,4 +222,30 @@ export const dataSkill = {
     })
     return resp.json()
   },
+
+  /** 出场策略基准对比 */
+  async fetchBenchmarkExits(ohlcData: Record<string, Record<string, number[]>>, sortedDates: Record<string, string[]>, trades: Array<Record<string, unknown>>, strategies?: string[], extraParams?: Record<string, Record<string, unknown>>): Promise<Record<string, unknown>> {
+    const { supabase } = await import('./supabase')
+    const { data: { session } } = await supabase.auth.getSession()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+    const resp = await fetch('/api/data/benchmark-exit-strategies', {
+      method: 'POST', headers,
+      body: JSON.stringify({ ohlc_data: ohlcData, sorted_dates: sortedDates, trades, strategies, extra_params: extraParams }),
+    })
+    return resp.json()
+  },
+
+  /** 出场质量评估 */
+  async fetchExitQuality(exits: Array<Record<string, unknown>>): Promise<Record<string, unknown>> {
+    const { supabase } = await import('./supabase')
+    const { data: { session } } = await supabase.auth.getSession()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+    const resp = await fetch('/api/data/analyze-exit-quality', {
+      method: 'POST', headers,
+      body: JSON.stringify({ exits }),
+    })
+    return resp.json()
+  },
 }

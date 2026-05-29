@@ -851,6 +851,49 @@ export async function execMonteCarloSimulate(
   return lines.join('\n')
 }
 
+/** 出场策略基准对比 */
+export async function execBenchmarkExitStrategies(
+  ohlcData: Record<string, Record<string, number[]>>,
+  sortedDates: Record<string, string[]>,
+  trades: Array<Record<string, unknown>>,
+  strategies?: string[],
+  extraParams?: Record<string, Record<string, unknown>>,
+): Promise<string> {
+  const result = await dataSkill.fetchBenchmarkExits(ohlcData, sortedDates, trades, strategies, extraParams)
+  if (result.error) return `出场策略对比失败：${result.error}`
+  const rankings = result.rankings as Array<Record<string, unknown>> || []
+  const lines: string[] = ['## 出场策略基准对比\n']
+  lines.push(`| 排名 | 策略 | 平均收益% | 胜率% | 盈亏比 | Sharpe | 触发率% |`)
+  lines.push('|------|------|----------|------|--------|--------|--------|')
+  for (const r of rankings) {
+    lines.push(`| ${r.rank || rankings.indexOf(r) + 1} | ${r.name} | ${r.avg_ret} | ${r.win_rate} | ${r.profit_factor} | ${r.sharpe_approx} | ${r.exit_rate} |`)
+  }
+  if (result.best_strategy) lines.push(`\n🏆 最佳策略：**${result.best_strategy}** (Sharpe=${result.best_sharpe})`)
+  return lines.join('\n')
+}
+
+/** 出场质量评估 */
+export async function execAnalyzeExitQuality(
+  exits: Array<Record<string, unknown>>,
+): Promise<string> {
+  const result = await dataSkill.fetchExitQuality(exits)
+  if (result.error) return `出场质量评估失败：${result.error}`
+  const lines: string[] = ['## 出场质量评估\n']
+  lines.push(`| 指标 | 数值 |`)
+  lines.push('|------|------|')
+  lines.push(`| 评级 | **${result.grade}** |`)
+  lines.push(`| 过早离场率 | ${result.early_exit_rate}% |`)
+  lines.push(`| 平均利润回吐 | ${result.profit_giveback_avg}% |`)
+  lines.push(`| MFE(最大有利偏移) | ${result.mfe_avg}% |`)
+  lines.push(`| MAE(最大不利偏移) | ${result.mae_avg}% |`)
+  lines.push(`| 样本数 | ${result.sample_size} |`)
+  if (Array.isArray(result.advice) && result.advice.length > 0) {
+    lines.push('\n💡 改进建议：')
+    for (const a of result.advice as string[]) lines.push(`- ${a}`)
+  }
+  return lines.join('\n')
+}
+
 function computeStrength(vwapPos: number, closePos: number, m30: number, _m15: number, trendShort: string, trendMid: string, volumeConcentration: string): number {
   let score = 50
   if (vwapPos > 0.5) score += 10

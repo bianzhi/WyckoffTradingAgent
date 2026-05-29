@@ -52,3 +52,4 @@ test-results/
 wiki_repo_new/
 deploy/.env.production
 deploy/.env
+.vite/

@@ -616,29 +616,18 @@ def _search_market_universe_meta(keyword: str, limit: int) -> list[dict]:
 
 def _enrich_search_results(items: list[dict]) -> None:
     """为搜索结果前几条附加行情、市值、新闻。"""
-    try:
-        from integrations.data_source import fetch_stock_spot_snapshot
-    except Exception:
-        fetch_stock_spot_snapshot = None  # type: ignore[assignment]
+    from agents.stock_data_skill import StockDataSkill
 
-    cap_map: dict[str, float] = {}
-    try:
-        from integrations.data_source import fetch_market_cap_map
+    skill = StockDataSkill(None)
 
-        cap_map = fetch_market_cap_map()
-    except Exception:
-        logger.debug("failed to fetch market cap map", exc_info=True)
+    cap_map: dict[str, float] = skill.fetch_market_cap_map()
 
     for item in items:
         code = item["code"]
-        if fetch_stock_spot_snapshot:
-            try:
-                snap = fetch_stock_spot_snapshot(code)
-                if snap:
-                    item["price"] = snap.get("close")
-                    item["pct_chg"] = snap.get("pct_chg")
-            except Exception:
-                logger.debug("failed to fetch spot snapshot for %s", code, exc_info=True)
+        snap = skill.fetch_stock_spot(code)
+        if snap:
+            item["price"] = snap.get("close")
+            item["pct_chg"] = snap.get("pct_chg")
         if cap_map:
             item["market_cap_yi"] = cap_map.get(code)
         item["news"] = _fetch_news_with_timeout(code)
@@ -687,9 +676,10 @@ def analyze_stock(
         诊断结果或行情数据 dict。
     """
     try:
-        _ensure_data_tokens(tool_context)
-        from integrations.stock_hist_repository import _COL_MAP, get_stock_hist
+        from agents.stock_data_skill import StockDataSkill
+        from integrations.stock_hist_repository import _COL_MAP
 
+        skill = StockDataSkill(tool_context)
         mode = (mode or "diagnose").strip().lower()
         if mode not in ("diagnose", "price"):
             return {"error": f"mode 参数无效: '{mode}'，可选值: diagnose, price"}
@@ -698,7 +688,7 @@ def analyze_stock(
         if mode == "price":
             days = min(max(days, 1), 250)
             start_date = end_date - timedelta(days=int(days * 1.6))
-            df = get_stock_hist(code, start_date, end_date)
+            df = skill.fetch_stock_hist(code, start_date, end_date)
             if df is None or df.empty:
                 return {"error": f"无法获取 {code} 的行情数据"}
             hist_hints = _collect_tickflow_limit_hints_from_df(df)
@@ -734,7 +724,7 @@ def analyze_stock(
         from core.holding_diagnostic import diagnose_one_stock, format_diagnostic_text
 
         start_date = end_date - timedelta(days=500)
-        df = get_stock_hist(code, start_date, end_date)
+        df = skill.fetch_stock_hist(code, start_date, end_date)
         if df is None or df.empty:
             return {"error": f"无法获取 {code} 的行情数据"}
         hist_hints = _collect_tickflow_limit_hints_from_df(df)
@@ -860,9 +850,10 @@ def portfolio(mode: str = "view", tool_context: ToolContext = None) -> dict:
             }
 
         # mode == "diagnose"
-        _ensure_data_tokens(tool_context)
+        from agents.stock_data_skill import StockDataSkill
         from core.holding_diagnostic import diagnose_one_stock, format_diagnostic_text
-        from integrations.stock_hist_repository import get_stock_hist
+
+        skill = StockDataSkill(tool_context)
 
         if not state.get("positions"):
             return {
@@ -883,7 +874,7 @@ def portfolio(mode: str = "view", tool_context: ToolContext = None) -> dict:
             pos_name = pos.get("name", pos_code)
             pos_cost = float(pos.get("cost", pos.get("cost_price", 0)) or 0)
             try:
-                df = get_stock_hist(pos_code, start_date, end_date)
+                df = skill.fetch_stock_hist(pos_code, start_date, end_date)
                 if df is None or df.empty:
                     failed_count += 1
                     results.append({"code": pos_code, "name": pos_name, "error": "无行情数据"})
@@ -948,122 +939,10 @@ def get_market_overview(tool_context: ToolContext) -> dict:
         大盘概览 dict，包含各指数的涨跌幅和近期走势。
     """
     try:
-        errors: list[str] = []
-        indices = {
-            "000001.SH": "上证指数",
-            "399001.SZ": "深证成指",
-            "399006.SZ": "创业板指",
-            "000016.SH": "上证50",
-            "000905.SH": "中证500",
-        }
+        from agents.stock_data_skill import StockDataSkill
 
-        # 优先 tushare（有 token 时数据更稳定）
-        try:
-            _ensure_data_tokens(tool_context)
-            from integrations.tushare_client import get_pro
-
-            pro = get_pro()
-            if pro is not None:
-                end_date = date.today().strftime("%Y%m%d")
-                start_date = (date.today() - timedelta(days=10)).strftime("%Y%m%d")
-                result = {}
-                for ts_code, name in indices.items():
-                    try:
-                        df = pro.index_daily(
-                            ts_code=ts_code,
-                            start_date=start_date,
-                            end_date=end_date,
-                        )
-                        if df is not None and not df.empty:
-                            df = df.sort_values("trade_date")
-                            latest = df.iloc[-1]
-                            result[name] = {
-                                "ts_code": ts_code,
-                                "trade_date": str(latest.get("trade_date", "")),
-                                "close": round(float(latest.get("close", 0)), 2),
-                                "pct_chg": round(float(latest.get("pct_chg", 0)), 2),
-                                "vol": int(latest.get("vol", 0)),
-                                "amount": round(float(latest.get("amount", 0)), 2),
-                            }
-                    except Exception as e:
-                        result[name] = {"error": str(e)}
-                if result:
-                    return {"indices": result, "source": "tushare"}
-            else:
-                errors.append("tushare: token 未配置或 client 不可用")
-        except Exception as e:
-            errors.append(f"tushare: {e}")
-
-        # 兜底 akshare（无需 token）
-        try:
-            import akshare as ak
-
-            spot = ak.stock_zh_index_spot_em()
-            if spot is None or spot.empty:
-                errors.append("akshare: stock_zh_index_spot_em 返回空")
-            else:
-                # 兼容不同版本列名
-                col_code = "代码" if "代码" in spot.columns else ("指数代码" if "指数代码" in spot.columns else "")
-                col_name = "名称" if "名称" in spot.columns else ("指数名称" if "指数名称" in spot.columns else "")
-                col_close = "最新价" if "最新价" in spot.columns else ("最新" if "最新" in spot.columns else "")
-                col_pct = "涨跌幅" if "涨跌幅" in spot.columns else ("涨跌幅(%)" if "涨跌幅(%)" in spot.columns else "")
-                col_vol = "成交量" if "成交量" in spot.columns else ""
-                col_amount = "成交额" if "成交额" in spot.columns else ""
-                if not col_code:
-                    errors.append("akshare: 缺少指数代码列")
-                else:
-                    code_to_ts = {
-                        "000001": "000001.SH",
-                        "399001": "399001.SZ",
-                        "399006": "399006.SZ",
-                        "000016": "000016.SH",
-                        "000905": "000905.SH",
-                    }
-                    target_codes = set(code_to_ts.keys())
-                    today = date.today().strftime("%Y%m%d")
-                    result = {}
-                    for _, row in spot.iterrows():
-                        code_raw = str(row.get(col_code, "") or "").strip()
-                        code = "".join(ch for ch in code_raw if ch.isdigit())[-6:]
-                        if code not in target_codes:
-                            continue
-                        name_cn = str(row.get(col_name, "") or "").strip() or indices[code_to_ts[code]]
-                        try:
-                            close_v = float(row.get(col_close, 0) or 0) if col_close else 0.0
-                        except Exception:
-                            close_v = 0.0
-                        try:
-                            pct_v = float(row.get(col_pct, 0) or 0) if col_pct else 0.0
-                        except Exception:
-                            pct_v = 0.0
-                        try:
-                            vol_v = int(float(row.get(col_vol, 0) or 0)) if col_vol else 0
-                        except Exception:
-                            vol_v = 0
-                        try:
-                            amount_v = round(float(row.get(col_amount, 0) or 0), 2) if col_amount else 0.0
-                        except Exception:
-                            amount_v = 0.0
-
-                        result[name_cn] = {
-                            "ts_code": code_to_ts[code],
-                            "trade_date": today,
-                            "close": round(close_v, 2),
-                            "pct_chg": round(pct_v, 2),
-                            "vol": vol_v,
-                            "amount": amount_v,
-                        }
-
-                    if result:
-                        return {"indices": result, "source": "akshare"}
-                    errors.append("akshare: 目标指数未命中")
-        except Exception as e:
-            errors.append(f"akshare: {e}")
-
-        return {
-            "error": "无法获取大盘数据",
-            "details": "; ".join(errors) if errors else "unknown",
-        }
+        skill = StockDataSkill(tool_context)
+        return skill.fetch_index_overview()
     except Exception as e:
         logger.exception("get_market_overview error")
         return {"error": str(e)}
@@ -1130,12 +1009,12 @@ def _fetch_market_history_frame(symbol: str, days: int, tool_context: ToolContex
     else:
         errors.append("tickflow: TICKFLOW_API_KEY 未配置")
     try:
-        _ensure_data_tokens(tool_context)
-        from integrations.data_source import fetch_index_hist
+        from agents.stock_data_skill import StockDataSkill
 
+        skill = StockDataSkill(tool_context)
         end = date.today()
         start = end - timedelta(days=int(days * 2.4) + 30)
-        return fetch_index_hist(symbol, start, end), "tushare/akshare", errors
+        return skill.fetch_index_hist(symbol, start, end), "tushare/akshare", errors
     except Exception as e:
         errors.append(f"tushare/akshare: {e}")
     raise RuntimeError("; ".join(errors))
@@ -2278,9 +2157,9 @@ def get_data_source_health(tool_context: ToolContext) -> dict[str, Any]:
     Used for diagnosing data fetch issues and monitoring source availability.
     """
     try:
-        from integrations.data_source import get_data_source_health as _health
+        from agents.stock_data_skill import StockDataSkill
 
-        return _health()
+        return StockDataSkill(tool_context).health()
     except Exception as e:
         return {"error": f"获取数据源健康状态失败: {e}"}
 

@@ -10,7 +10,6 @@ import contextlib
 import json
 import logging
 import re
-import sys
 import threading
 import time
 import uuid
@@ -182,10 +181,10 @@ class ChatLog(RichLog):
         extracted = selection.extract(full_text)
         return extracted, "\n"
 
-    def render_line(self, y: int) -> "Strip":
-        from textual.strip import Strip as _S
+    def render_line(self, y: int) -> _S:
         from rich.segment import Segment
         from rich.style import Style
+        from textual.strip import Strip as _S
 
         scroll_x, scroll_y = self.scroll_offset
         abs_y = scroll_y + y

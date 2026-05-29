@@ -1,7 +1,7 @@
 """
 Wyckoff Funnel 5 层漏斗筛选引擎
 
-Layer 1: 剥离垃圾（ST / 北交所 / 科创板 / 市值 / 成交额）
+Layer 1: 剥离垃圾（ST / 北交所 / 市值 / 成交额）
 Layer 2: 七通道甄选（主升/潜伏/吸筹/地量/暗中护盘/趋势延续/点火破局）
 Layer 2.5: Markup 加速检测
 Layer 3: 板块共振（行业分布 Top-N + RPS 动量）
@@ -368,7 +368,7 @@ def resolve_ai_candidate_policy(
 
 
 def _is_main_or_chinext(code: str) -> bool:
-    return code.startswith(("600", "601", "603", "605", "000", "001", "002", "003", "300", "301"))
+    return code.startswith(("600", "601", "603", "605", "688", "000", "001", "002", "003", "300", "301"))
 
 
 def layer1_filter(
@@ -381,7 +381,7 @@ def layer1_filter(
     financial_map: dict[str, dict] | None = None,
 ) -> list[str]:
     """
-    硬过滤：剔除 ST、北交所/科创板、市值<阈值、近期均成交额<阈值。
+    硬过滤：剔除 ST、北交所、市值<阈值、近期均成交额<阈值。
     market_cap_map 单位：亿元。若 market_cap_map 为空则跳过市值过滤。
     financial_map 来自 TickFlow，可选；有则追加 ROE / 资产负债率硬过滤。
     """

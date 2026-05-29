@@ -392,6 +392,7 @@ async function fetchLiveIndexQuotes(deps: ToolDeps, key: string): Promise<string
     { code: '000001.SH', label: '上证指数' },
     { code: '399001.SZ', label: '深证成指' },
     { code: '399006.SZ', label: '创业板指' },
+    { code: '000688.SH', label: '科创50' },
   ]
   const liveLines: string[] = ['📡 实时行情（TickFlow）：']
   for (const idx of indices) {
@@ -434,13 +435,14 @@ export async function execMarketOverview(deps: ToolDeps, userId?: string): Promi
   return live || '暂无最新市场信号数据（实时行情获取失败）。请稍后重试或检查 TickFlow 权限。'
 }
 
-type MarketIndexKey = 'sse' | 'csi300' | 'szse' | 'chinext'
+type MarketIndexKey = 'sse' | 'csi300' | 'szse' | 'chinext' | 'star50'
 
 const MARKET_INDEXES: Record<MarketIndexKey, { code: string; name: string }> = {
   sse: { code: '000001.SH', name: '上证指数' },
   csi300: { code: '000300.SH', name: '沪深300' },
   szse: { code: '399001.SZ', name: '深证成指' },
   chinext: { code: '399006.SZ', name: '创业板指' },
+  star50: { code: '000688.SH', name: '科创50' },
 }
 
 async function analyzeMarketDigest(

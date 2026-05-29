@@ -494,7 +494,7 @@ function createMarketHistoryTool(deps: ToolDeps, userId: string, model: unknown)
     description: '回看大盘指数过去N个交易日K线，分析量价关系、威科夫阶段、支撑压力和当前位置。适合“过去100个交易日”“回看大盘”“量价关系”等问题。',
     inputSchema: z.object({
       days: z.number().nullable().describe('回看交易日数量，默认100，范围1-250'),
-      index: z.enum(['sse', 'csi300', 'szse', 'chinext']).nullable().describe('指数：sse=上证指数，csi300=沪深300，szse=深证成指，chinext=创业板指；默认sse'),
+      index: z.enum(['sse', 'csi300', 'szse', 'chinext', 'star50']).nullable().describe('指数：sse=上证指数，csi300=沪深300，szse=深证成指，chinext=创业板指，star50=科创50；默认sse'),
     }),
     execute: ({ days, index }) => execMarketHistory(deps, userId, model, days ?? 100, index ?? 'sse'),
   })

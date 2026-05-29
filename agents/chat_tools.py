@@ -2165,6 +2165,183 @@ def get_data_source_health(tool_context: ToolContext) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Tool 16: 组合风险管理
+# ---------------------------------------------------------------------------
+
+
+def portfolio_risk(positions: list[dict], lookback_days: int = 252, tool_context: ToolContext = None) -> dict:
+    """分析持仓组合风险：VaR/CVaR、相关性矩阵、压力测试、最大回撤。
+
+    Args:
+        positions: 持仓列表 [{"code": "000001", "shares": 1000, "cost_price": 12.5}, ...]
+        lookback_days: 回看交易日数，默认 252（约1年）
+
+    Returns:
+        完整风险报告 dict，含 VaR、波动率、最大回撤、相关性预警、压力测试。
+    """
+    try:
+        from tools.portfolio_risk import generate_risk_report
+
+        _ensure_data_tokens(tool_context)
+        return generate_risk_report(positions, lookback_days)
+    except Exception as e:
+        logger.exception("portfolio_risk error")
+        return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Tool 17: Walk-Forward 优化
+# ---------------------------------------------------------------------------
+
+
+def walk_forward_optimize(
+    trades: list[dict],
+    param_grid: dict[str, list[float]] | None = None,
+    train_months: int = 12,
+    test_months: int = 3,
+    tool_context: ToolContext = None,
+) -> dict:
+    """Walk-Forward 滚动窗口参数寻优，防止回测过拟合。
+
+    将历史区间切分为多个训练/测试窗口，每窗网格搜索最优参数，验证样本外表现。
+
+    Args:
+        trades: 历史交易记录 [{signal_date, ret_pct, score}, ...]，至少 10 笔
+        param_grid: 参数搜索空间，如 {"min_score": [0.1, 0.15, 0.2]}
+        train_months: 训练窗月数，默认 12
+        test_months: 测试窗月数，默认 3
+
+    Returns:
+        Walk-Forward 报告，含各窗口明细、样本外夏普、参数稳定性、推荐参数。
+    """
+    try:
+        from datetime import date, timedelta
+
+        import pandas as pd
+
+        from tools.walk_forward_optimizer import run_walk_forward
+
+        if not trades or len(trades) < 10:
+            return {"error": "交易记录不足，至少需要 10 笔"}
+        df = pd.DataFrame(trades)
+        if param_grid is None:
+            param_grid = {"min_score": [0.0, 0.05, 0.10, 0.15, 0.20]}
+        end = date.today()
+        start = end - timedelta(days=max(train_months + test_months, 18) * 31)
+        return run_walk_forward(df, param_grid, start, end, train_months, test_months)
+    except Exception as e:
+        logger.exception("walk_forward_optimize error")
+        return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Tool 18: Monte Carlo 模拟
+# ---------------------------------------------------------------------------
+
+
+def monte_carlo_simulate(
+    trade_returns: list[float],
+    n_simulations: int = 5000,
+    n_trades_per_run: int = 100,
+    initial_capital: float = 100000.0,
+    mode: str = "bootstrap",
+    tool_context: ToolContext = None,
+) -> dict:
+    """Monte Carlo 模拟：基于历史交易收益分布，生成概率化未来情景。
+
+    Args:
+        trade_returns: 历史交易收益率列表（单位：%，如 [5.2, -3.1, 8.7]）
+        n_simulations: 模拟次数，默认 5000
+        n_trades_per_run: 每次模拟的交易笔数，默认 100
+        initial_capital: 初始资金，默认 100000
+        mode: 采样模式 "bootstrap"（重采样）或 "parametric"（参数法）
+
+    Returns:
+        Monte Carlo 统计：权益分位数、VaR95/CVaR95、盈利概率、破产概率、权益曲线百分位带。
+    """
+    try:
+        from tools.monte_carlo_simulator import run_monte_carlo
+
+        return run_monte_carlo(trade_returns, n_simulations, n_trades_per_run, initial_capital, mode)
+    except Exception as e:
+        logger.exception("monte_carlo_simulate error")
+        return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Tool 19: 条件预警管理
+# ---------------------------------------------------------------------------
+
+
+def manage_alerts(
+    action: str = "list",
+    rule_id: str = "",
+    rule_spec: dict | None = None,
+    tool_context: ToolContext = None,
+) -> dict:
+    """管理条件预警规则：查看、添加、删除、触发评估。
+
+    Args:
+        action: 操作类型 — "list"(查看全部) | "add"(添加) | "delete"(删除) | "run"(运行评估)
+        rule_id: 规则 ID（delete/run 时使用）
+        rule_spec: 规则定义 dict（add 时使用），格式见 tools/alert_engine.py
+
+    Returns:
+        操作结果或规则列表。
+    """
+    try:
+        from tools.alert_engine import add_rule, delete_rule, list_rules, run_engine
+
+        _ensure_data_tokens(tool_context)
+        action = str(action or "list").strip().lower()
+        if action == "list":
+            rules = list_rules()
+            return {"alerts": rules, "total": len(rules)}
+        if action == "add":
+            if not rule_spec:
+                return {"error": "add 操作需要提供 rule_spec"}
+            return add_rule(rule_spec)
+        if action == "delete":
+            if not rule_id:
+                return {"error": "delete 操作需要提供 rule_id"}
+            return delete_rule(str(rule_id))
+        if action == "run":
+            return run_engine(rule_id=str(rule_id).strip() or None, dry_run=False)
+        return {"error": f"未知操作: {action}，支持 list/add/delete/run"}
+    except Exception as e:
+        logger.exception("manage_alerts error")
+        return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Tool 20: 参数敏感性分析
+# ---------------------------------------------------------------------------
+
+
+def param_sensitivity(
+    trades: list[dict],
+    param_grid: dict[str, list[float]] | None = None,
+    tool_context: ToolContext = None,
+) -> dict:
+    """分析回测参数的敏感性：变动各参数，观察胜率/夏普/最大回撤变化。
+
+    Args:
+        trades: 历史交易记录 [{ret_pct, score, vol_ratio}, ...]
+        param_grid: 参数搜索空间，默认含 min_score/min_vol_ratio/max_ret_pct/min_ret_pct
+
+    Returns:
+        敏感性分析报告，含基准指标、各参数 sweep 结果、敏感度排名。
+    """
+    try:
+        from tools.param_sensitivity import run_param_sensitivity
+
+        return run_param_sensitivity(trades, param_grid)
+    except Exception as e:
+        logger.exception("param_sensitivity error")
+        return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
 # 工具列表导出（Web/MCP/CLI 端，不含 exec/read/write/web_fetch）
 # ---------------------------------------------------------------------------
 
@@ -2181,4 +2358,9 @@ WYCKOFF_TOOLS = [
     update_portfolio,
     run_backtest,
     get_data_source_health,
+    portfolio_risk,
+    walk_forward_optimize,
+    monte_carlo_simulate,
+    manage_alerts,
+    param_sensitivity,
 ]

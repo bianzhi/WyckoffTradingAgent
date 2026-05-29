@@ -1,354 +1,266 @@
 import { useState, useEffect, useRef } from 'react'
-import { ExternalLink } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
-import { PROVIDERS, PROVIDER_LABELS, PROVIDER_BASE_URLS } from '@wyckoff/shared'
-import type { Provider } from '@wyckoff/shared'
-import { usePreferences } from '@/lib/preferences'
-import { loadSystemConfig } from '@/lib/system-config'
+import { PROVIDERS, PROVIDER_LABELS } from '@wyckoff/shared'
 
-interface ProviderConfig {
-  api_key: string
-  model: string
-  base_url: string
-}
+type UserRole = 'admin' | 'member'
 
-interface SystemConfigState {
-  llm_provider: string | null
-  llm_api_key: string | null
-  llm_model: string | null
-  llm_base_url: string | null
-  tickflow_api_key: string | null
-  tushare_token: string | null
+// ── simple Input component ──────────────────────────────────
+function Input(p: { label: string; type?: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <div>
+      <label className="mb-1 block text-xs font-medium text-muted-foreground">{p.label}</label>
+      <input
+        type={p.type || 'text'}
+        value={p.value}
+        onChange={(e) => p.onChange(e.target.value)}
+        placeholder={p.placeholder}
+        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+      />
+    </div>
+  )
 }
 
 export function SettingsPage() {
   const user = useAuthStore((s) => s.user)
-  const { t } = usePreferences()
-  const [chatProvider, setChatProvider] = useState<Provider>('1route')
-  const [configs, setConfigs] = useState<Record<string, ProviderConfig>>({})
-  const [tickflowKey, setTickflowKey] = useState('')
-  const [feishuWebhook, setFeishuWebhook] = useState('')
-  const [wecomWebhook, setWecomWebhook] = useState('')
-  const [dingtalkWebhook, setDingtalkWebhook] = useState('')
-  const [tgBotToken, setTgBotToken] = useState('')
-  const [tgChatId, setTgChatId] = useState('')
+  const [role, setRole] = useState<UserRole | null>(null)
+  const [roleLoading, setRoleLoading] = useState(true)
+
+  // ── admin state (system_settings) ─────────────────────────
+  const [systemSettings, setSystemSettings] = useState<Record<string, string>>({})
+  const [systemLoading, setSystemLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState('')
   const [toastKind, setToastKind] = useState<'success' | 'error'>('success')
   const toastTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
-  const [systemConfig, setSystemConfig] = useState<SystemConfigState | null>(null)
 
   useEffect(() => {
     if (!user) return
-    loadSettings()
+    loadRole()
   }, [user])
 
   useEffect(() => () => clearTimeout(toastTimerRef.current), [])
 
-  async function loadSettings() {
-    const [{ data }, sys] = await Promise.all([
-      supabase
-        .from('user_settings')
-        .select('*')
-        .eq('user_id', user!.id)
-        .maybeSingle(),
-      loadSystemConfig().catch(() => null),
-    ])
-
-    if (sys) {
-      setSystemConfig({
-        llm_provider: sys.llm_provider,
-        llm_api_key: sys.llm_api_key,
-        llm_model: sys.llm_model,
-        llm_base_url: sys.llm_base_url,
-        tickflow_api_key: sys.tickflow_api_key,
-        tushare_token: sys.tushare_token,
-      })
-    }
-
-    // Use system TickFlow/Tushare keys if user hasn't set their own
-    if (!data?.tickflow_api_key && sys?.tickflow_api_key) {
-      setTickflowKey(sys.tickflow_api_key)
-    } else {
-      setTickflowKey(data?.tickflow_api_key || '')
-    }
-
-    // Pre-fill LLM provider configs from user data or system defaults
-    const cfgs: Record<string, ProviderConfig> = {}
-    const custom = data ? (typeof data.custom_providers === 'string'
-      ? JSON.parse(data.custom_providers || '{}')
-      : (data.custom_providers || {})) : {}
-    const sysProvider = sys?.llm_provider || ''
-
-    if (data) {
-      const savedProvider = data.chat_provider as Provider
-      setChatProvider(PROVIDERS.includes(savedProvider) ? savedProvider : '1route')
-      setFeishuWebhook(data.feishu_webhook || '')
-      setWecomWebhook(data.wecom_webhook || '')
-      setDingtalkWebhook(data.dingtalk_webhook || '')
-      setTgBotToken(data.tg_bot_token || '')
-      setTgChatId(data.tg_chat_id || '')
-    } else if (sysProvider) {
-      // New user with no settings — use system provider as default
-      setChatProvider(sysProvider as Provider)
-    }
-
-    for (const p of PROVIDERS) {
-      const isSysProvider = p === sysProvider
-      if (p === 'gemini') {
-        cfgs[p] = {
-          api_key: data?.gemini_api_key || '',
-          model: data?.gemini_model || '',
-          base_url: data?.gemini_base_url || '',
-        }
-      } else if (p === 'openai') {
-        cfgs[p] = {
-          api_key: data?.openai_api_key || '',
-          model: data?.openai_model || '',
-          base_url: data?.openai_base_url || PROVIDER_BASE_URLS.openai,
-        }
-      } else if (p === 'deepseek') {
-        cfgs[p] = {
-          api_key: data?.deepseek_api_key || (isSysProvider ? (sys?.llm_api_key || '') : ''),
-          model: data?.deepseek_model || (isSysProvider ? (sys?.llm_model || 'deepseek-chat') : ''),
-          base_url: data?.deepseek_base_url || (isSysProvider ? (sys?.llm_base_url || 'https://api.deepseek.com/v1') : PROVIDER_BASE_URLS.deepseek),
-        }
-      } else if (p === 'anthropic') {
-        cfgs[p] = {
-          api_key: data?.anthropic_api_key || (isSysProvider ? (sys?.llm_api_key || '') : ''),
-          model: data?.anthropic_model || (isSysProvider ? (sys?.llm_model || '') : ''),
-          base_url: data?.anthropic_base_url || '',
-        }
+  async function loadRole() {
+    setRoleLoading(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const headers: Record<string, string> = {}
+      if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+      const res = await fetch('/api/settings/role', { headers })
+      if (res.ok) {
+        const json = await res.json()
+        setRole(json.role || 'member')
       } else {
-        const info = custom[p] || {}
-        cfgs[p] = {
-          api_key: info.apikey || info.api_key || (isSysProvider ? (sys?.llm_api_key || '') : ''),
-          model: info.model || (isSysProvider ? (sys?.llm_model || '') : ''),
-          base_url: info.baseurl || info.base_url || PROVIDER_BASE_URLS[p] || '',
-        }
+        setRole('member')
       }
+    } catch {
+      setRole('member')
     }
-    setConfigs(cfgs)
+    setRoleLoading(false)
   }
 
-  function updateConfig(provider: string, field: keyof ProviderConfig, value: string) {
-    setConfigs((prev) => {
-      const current = prev[provider] || { api_key: '', model: '', base_url: '' }
-      return { ...prev, [provider]: { ...current, [field]: value } }
-    })
+  useEffect(() => {
+    if (role === 'admin') loadSystemSettings()
+  }, [role])
+
+  async function loadSystemSettings() {
+    setSystemLoading(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const headers: Record<string, string> = {}
+      if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+      const res = await fetch('/api/settings/admin', { headers })
+      if (res.ok) {
+        const json = await res.json()
+        setSystemSettings(json as Record<string, string>)
+      }
+    } catch { /* keep defaults */ }
+    setSystemLoading(false)
   }
 
-  async function handleSave() {
-    if (!user) return
+  function updateSystemSetting(key: string, value: string) {
+    setSystemSettings((prev) => ({ ...prev, [key]: value }))
+  }
+
+  async function handleAdminSave() {
     setSaving(true)
     setToast('')
-
-    const custom_providers: Record<string, object> = {}
-    for (const p of ['1route'] as const) {
-      const c = configs[p]
-      if (c) {
-        custom_providers[p] = { apikey: c.api_key, model: c.model, baseurl: c.base_url }
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+      const res = await fetch('/api/settings/admin', {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(systemSettings),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Failed')
       }
+      setToastKind('success')
+      setToast('系统配置已保存')
+    } catch (e: any) {
+      setToastKind('error')
+      setToast(e.message || '保存失败')
     }
-
-    const settings = {
-      user_id: user.id,
-      chat_provider: chatProvider,
-      gemini_api_key: configs.gemini?.api_key || '',
-      gemini_model: configs.gemini?.model || '',
-      gemini_base_url: configs.gemini?.base_url || '',
-      openai_api_key: configs.openai?.api_key || '',
-      openai_model: configs.openai?.model || '',
-      openai_base_url: configs.openai?.base_url || '',
-      deepseek_api_key: configs.deepseek?.api_key || '',
-      deepseek_model: configs.deepseek?.model || '',
-      deepseek_base_url: configs.deepseek?.base_url || '',
-      anthropic_api_key: configs.anthropic?.api_key || '',
-      anthropic_model: configs.anthropic?.model || '',
-      anthropic_base_url: configs.anthropic?.base_url || '',
-      custom_providers,
-      tickflow_api_key: tickflowKey,
-      feishu_webhook: feishuWebhook,
-      wecom_webhook: wecomWebhook,
-      dingtalk_webhook: dingtalkWebhook,
-      tg_bot_token: tgBotToken,
-      tg_chat_id: tgChatId,
-    }
-
-    const { error } = await supabase.from('user_settings').upsert(settings)
     setSaving(false)
-    setToastKind(error ? 'error' : 'success')
-    setToast(error ? t('settings.saveFailed', { message: error.message }) : t('settings.saved'))
     clearTimeout(toastTimerRef.current)
     toastTimerRef.current = setTimeout(() => setToast(''), 3000)
+  }
+
+  // ── render ────────────────────────────────────────────────
+  if (roleLoading) {
+    return <div className="h-full flex items-center justify-center text-sm text-muted-foreground">加载中…</div>
   }
 
   return (
     <div className="h-full overflow-auto p-6">
       <div className="mx-auto max-w-2xl">
-      <h1 className="mb-6 text-xl font-semibold">{t('settings.title')}</h1>
 
-      {systemConfig?.llm_api_key && (
-        <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200">
-          管理员已配置系统默认大模型与数据源，新用户无需额外设置即可直接使用。您也可以在下方填入个人密钥覆盖默认值。
-        </div>
-      )}
-
-      {toast && (
-        <div className={`mb-4 rounded-lg px-4 py-2 text-sm ${toastKind === 'error' ? 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-200' : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-200'}`}>
-          {toast}
-        </div>
-      )}
-
-      {user && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-sm font-medium text-muted-foreground">{t('settings.account')}</h2>
-          <div className="space-y-2 rounded-lg border border-border px-4 py-3 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Email</span>
-              <span>{user.email}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">User ID</span>
-              <span className="font-mono text-xs select-all">{user.id}</span>
-            </div>
+        {toast && (
+          <div className={`mb-4 rounded-lg px-4 py-2 text-sm ${toastKind === 'error' ? 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-200' : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-200'}`}>
+            {toast}
           </div>
-        </section>
-      )}
+        )}
 
-      <section className="mb-8">
-        <h2 className="mb-3 text-sm font-medium text-muted-foreground">{t('settings.dataSources')}</h2>
-        <div className="space-y-3">
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
-            {t('settings.tickflowPromo')}
-            <a
-              href="https://tickflow.org/auth/register?ref=5N4NKTCPL4"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="ml-1 inline-flex items-center gap-1 font-medium text-emerald-900 hover:underline dark:text-emerald-100"
-            >
-              {t('settings.purchaseLink')}
-              <ExternalLink size={12} />
-            </a>
-          </div>
-          <Input label="TickFlow API Key" type="password" value={tickflowKey} onChange={setTickflowKey} placeholder="tf-..." />
-        </div>
-      </section>
-
-      <section className="mb-8">
-        <h2 className="mb-3 text-sm font-medium text-muted-foreground">{t('settings.modelConfig')}</h2>
-        <div className="mb-4 rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2 text-xs text-indigo-800 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-200">
-          {t('settings.oneRoutePromo')}
-          <a
-            href="https://www.1route.dev/register?aff=359904261"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="ml-1 inline-flex items-center gap-1 font-medium text-indigo-900 hover:underline dark:text-indigo-100"
-          >
-            {t('settings.purchaseLink')}
-            <ExternalLink size={12} />
-          </a>
-        </div>
-        <div className="mb-4">
-          <label className="mb-1.5 block text-sm font-medium">{t('settings.provider')}</label>
-          <select
-            value={chatProvider}
-            onChange={(e) => setChatProvider(e.target.value as Provider)}
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-          >
-            {PROVIDERS.map((p) => (
-              <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
-            ))}
-          </select>
-        </div>
-        <div className="space-y-4">
-          {PROVIDERS.map((p) => (
-            <details key={p} className="rounded-lg border border-border">
-              <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium">
-                {PROVIDER_LABELS[p]}
-                {configs[p]?.api_key && <span className="ml-2 text-indigo-600">●</span>}
-              </summary>
-              <div className="space-y-3 border-t border-border px-4 py-3">
-                {p === '1route' && (
-                  <div className="rounded-md bg-indigo-50 px-2.5 py-2 text-xs text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-200">
-                    {t('settings.oneRouteNoAccount')}
-                    <a
-                      href="https://www.1route.dev/register?aff=359904261"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="ml-1 inline-flex items-center gap-1 font-medium text-indigo-900 hover:underline dark:text-indigo-100"
-                    >
-                      {t('settings.oneRouteInvite')}
-                      <ExternalLink size={12} />
-                    </a>
-                  </div>
-                )}
-                <Input
-                  label={t('settings.apiKey')}
-                  type="password"
-                  value={configs[p]?.api_key || ''}
-                  onChange={(v) => updateConfig(p, 'api_key', v)}
-                  placeholder="sk-..."
-                />
-                <Input
-                  label={t('settings.model')}
-                  value={configs[p]?.model || ''}
-                  onChange={(v) => updateConfig(p, 'model', v)}
-                  placeholder={p === '1route' ? 'gpt-5.5' : ''}
-                />
-                <Input
-                  label={t('settings.baseUrl')}
-                  value={configs[p]?.base_url || ''}
-                  onChange={(v) => updateConfig(p, 'base_url', v)}
-                  placeholder={PROVIDER_BASE_URLS[p]}
-                />
+        {/* ── 账户信息 (所有角色可见) ───────────────────── */}
+        {user && (
+          <section className="mb-8">
+            <h2 className="mb-3 text-sm font-medium text-muted-foreground">账户</h2>
+            <div className="space-y-2 rounded-lg border border-border px-4 py-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Email</span>
+                <span>{user.email}</span>
               </div>
-            </details>
-          ))}
-        </div>
-      </section>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">角色</span>
+                <span className={role === 'admin' ? 'font-medium text-indigo-600 dark:text-indigo-400' : ''}>
+                  {role === 'admin' ? '管理员' : '普通用户'}
+                </span>
+              </div>
+            </div>
+          </section>
+        )}
 
-      <section className="mb-8">
-        <h2 className="mb-3 text-sm font-medium text-muted-foreground">{t('settings.notifications')}</h2>
-        <div className="space-y-3">
-          <Input label={t('settings.feishuWebhook')} type="password" value={feishuWebhook} onChange={setFeishuWebhook} />
-          <Input label={t('settings.wecomWebhook')} type="password" value={wecomWebhook} onChange={setWecomWebhook} />
-          <Input label={t('settings.dingtalkWebhook')} type="password" value={dingtalkWebhook} onChange={setDingtalkWebhook} />
-          <Input label="Telegram Bot Token" type="password" value={tgBotToken} onChange={setTgBotToken} />
-          <Input label="Telegram Chat ID" value={tgChatId} onChange={setTgChatId} />
-        </div>
-      </section>
+        {/* ── 管理员面板 ──────────────────────────────────── */}
+        {role === 'admin' && (
+          <>
+            <section className="mb-8">
+              <h2 className="mb-3 text-sm font-medium text-muted-foreground">大模型配置</h2>
+              {systemLoading ? (
+                <div className="text-sm text-muted-foreground">加载中…</div>
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">默认 Provider</label>
+                    <select
+                      value={systemSettings.llm_provider || ''}
+                      onChange={(e) => updateSystemSetting('llm_provider', e.target.value)}
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                    >
+                      <option value="">未设置</option>
+                      {PROVIDERS.map((p) => (
+                        <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <Input
+                    label="API Key"
+                    type="password"
+                    value={systemSettings.llm_api_key || ''}
+                    onChange={(v) => updateSystemSetting('llm_api_key', v)}
+                    placeholder="sk-..."
+                  />
+                  <Input
+                    label="默认模型"
+                    value={systemSettings.llm_model || ''}
+                    onChange={(v) => updateSystemSetting('llm_model', v)}
+                    placeholder="deepseek-chat"
+                  />
+                  <Input
+                    label="Base URL"
+                    value={systemSettings.llm_base_url || ''}
+                    onChange={(v) => updateSystemSetting('llm_base_url', v)}
+                    placeholder="https://api.deepseek.com/v1"
+                  />
+                </div>
+              )}
+            </section>
 
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
-      >
-        {saving ? t('settings.saving') : t('settings.saveConfig')}
-      </button>
+            <section className="mb-8">
+              <h2 className="mb-3 text-sm font-medium text-muted-foreground">数据源</h2>
+              {systemLoading ? (
+                <div className="text-sm text-muted-foreground">加载中…</div>
+              ) : (
+                <div className="space-y-3">
+                  <Input
+                    label="TickFlow API Key"
+                    type="password"
+                    value={systemSettings.tickflow_api_key || ''}
+                    onChange={(v) => updateSystemSetting('tickflow_api_key', v)}
+                    placeholder="tf-..."
+                  />
+                  <Input
+                    label="Tushare Token"
+                    type="password"
+                    value={systemSettings.tushare_token || ''}
+                    onChange={(v) => updateSystemSetting('tushare_token', v)}
+                    placeholder="token..."
+                  />
+                </div>
+              )}
+            </section>
+
+            <section className="mb-8">
+              <h2 className="mb-3 text-sm font-medium text-muted-foreground">通知 (预留)</h2>
+              {systemLoading ? (
+                <div className="text-sm text-muted-foreground">加载中…</div>
+              ) : (
+                <div className="space-y-3">
+                  <Input
+                    label="飞书 Webhook"
+                    type="password"
+                    value={systemSettings.feishu_webhook || ''}
+                    onChange={(v) => updateSystemSetting('feishu_webhook', v)}
+                  />
+                  <Input
+                    label="企业微信 Webhook"
+                    type="password"
+                    value={systemSettings.wecom_webhook || ''}
+                    onChange={(v) => updateSystemSetting('wecom_webhook', v)}
+                  />
+                  <Input
+                    label="钉钉 Webhook"
+                    type="password"
+                    value={systemSettings.dingtalk_webhook || ''}
+                    onChange={(v) => updateSystemSetting('dingtalk_webhook', v)}
+                  />
+                </div>
+              )}
+            </section>
+
+            <button
+              onClick={handleAdminSave}
+              disabled={saving || systemLoading}
+              className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+            >
+              {saving ? '保存中…' : '保存系统配置'}
+            </button>
+          </>
+        )}
+
+        {/* ── 普通用户提示 ────────────────────────────────── */}
+        {role === 'member' && (
+          <section className="mb-8">
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200">
+              系统资源（大模型、数据源、通知渠道）已由管理员集中配置，您无需额外设置即可直接使用。
+            </div>
+          </section>
+        )}
+
       </div>
-    </div>
-  )
-}
-
-function Input({ label, value, onChange, type = 'text', placeholder = '' }: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  type?: string
-  placeholder?: string
-}) {
-  return (
-    <div>
-      <label className="mb-1 block text-xs text-muted-foreground">{label}</label>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring/20"
-      />
     </div>
   )
 }

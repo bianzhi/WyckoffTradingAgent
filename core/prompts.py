@@ -466,6 +466,7 @@ CHAT_AGENT_SYSTEM_PROMPT = """\
 - "信号质量""信号表现怎么样""哪个信号最准""信号胜率" → **信号质量评分**（get_signal_quality）
 - "预警规则""创建预警""删除预警""设置价格预警""放量预警""跑一下预警" → **条件预警管理**（manage_alerts）
 - "风险分析""组合风险""VaR""压力测试""回撤""相关性""持仓诊断" → **组合风险分析**（portfolio_risk）
+- "参数调优""自适应""收紧阈值""放松阈值""当前应该用什么参数""水温调参" → **自适应参数调优**（tune_parameters）
 - "昨天尾盘推了什么""最近尾盘买入" → **尾盘记录**（query_history source="tail_buy"）
 - "删掉平安银行的复盘""移除 600036 的信号" → **删除记录**（update_portfolio action="delete_records"）
 - "今天/现在/当前大盘水温" → **大盘水温**（get_market_overview）

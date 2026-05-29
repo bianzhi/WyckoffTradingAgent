@@ -14,6 +14,7 @@ import {
   execMarketHistory,
   execGetSignalQuality,
   execPortfolioRisk,
+  execTuneParameters,
 } from '../chat-tools'
 
 // ── mock DataSkill ─────────────────────────────────────────
@@ -31,6 +32,7 @@ vi.mock('../data-skill', () => ({
     fetchIntraday: vi.fn().mockResolvedValue({ symbol: '', periods: {}, error: 'no-key' }),
     fetchSignalQuality: vi.fn().mockResolvedValue({ report: '', error: 'no-key' }),
     fetchPortfolioRisk: vi.fn().mockResolvedValue({ error: 'no-key' }),
+    fetchParameterTuning: vi.fn().mockResolvedValue({ error: 'no-key' }),
   },
 }))
 
@@ -528,5 +530,48 @@ describe('execPortfolioRisk', () => {
     expect(result).toContain('000001-600519')
     expect(result).toContain('压力测试')
     expect(result).toContain('股灾 (-30%)')
+  })
+})
+
+describe('execTuneParameters', () => {
+  it('returns error from API', async () => {
+    vi.mocked(dataSkill).fetchParameterTuning.mockResolvedValue({ error: '无法获取基准指数数据' })
+    const result = await execTuneParameters(null, null, null)
+    expect(result).toContain('参数调优失败')
+    expect(result).toContain('无法获取基准指数数据')
+  })
+
+  it('returns empty message when no data', async () => {
+    vi.mocked(dataSkill).fetchParameterTuning.mockResolvedValue({})
+    const result = await execTuneParameters(null, null, null)
+    expect(result).toContain('参数调优对比')
+  })
+
+  it('renders full tuning report', async () => {
+    vi.mocked(dataSkill).fetchParameterTuning.mockResolvedValue({
+      regime: 'RISK_OFF',
+      market_context: { close: 3050.2, ma50: 3120.5, ma200: 3001.8, recent3_cum_pct: -3.5, main_volume_state: '缩量', main_vol_ratio_5_20: 0.72, smallcap_recent3_cum_pct: -5.2 },
+      panic: { triggered: false, reasons: [] },
+      repair: { triggered: false, reasons: [] },
+      breadth: { ratio_pct: 18.5, delta_pct: -8.2, sample_size: 4823 },
+      outlook_summary: '防守优先',
+      outlook: '次日推演：防守优先，若出现放量下压并失守MA50，继续收缩风险敞口。',
+      before_after: {
+        before: { min_avg_amount_wan: 5000, rs_min_long: 2.0, rs_min_short: 1.0, rps_fast_min: 65, rps_slow_min: 70, enable_evr_trigger: true },
+        after: { min_avg_amount_wan: 8000, rs_min_long: 2.0, rs_min_short: 0.5, rps_fast_min: 80, rps_slow_min: 75, enable_evr_trigger: true },
+        changed: { min_avg_amount_wan: true, rs_min_long: false, rs_min_short: true, rps_fast_min: true, rps_slow_min: true, enable_evr_trigger: false },
+      },
+    })
+
+    const result = await execTuneParameters('000001', '399006', 252)
+
+    expect(result).toContain('自适应参数调优报告')
+    expect(result).toContain('RISK_OFF')
+    expect(result).toContain('3050.2')
+    expect(result).toContain('缩量')
+    expect(result).toContain('18.5%')
+    expect(result).toContain('✅')
+    expect(result).toContain('—')
+    expect(result).toContain('防守优先')
   })
 })

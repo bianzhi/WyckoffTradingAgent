@@ -646,4 +646,30 @@ dataRoutes.post('/portfolio-risk', async (c) => {
   }
 })
 
+// ── POST /api/data/parameter-tuning ──────────────────────
+
+dataRoutes.post('/parameter-tuning', async (c) => {
+  try {
+    const body = await c.req.json<{ bench_code?: string; smallcap_code?: string; lookback_days?: number }>()
+    const benchCode = body.bench_code || '000001'
+    const smallcapCode = body.smallcap_code || '399006'
+    const lookback = Math.min(Math.max(body.lookback_days || 252, 60), 1000)
+    const { spawnSync } = await import('node:child_process')
+    const proc = spawnSync('python3', [
+      '-c',
+      `from tools.parameter_tuner import fetch_and_tune; import json; print(json.dumps(fetch_and_tune('${benchCode}', '${smallcapCode}', ${lookback}), ensure_ascii=False, default=str))`,
+    ], {
+      timeout: 60_000, encoding: 'utf-8',
+      env: { ...process.env, PYTHONPATH: process.env.PYTHONPATH || process.cwd() },
+      cwd: process.cwd(),
+    })
+    if (proc.error) return c.json({ error: proc.error.message }, 500)
+    try { return c.json(JSON.parse(proc.stdout?.trim() || '{}')) } catch {
+      return c.json({ error: 'parse error' }, 500)
+    }
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500)
+  }
+})
+
 export { dataRoutes }

@@ -183,4 +183,17 @@ export const dataSkill = {
     })
     return resp.json()
   },
+
+  /** 自适应参数调优 */
+  async fetchParameterTuning(benchCode?: string, smallcapCode?: string, lookbackDays?: number): Promise<Record<string, unknown>> {
+    const { supabase } = await import('./supabase')
+    const { data: { session } } = await supabase.auth.getSession()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+    const resp = await fetch('/api/data/parameter-tuning', {
+      method: 'POST', headers,
+      body: JSON.stringify({ bench_code: benchCode || '000001', smallcap_code: smallcapCode || '399006', lookback_days: lookbackDays || 252 }),
+    })
+    return resp.json()
+  },
 }

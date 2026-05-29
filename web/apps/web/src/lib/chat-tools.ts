@@ -685,6 +685,89 @@ function computeTrendDir(rows: KlineRow[]): string {
   return '横盘'
 }
 
+export async function execTuneParameters(
+  benchCode: string | null,
+  smallcapCode: string | null,
+  lookbackDays: number | null,
+): Promise<string> {
+  const result = await dataSkill.fetchParameterTuning(
+    benchCode || undefined,
+    smallcapCode || undefined,
+    lookbackDays || 252,
+  )
+  if ((result as Record<string, unknown>).error) return `⛔ 参数调优失败：${(result as Record<string, unknown>).error}`
+
+  const r = result as Record<string, unknown>
+  const mc = r.market_context as Record<string, unknown> || {}
+  const ba = r.before_after as Record<string, unknown> || {}
+  const before = ba.before as Record<string, unknown> || {}
+  const after = ba.after as Record<string, unknown> || {}
+  const changed = ba.changed as Record<string, unknown> || {}
+  const panic = r.panic as Record<string, unknown> || {}
+  const breadth = r.breadth as Record<string, unknown> || {}
+
+  const lines: string[] = []
+  lines.push(`## 自适应参数调优报告\n`)
+  lines.push(`**市场水温**: ${r.regime} | 上证 ${mc.close} (MA50: ${mc.ma50}, MA200: ${mc.ma200})\n`)
+
+  lines.push(`### 大盘状态`)
+  lines.push(`| 指标 | 值 |`)
+  lines.push(`|------|----|`)
+  if (mc.recent3_cum_pct != null) lines.push(`| 近3日涨跌 | ${mc.recent3_cum_pct}% |`)
+  if (mc.main_volume_state) lines.push(`| 量能状态 | ${mc.main_volume_state} (5/20日比 ${mc.main_vol_ratio_5_20}) |`)
+  if (mc.smallcap_recent3_cum_pct != null) lines.push(`| 创业板近3日 | ${mc.smallcap_recent3_cum_pct}% |`)
+
+  if (breadth.ratio_pct != null) {
+    lines.push(`| 市场广度 | ${breadth.ratio_pct}% (Δ${breadth.delta_pct}%, n=${breadth.sample_size}) |`)
+  }
+  if (r.breadth_note) lines.push(`\n*${r.breadth_note}*`)
+  lines.push('')
+
+  if (panic.triggered) {
+    lines.push(`### ⚠️ 恐慌触发`)
+    const reasons = panic.reasons as string[]
+    for (const rr of reasons) lines.push(`- ${rr}`)
+    lines.push('')
+  }
+  if ((r.repair as Record<string, unknown>)?.triggered) {
+    lines.push(`### 🔧 修复中`)
+    const rr = (r.repair as Record<string, unknown>).reasons as string[]
+    for (const rrr of rr) lines.push(`- ${rrr}`)
+    lines.push('')
+  }
+
+  lines.push(`### 参数调优对比`)
+  lines.push(`| 参数 | 原始值 | 调优后 | 变动 |`)
+  lines.push(`|------|--------|--------|:----:|`)
+  const paramNames: Record<string, string> = {
+    min_avg_amount_wan: 'L1 最小日均额(万)', rs_min_long: 'RS 长窗最小区间',
+    rs_min_short: 'RS 短窗最小区间', rps_fast_min: 'RPS50 最小值',
+    rps_slow_min: 'RPS120 最小值', enable_evr_trigger: 'EVR 触发',
+  }
+  for (const [k, label] of Object.entries(paramNames)) {
+    const b = before[k]
+    const a = after[k]
+    const ch = changed[k] ? '✅' : '—'
+    const bStr = typeof b === 'boolean' ? (b ? '开' : '关') : String(b ?? '—')
+    const aStr = typeof a === 'boolean' ? (a ? '开' : '关') : String(a ?? '—')
+    lines.push(`| ${label} | ${bStr} | ${aStr} | ${ch} |`)
+  }
+  lines.push('')
+
+  if (r.outlook_summary) {
+    lines.push(`### 量价推演`)
+    lines.push(`${r.outlook}\n`)
+  }
+
+  const fetchErrors = r.fetch_errors as string[] | undefined
+  if (fetchErrors && fetchErrors.length > 0) {
+    lines.push(`---`)
+    for (const e of fetchErrors) lines.push(`⚠️ ${e}`)
+  }
+
+  return lines.join('\n')
+}
+
 function computeStrength(vwapPos: number, closePos: number, m30: number, _m15: number, trendShort: string, trendMid: string, volumeConcentration: string): number {
   let score = 50
   if (vwapPos > 0.5) score += 10

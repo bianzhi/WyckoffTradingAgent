@@ -10,7 +10,7 @@ import {
   execQueryRecommendations, execQueryTailBuy, execExecutePortfolioUpdate,
   execAnalyzeStock, execScreenStocks, execGenerateAiReport, execStrategyDecision,
   execMarketHistory, execIntradayAnalysis, execGetSignalQuality,
-  execManageAlerts, execPortfolioRisk,
+  execManageAlerts, execPortfolioRisk, execTuneParameters,
 } from './chat-tools'
 
 const SYSTEM_PROMPT = `# 角色设定
@@ -53,6 +53,7 @@ const SYSTEM_PROMPT = `# 角色设定
 - "信号质量""信号表现怎么样""哪个信号最准""信号胜率" → get_signal_quality
 - "预警规则""创建预警""删除预警""设置价格预警""放量预警""跑一下预警" → manage_alerts
 - "风险分析""组合风险""VaR""压力测试""回撤""相关性" → portfolio_risk
+- "参数调优""自适应""收紧阈值""放松阈值""当前应该用什么参数""水温调参" → tune_parameters
 
 # 行为铁律
 
@@ -642,6 +643,17 @@ function buildTools(userId: string, config: LLMConfig, reasoningCache: string[])
       }),
       execute: ({ positions, lookbackDays }) =>
         execPortfolioRisk(deps, positions, lookbackDays ?? null),
+    }),
+
+    tune_parameters: tool({
+      description: '自适应参数调优：分析大盘水温（上证+创业板），计算市场广度，输出 regime 分类（RISK_ON/NEUTRAL/RISK_OFF/CRASH/PANIC_REPAIR）和漏斗参数调优建议。自动显示"原始 vs 调优后"参数对照表。',
+      inputSchema: z.object({
+        benchCode: z.string().nullable().optional().describe('基准指数代码，默认 000001（上证）'),
+        smallcapCode: z.string().nullable().optional().describe('小盘指数代码，默认 399006（创业板）'),
+        lookbackDays: z.number().nullable().optional().describe('回看交易日数，默认252'),
+      }),
+      execute: ({ benchCode, smallcapCode, lookbackDays }) =>
+        execTuneParameters(benchCode ?? null, smallcapCode ?? null, lookbackDays ?? null),
     }),
   }
 }

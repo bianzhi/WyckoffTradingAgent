@@ -566,6 +566,72 @@ export async function execManageAlerts(
   return `未知操作：${action}。支持的操作：list, add, delete, run`
 }
 
+export async function execPortfolioRisk(
+  _deps: ToolDeps,
+  positions: Array<Record<string, unknown>>,
+  lookbackDays: number | null,
+): Promise<string> {
+  if (!positions || positions.length === 0) return '⛔ 请提供持仓列表。用法：传入 positions=[{code, shares, cost_price}, ...]'
+  const result = await dataSkill.fetchPortfolioRisk(positions, lookbackDays || 252)
+  if ((result as Record<string, unknown>).error) return `⛔ 风险分析失败：${(result as Record<string, unknown>).error}`
+
+  const r = result as Record<string, unknown>
+  const portfolio = r.portfolio as Record<string, unknown>
+  const var_ = r.var as Record<string, unknown>
+  const vol = r.volatility as Record<string, unknown>
+  const mdd = r.max_drawdown as Record<string, unknown>
+  const corr = r.correlation as Record<string, unknown>
+  const stress = r.stress_test as Array<Record<string, unknown>>
+  const errors = r.fetch_errors as string[] | undefined
+
+  const lines: string[] = []
+  lines.push(`## 组合风险报告\n`)
+  lines.push(`**总市值**: ${portfolio.total_value} 元 | **持仓数**: ${portfolio.position_count}\n`)
+  lines.push(`### VaR（风险价值）`)
+  lines.push(`| 指标 | 日 VaR(%) |`)
+  lines.push(`|------|----------|`)
+  lines.push(`| 历史 VaR(95%) | ${var_.historical_95pct}% |`)
+  lines.push(`| 参数 VaR(95%) | ${var_.parametric_95pct}% |`)
+  lines.push(`| 历史 VaR(99%) | ${var_.historical_99pct}% |`)
+  lines.push(`| CVaR(95%) | ${var_.cvar_95pct}% |`)
+  lines.push(`| CVaR(99%) | ${var_.cvar_99pct}% |`)
+  lines.push(`| 组合 VaR(95%) | ${var_.portfolio_var_95pct}% |`)
+  lines.push(`| 组合 CVaR(95%) | ${var_.portfolio_cvar_95pct}% |\n`)
+
+  lines.push(`### 波动率`)
+  lines.push(`年化波动率: **${vol.annualized_vol_pct}%**\n`)
+
+  if (mdd.max_drawdown_pct != null) {
+    lines.push(`### 最大回撤`)
+    lines.push(`**${mdd.max_drawdown_pct}%** (峰值 ${mdd.peak_value} → 谷值 ${mdd.trough_value})\n`)
+  }
+
+  const hcWarnings = corr.high_correlation_warnings as string[] | undefined
+  if (hcWarnings && hcWarnings.length > 0) {
+    lines.push(`### 相关性预警`)
+    for (const w of hcWarnings) lines.push(`- ${w}`)
+    lines.push('')
+  }
+
+  if (stress && stress.length > 0) {
+    lines.push(`### 压力测试（假设市场下跌）`)
+    lines.push(`| 情景 | 损失金额 | 损失% | 剩余市值 | 剩余% |`)
+    lines.push(`|------|---------|-------|---------|-------|`)
+    for (const s of stress) {
+      lines.push(`| ${s.scenario} | ${s.loss_amount} | ${s.loss_pct}% | ${s.remaining_value} | ${s.remaining_pct}% |`)
+    }
+    lines.push('')
+  }
+
+  if (errors && errors.length > 0) {
+    lines.push(`### 数据源异常`)
+    for (const e of errors) lines.push(`- ${e}`)
+    lines.push('')
+  }
+
+  return lines.join('\n')
+}
+
 // ── intraday helpers (no data fetching) ────────────────────
 
 interface IntradayProfileWeb {

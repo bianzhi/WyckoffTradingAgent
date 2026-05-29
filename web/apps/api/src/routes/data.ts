@@ -618,4 +618,32 @@ dataRoutes.post('/alerts/run', async (c) => {
   }
 })
 
+// ── POST /api/data/portfolio-risk ────────────────────────
+
+dataRoutes.post('/portfolio-risk', async (c) => {
+  try {
+    const body = await c.req.json<{ positions: Array<Record<string, unknown>>; lookback_days?: number }>()
+    const positions = body.positions
+    if (!Array.isArray(positions) || positions.length === 0) {
+      return c.json({ error: '请提供持仓列表 positions' }, 400)
+    }
+    const lookback = Math.min(Math.max(body.lookback_days || 252, 60), 1000)
+    const { spawnSync } = await import('node:child_process')
+    const proc = spawnSync('python3', [
+      '-c',
+      `from tools.portfolio_risk import generate_risk_report; import json; print(json.dumps(generate_risk_report(json.loads('''${JSON.stringify(positions)}'''), ${lookback}), ensure_ascii=False, default=str))`,
+    ], {
+      timeout: 60_000, encoding: 'utf-8',
+      env: { ...process.env, PYTHONPATH: process.env.PYTHONPATH || process.cwd() },
+      cwd: process.cwd(),
+    })
+    if (proc.error) return c.json({ error: proc.error.message }, 500)
+    try { return c.json(JSON.parse(proc.stdout?.trim() || '{}')) } catch {
+      return c.json({ error: 'parse error' }, 500)
+    }
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500)
+  }
+})
+
 export { dataRoutes }

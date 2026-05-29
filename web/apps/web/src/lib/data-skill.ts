@@ -170,4 +170,17 @@ export const dataSkill = {
     const resp = await fetch('/api/data/alerts/run', { method: 'POST', headers, body: JSON.stringify({ dry_run: dryRun }) })
     return resp.json()
   },
+
+  /** 组合风险分析 */
+  async fetchPortfolioRisk(positions: Array<Record<string, unknown>>, lookbackDays?: number): Promise<Record<string, unknown>> {
+    const { supabase } = await import('./supabase')
+    const { data: { session } } = await supabase.auth.getSession()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+    const resp = await fetch('/api/data/portfolio-risk', {
+      method: 'POST', headers,
+      body: JSON.stringify({ positions, lookback_days: lookbackDays || 252 }),
+    })
+    return resp.json()
+  },
 }

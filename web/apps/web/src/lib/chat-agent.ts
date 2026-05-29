@@ -10,7 +10,7 @@ import {
   execQueryRecommendations, execQueryTailBuy, execExecutePortfolioUpdate,
   execAnalyzeStock, execScreenStocks, execGenerateAiReport, execStrategyDecision,
   execMarketHistory, execIntradayAnalysis, execGetSignalQuality,
-  execManageAlerts,
+  execManageAlerts, execPortfolioRisk,
 } from './chat-tools'
 
 const SYSTEM_PROMPT = `# 角色设定
@@ -52,6 +52,7 @@ const SYSTEM_PROMPT = `# 角色设定
 - "盘中怎么样" / "现在能买吗" / "今天走势如何" → intraday_analysis
 - "信号质量""信号表现怎么样""哪个信号最准""信号胜率" → get_signal_quality
 - "预警规则""创建预警""删除预警""设置价格预警""放量预警""跑一下预警" → manage_alerts
+- "风险分析""组合风险""VaR""压力测试""回撤""相关性" → portfolio_risk
 
 # 行为铁律
 
@@ -631,6 +632,16 @@ function buildTools(userId: string, config: LLMConfig, reasoningCache: string[])
       }),
       execute: ({ action, ruleId, ruleSpec }) =>
         execManageAlerts(deps, action, ruleId ?? null, ruleSpec ?? null),
+    }),
+
+    portfolio_risk: tool({
+      description: '组合风险管理：计算 VaR（历史/参数）、CVaR、最大回撤、相关性矩阵、压力测试。输入持仓列表 [{code, shares, cost_price}, ...] 和 lookbackDays（默认252≈1年），输出完整风险报告，包括高相关性警告和6种压力情景测试。',
+      inputSchema: z.object({
+        positions: z.array(z.record(z.unknown())).describe('持仓列表：[{code:"000001", shares:1000, cost_price:12.5}, ...]'),
+        lookbackDays: z.number().nullable().optional().describe('回看交易日数，默认252（约1年）'),
+      }),
+      execute: ({ positions, lookbackDays }) =>
+        execPortfolioRisk(deps, positions, lookbackDays ?? null),
     }),
   }
 }

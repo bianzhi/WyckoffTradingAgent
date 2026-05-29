@@ -13,6 +13,7 @@ import {
   execAnalyzeStock,
   execMarketHistory,
   execGetSignalQuality,
+  execPortfolioRisk,
 } from '../chat-tools'
 
 // ── mock DataSkill ─────────────────────────────────────────
@@ -29,6 +30,7 @@ vi.mock('../data-skill', () => ({
     fetchIndexLive: vi.fn().mockRejectedValue(new Error('no-key')),
     fetchIntraday: vi.fn().mockResolvedValue({ symbol: '', periods: {}, error: 'no-key' }),
     fetchSignalQuality: vi.fn().mockResolvedValue({ report: '', error: 'no-key' }),
+    fetchPortfolioRisk: vi.fn().mockResolvedValue({ error: 'no-key' }),
   },
 }))
 
@@ -474,5 +476,57 @@ describe('execGetSignalQuality', () => {
     const result = await execGetSignalQuality()
 
     expect(result).toContain('暂无信号质量数据')
+  })
+})
+
+describe('execPortfolioRisk', () => {
+  it('returns error when positions list is empty', async () => {
+    const deps = createMockDeps({})
+    const result = await execPortfolioRisk(deps, [], null)
+    expect(result).toContain('请提供持仓列表')
+  })
+
+  it('returns error from API', async () => {
+    const deps = createMockDeps({})
+    vi.mocked(dataSkill).fetchPortfolioRisk.mockResolvedValue({ error: '无法获取任何持仓的K线数据' })
+    const result = await execPortfolioRisk(deps, [{ code: '000001', shares: 1000, cost_price: 12.5 }], null)
+    expect(result).toContain('风险分析失败')
+    expect(result).toContain('无法获取任何持仓的K线数据')
+  })
+
+  it('builds full risk report', async () => {
+    const deps = createMockDeps({})
+    vi.mocked(dataSkill).fetchPortfolioRisk.mockResolvedValue({
+      portfolio: { total_value: 50000, position_count: 3, positions: [] },
+      var: {
+        historical_95pct: 2.5, parametric_95pct: 2.8, historical_99pct: 4.2,
+        cvar_95pct: 3.1, cvar_99pct: 5.0, portfolio_var_95pct: 2.6, portfolio_cvar_95pct: 3.3,
+      },
+      volatility: { annualized_vol_pct: 18.5 },
+      max_drawdown: { max_drawdown_pct: -12.3, peak_value: 58000, trough_value: 50866 },
+      correlation: { high_correlation_warnings: ['⚠️ 高相关对（>0.7）：000001-600519(0.82)'] },
+      stress_test: [
+        { scenario: '温和回调 (-5%)', loss_amount: -2500, loss_pct: -5, remaining_value: 47500, remaining_pct: 95 },
+        { scenario: '股灾 (-30%)', loss_amount: -15000, loss_pct: -30, remaining_value: 35000, remaining_pct: 70 },
+      ],
+    })
+
+    const result = await execPortfolioRisk(deps, [
+      { code: '000001', shares: 1000, cost_price: 12.5 },
+      { code: '600519', shares: 100, cost_price: 1800 },
+      { code: '000333', shares: 500, cost_price: 55 },
+    ], 252)
+
+    expect(result).toContain('组合风险报告')
+    expect(result).toContain('50000 元')
+    expect(result).toContain('历史 VaR(95%)')
+    expect(result).toContain('2.5%')
+    expect(result).toContain('年化波动率')
+    expect(result).toContain('18.5%')
+    expect(result).toContain('-12.3%')
+    expect(result).toContain('高相关对')
+    expect(result).toContain('000001-600519')
+    expect(result).toContain('压力测试')
+    expect(result).toContain('股灾 (-30%)')
   })
 })

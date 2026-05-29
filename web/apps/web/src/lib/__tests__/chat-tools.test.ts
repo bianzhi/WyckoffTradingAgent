@@ -17,6 +17,7 @@ import {
   execTuneParameters,
   execBenchmarkExitStrategies,
   execAnalyzeExitQuality,
+  execDataSourceHealth,
 } from '../chat-tools'
 
 // ── mock DataSkill ─────────────────────────────────────────
@@ -37,6 +38,7 @@ vi.mock('../data-skill', () => ({
     fetchParameterTuning: vi.fn().mockResolvedValue({ error: 'no-key' }),
     fetchBenchmarkExits: vi.fn().mockResolvedValue({ error: 'no-key' }),
     fetchExitQuality: vi.fn().mockResolvedValue({ error: 'no-key' }),
+    fetchDataSourceHealth: vi.fn().mockResolvedValue({ error: 'no-key' }),
   },
 }))
 
@@ -657,5 +659,39 @@ describe('execAnalyzeExitQuality', () => {
     const result = await execAnalyzeExitQuality([])
     expect(result).toContain('A')
     expect(result).not.toContain('改进建议')
+  })
+})
+
+// ── execDataSourceHealth ───────────────────────────────────
+
+describe('execDataSourceHealth', () => {
+  it('returns error from API', async () => {
+    vi.mocked(dataSkill.fetchDataSourceHealth).mockResolvedValue({ error: '无连接' })
+    const result = await execDataSourceHealth()
+    expect(result).toContain('失败')
+    expect(result).toContain('无连接')
+  })
+
+  it('renders health snapshot with green/yellow/red indicators', async () => {
+    vi.mocked(dataSkill.fetchDataSourceHealth).mockResolvedValue({
+      tickflow: { success_rate_pct: 98.5, success: 200, failure: 3, avg_latency_ms: 120.5, last_error: '' },
+      tushare: { success_rate_pct: 85.0, success: 100, failure: 18, avg_latency_ms: 350.2, last_error: 'timeout' },
+      akshare: { success_rate_pct: 65.0, success: 50, failure: 27, avg_latency_ms: 800.0, last_error: 'ConnectionError' },
+      baostock_circuit: { open: true, note: '连续失败10次，熔断中' },
+    })
+    const result = await execDataSourceHealth()
+    expect(result).toContain('数据源健康快照')
+    expect(result).toContain('🟢')
+    expect(result).toContain('🟡')
+    expect(result).toContain('🔴')
+    expect(result).toContain('tickflow')
+    expect(result).toContain('98.5')
+    expect(result).toContain('熔断')
+  })
+
+  it('handles empty health data', async () => {
+    vi.mocked(dataSkill.fetchDataSourceHealth).mockResolvedValue({})
+    const result = await execDataSourceHealth()
+    expect(result).toContain('暂无数据')
   })
 })

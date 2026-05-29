@@ -815,3 +815,25 @@ dataRoutes.post('/analyze-exit-quality', async (c) => {
 })
 
 export { dataRoutes }
+
+// ═══ POST /api/data/data-source-health ═══════════════════
+
+dataRoutes.get('/data-source-health', async (c) => {
+  try {
+    const { spawnSync } = await import('node:child_process')
+    const proc = spawnSync('python3', [
+      '-c',
+      `from integrations.data_source import get_data_source_health; import json; print(json.dumps(get_data_source_health(), ensure_ascii=False))`,
+    ], {
+      timeout: 10_000, encoding: 'utf-8',
+      env: { ...process.env, PYTHONPATH: process.env.PYTHONPATH || process.cwd() },
+      cwd: process.cwd(),
+    })
+    if (proc.error) return c.json({ error: proc.error.message }, 500)
+    try { return c.json(JSON.parse(proc.stdout?.trim() || '{}')) } catch {
+      return c.json({ error: 'parse error' }, 500)
+    }
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500)
+  }
+})

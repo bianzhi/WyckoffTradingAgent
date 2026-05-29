@@ -910,3 +910,34 @@ function computeStrength(vwapPos: number, closePos: number, m30: number, _m15: n
   if (volumeConcentration === '堆量在低位' && closePos < 0.5) score += 5
   return Math.max(0, Math.min(100, score))
 }
+
+export async function execDataSourceHealth(): Promise<string> {
+  const health = await dataSkill.fetchDataSourceHealth()
+  if (health.error) return `⚠️ 获取数据源健康状态失败: ${health.error}`
+
+  const entries = Object.entries(health).filter(([k]) => k !== 'baostock_circuit' && k !== 'error')
+  if (entries.length === 0) return '📡 数据源健康：暂无数据（尚未有数据源被调用）'
+
+  const lines = ['📡 **数据源健康快照**\n']
+  for (const [name, m] of entries) {
+    const meta = m as Record<string, unknown>
+    const rate = meta.success_rate_pct ?? 0
+    const total = Number(meta.success ?? 0) + Number(meta.failure ?? 0)
+    const status = Number(rate) >= 95 ? '🟢' : Number(rate) >= 70 ? '🟡' : '🔴'
+    lines.push(
+      `${status} **${name}** | 成功率: ${rate}% | 总调用: ${total} | ` +
+      `均延迟: ${meta.avg_latency_ms ?? 0}ms | ` +
+      `最后错误: ${meta.last_error || '无'}`
+    )
+  }
+
+  // 熔断器状态
+  const bao = health.baostock_circuit as Record<string, unknown> | undefined
+  if (bao) {
+    const open = bao.open as boolean
+    const note = bao.note as string || ''
+    if (open) lines.push(`\n⚠️ **BaoStock 熔断**：${note}`)
+  }
+
+  return lines.join('\n')
+}

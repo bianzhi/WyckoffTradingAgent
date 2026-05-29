@@ -248,4 +248,14 @@ export const dataSkill = {
     })
     return resp.json()
   },
+
+  /** 数据源健康状态快照 */
+  async fetchDataSourceHealth(): Promise<Record<string, unknown>> {
+    const { supabase } = await import('./supabase')
+    const { data: { session } } = await supabase.auth.getSession()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+    const resp = await fetch('/api/data/data-source-health', { headers })
+    return resp.json()
+  },
 }

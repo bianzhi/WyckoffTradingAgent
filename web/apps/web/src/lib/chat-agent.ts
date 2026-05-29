@@ -13,7 +13,8 @@ import {
   execManageAlerts, execPortfolioRisk, execTuneParameters,
   execWalkForwardOptimize, execMonteCarloSimulate,
   execBenchmarkExitStrategies, execAnalyzeExitQuality,
-} from './chat-tools'
+  execDataSourceHealth,
+ } from './chat-tools'
 
 const SYSTEM_PROMPT = `# 角色设定
 
@@ -38,6 +39,7 @@ const SYSTEM_PROMPT = `# 角色设定
 13. **盘中分析** — intraday_analysis：获取分钟线多周期数据（1m/5m/15m），返回VWAP位置、趋势、动量、综合强度评分
 14. **信号质量** — get_signal_quality：查询信号注册表健康状态、胜率、均收益
 15. **条件预警** — manage_alerts：管理价格预警/放量异动/指数波动等条件规则，支持增删查和立即评估
+16. **数据源健康** — data_source_health：查看各数据源成功率/延迟/熔断状态，诊断数据拉取问题
 
 # 工具路由原则
 
@@ -705,6 +707,12 @@ function buildTools(userId: string, config: LLMConfig, reasoningCache: string[])
         exits: z.array(z.record(z.unknown())).nullable().optional().describe('出场记录 [{exit_price, entry_price, peak_high, trough_low, hold_days}]'),
       }),
       execute: ({ exits }) => execAnalyzeExitQuality(exits ?? []),
+    }),
+
+    data_source_health: tool({
+      description: '数据源健康状态：查询所有数据源（TickFlow、Tushare、AKShare、BaoStock、EFinance）的调用成功率、平均延迟、熔断状态、最后错误信息。用于诊断数据拉取问题。',
+      inputSchema: z.object({}),
+      execute: () => execDataSourceHealth(),
     }),
   }
 }

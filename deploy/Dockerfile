@@ -88,8 +88,9 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Install system deps needed by some Python packages
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Use aliyun mirror for faster apt in CI (deb.debian.org often times out)
+RUN sed -i 's|http://deb.debian.org|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -97,8 +98,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=root pyproject.toml ./
 COPY --from=root requirements.txt ./
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies (aliyun mirror for faster pip in CI)
+RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt
 
 # Install the wyckoff package itself (editable not needed in prod)
 COPY --from=root cli/ cli/

@@ -334,9 +334,7 @@ def resolve_ai_candidate_policy(
                 传 None 时使用内置默认值。
     """
     q = quotas or {}
-    total_cap = (
-        max(int(override_total_cap if override_total_cap >= 0 else q.get("total_cap", 12)), 0)
-    )
+    total_cap = max(int(override_total_cap if override_total_cap >= 0 else q.get("total_cap", 12)), 0)
     risk_on_trend = max(int(q.get("risk_on_trend", 7)), 0)
     risk_on_accum = max(int(q.get("risk_on_accum", 5)), 0)
     risk_off_trend = max(int(q.get("risk_off_trend", 2)), 0)
@@ -1842,7 +1840,11 @@ def _compute_atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int 
 
 
 def _compute_atr_lookback(
-    high: pd.Series, low: pd.Series, close: pd.Series, period: int, lookback: int,
+    high: pd.Series,
+    low: pd.Series,
+    close: pd.Series,
+    period: int,
+    lookback: int,
 ) -> float | None:
     """计算 lookback 天前的 ATR（用于波动率对比）。"""
     if len(close) < period + lookback + 1:
@@ -1860,7 +1862,11 @@ def _compute_atr_lookback(
 
 
 def _check_volatility_stop(
-    high: pd.Series, low: pd.Series, close: pd.Series, last_close: float, cfg: FunnelConfig,
+    high: pd.Series,
+    low: pd.Series,
+    close: pd.Series,
+    last_close: float,
+    cfg: FunnelConfig,
 ) -> tuple[float, str] | None:
     """波动率扩张检查：当前 ATR 超历史 N 倍时返回 (stop_price, reason)。"""
     if cfg.exit_vol_expansion_mult <= 0:
@@ -1874,7 +1880,9 @@ def _check_volatility_stop(
 
 
 def _check_time_stop(
-    close: pd.Series, last_close: float, cfg: FunnelConfig,
+    close: pd.Series,
+    last_close: float,
+    cfg: FunnelConfig,
 ) -> tuple[float, str] | None:
     """时间止损检查：横盘无进展时返回 (stop_price, reason)。"""
     if cfg.exit_time_stop_days <= 0 or len(close) < cfg.exit_time_stop_days:
@@ -1885,16 +1893,24 @@ def _check_time_stop(
         return None
     ret_over_window = (last_close - start_price) / start_price * 100.0
     if ret_over_window < cfg.exit_time_stop_min_return_pct:
-        return (last_close, (
-            f"时间止损({cfg.exit_time_stop_days}日收益{ret_over_window:.1f}%<"
-            f"{cfg.exit_time_stop_min_return_pct}%)，横盘无效占用"
-        ))
+        return (
+            last_close,
+            (
+                f"时间止损({cfg.exit_time_stop_days}日收益{ret_over_window:.1f}%<"
+                f"{cfg.exit_time_stop_min_return_pct}%)，横盘无效占用"
+            ),
+        )
     return None
 
 
 def _atr_trailing_price(
-    high: pd.Series, low: pd.Series, close: pd.Series,
-    recent_high: float, ma_short: float | None, cfg: FunnelConfig, tag: str = "",
+    high: pd.Series,
+    low: pd.Series,
+    close: pd.Series,
+    recent_high: float,
+    ma_short: float | None,
+    cfg: FunnelConfig,
+    tag: str = "",
 ) -> tuple[float, str] | None:
     """ATR 动态跟踪止损价计算。返回 (stop_price, reason) 或 None（fallback 固定百分比）。"""
     if not cfg.exit_enable_atr_trailing:
@@ -1939,7 +1955,11 @@ def _compute_stop_loss(
             if atr_result:
                 return atr_result
             drawdown_pct = cfg.exit_trailing_drawdown_pct / 100.0
-            price = max(recent_high * (1.0 + drawdown_pct), float(ma_short) * 0.98) if ma_short else recent_high * (1.0 + drawdown_pct)
+            price = (
+                max(recent_high * (1.0 + drawdown_pct), float(ma_short) * 0.98)
+                if ma_short
+                else recent_high * (1.0 + drawdown_pct)
+            )
             return price, "已脱离底部，触发利润保护(动态跟踪止损)"
         return accum_low * (1.0 + cfg.exit_stop_loss_pct / 100.0), f"破位防守(跌破 {stage} 吸筹底线)"
 
@@ -1948,7 +1968,11 @@ def _compute_stop_loss(
     if atr_result:
         return atr_result
     drawdown_pct = cfg.exit_trailing_drawdown_pct / 100.0
-    price = max(recent_high * (1.0 + drawdown_pct), float(ma_short) * 0.98) if ma_short else recent_high * (1.0 + drawdown_pct)
+    price = (
+        max(recent_high * (1.0 + drawdown_pct), float(ma_short) * 0.98)
+        if ma_short
+        else recent_high * (1.0 + drawdown_pct)
+    )
     return price, "主升趋势破位(跌破MA50或高位回撤)"
 
 
@@ -2101,7 +2125,9 @@ def allocate_ai_candidates(
     """
     根据大盘政权和各轨配额，计算优先级得分，输出 (trend_selected, accum_selected, score_map)
     """
-    policy = policy_override or resolve_ai_candidate_policy(regime, override_total_cap=override_total_cap, quotas=ai_quotas)
+    policy = policy_override or resolve_ai_candidate_policy(
+        regime, override_total_cap=override_total_cap, quotas=ai_quotas
+    )
     total_cap = int(policy["total_cap"])
     trend_quota = int(policy["trend_quota"])
     accum_quota = int(policy["accum_quota"])

@@ -464,9 +464,17 @@ def list_rules() -> list[dict[str, Any]]:
             "id": r.id,
             "name": r.name,
             "enabled": r.enabled,
-            "conditions": [{"type": c.type, "symbol": c.symbol, "threshold": c.threshold,
-                          "multiplier": c.multiplier, "index_code": c.index_code,
-                          "regime_value": c.regime_value} for c in r.conditions],
+            "conditions": [
+                {
+                    "type": c.type,
+                    "symbol": c.symbol,
+                    "threshold": c.threshold,
+                    "multiplier": c.multiplier,
+                    "index_code": c.index_code,
+                    "regime_value": c.regime_value,
+                }
+                for c in r.conditions
+            ],
             "notify": {"webhook_url": r.notify.webhook_url, "title": r.notify.title},
             "cooldown_minutes": r.cooldown_minutes,
         }

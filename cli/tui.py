@@ -200,18 +200,14 @@ class ChatLog(RichLog):
                     end = line.cell_length
                 end = min(end, line.cell_length)
                 if 0 <= start < end:
-                    sel_style_full = self.screen.get_component_rich_style(
-                        "screen--selection", partial=True
-                    )
+                    sel_style_full = self.screen.get_component_rich_style("screen--selection", partial=True)
                     # Only use background from selection style, keep original foreground
                     sel_bg = Style(bgcolor=sel_style_full.bgcolor)
                     # Build selected portion with sel_bg overriding the existing background
                     selected_segs: list[Segment] = []
                     for seg in line.crop(start, end):
                         combined = (seg.style or Style.null()) + sel_bg
-                        selected_segs.append(
-                            Segment(seg.text, combined, seg.control)
-                        )
+                        selected_segs.append(Segment(seg.text, combined, seg.control))
                     sel_piece = _S(selected_segs)
 
                     pieces: list[_S] = []
@@ -876,8 +872,7 @@ class WyckoffTUI(App):
                 log.write(Text.from_markup(f"[bold cyan]❯[/bold cyan] {text}"))
                 log.write(
                     Text.from_markup(
-                        "[bold red]⚠ 未配置模型，请先输入 /model add 添加[/bold red]\n"
-                        "[dim]示例: /model add[/dim]"
+                        "[bold red]⚠ 未配置模型，请先输入 /model add 添加[/bold red]\n[dim]示例: /model add[/dim]"
                     )
                 )
                 return
@@ -1029,9 +1024,7 @@ class WyckoffTUI(App):
             if self._last_assistant_text.strip():
                 self.app.copy_to_clipboard(self._last_assistant_text)
                 log.write(
-                    Text.from_markup(
-                        f"  [green]✓ 已复制最后回复（{len(self._last_assistant_text)} 字符）[/green]"
-                    )
+                    Text.from_markup(f"  [green]✓ 已复制最后回复（{len(self._last_assistant_text)} 字符）[/green]")
                 )
             else:
                 log.write(Text.from_markup("  [dim]暂无回复可复制[/dim]"))

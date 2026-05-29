@@ -83,8 +83,8 @@ BUILTIN_SKILLS: dict[str, Skill] = {
         description="统一数据获取入口：K线、快照、指数、板块，Token自动注入",
         prompt=(
             "获取股票行情/历史数据：\n"
-            "1. 个股诊断：调用 analyze_stock(code=..., mode=\"overview\") 获取近期行情概览\n"
-            "2. 指数行情：调用 get_market_history(index=\"sse\") 获取大盘历史数据\n"
+            '1. 个股诊断：调用 analyze_stock(code=..., mode="overview") 获取近期行情概览\n'
+            '2. 指数行情：调用 get_market_history(index="sse") 获取大盘历史数据\n'
             "3. 数据源健康：调用 get_data_source_health() 查看各数据源可用性\n"
             "4. 如数据拉取失败，系统会自动回退 (TickFlow→Tushare→AKShare→BaoStock→EFinance)"
         ),

@@ -50,7 +50,10 @@ def _load_recent_outcomes(days: int = 90) -> list[dict[str, Any]]:
 def _registry_summary(registry: list[dict[str, Any]]) -> str:
     if not registry:
         return "（无信号注册数据）\n"
-    lines = ["| 信号 | 赛道 | 状态 | 样本数 | 胜率 | 均收益 | 权重 |", "|------|------|------|--------|------|--------|------|"]
+    lines = [
+        "| 信号 | 赛道 | 状态 | 样本数 | 胜率 | 均收益 | 权重 |",
+        "|------|------|------|--------|------|--------|------|",
+    ]
     for r in registry:
         signal = r.get("signal_type", "?")
         track = r.get("track", "?")
@@ -159,7 +162,11 @@ def get_signal_quality_json() -> dict[str, Any]:
         "track_breakdown": _track_stats(data["outcomes"]),
         "summary": {
             "total_signals": len(data["registry"]),
-            "healthy": sum(1 for r in data["registry"] if r.get("status") == "ACTIVE" and r.get("health_state") not in {None, "DECAYED"}),
+            "healthy": sum(
+                1
+                for r in data["registry"]
+                if r.get("status") == "ACTIVE" and r.get("health_state") not in {None, "DECAYED"}
+            ),
             "decayed": sum(1 for r in data["registry"] if r.get("health_state") == "DECAYED"),
         },
     }

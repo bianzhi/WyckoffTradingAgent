@@ -50,9 +50,7 @@ class StockDataSkill:
 
     # ── 个股 K 线 ───────────────────────────────────────────────────────────
 
-    def fetch_stock_hist(
-        self, code: str, start_date: date, end_date: date
-    ) -> pd.DataFrame:
+    def fetch_stock_hist(self, code: str, start_date: date, end_date: date) -> pd.DataFrame:
         """获取个股日线数据（7 源级联）。
 
         Returns:
@@ -96,9 +94,7 @@ class StockDataSkill:
                 result: dict[str, dict[str, Any]] = {}
                 for ts_code, name in indices.items():
                     try:
-                        df = pro.index_daily(
-                            ts_code=ts_code, start_date=start_date, end_date=end_date
-                        )
+                        df = pro.index_daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
                         if df is not None and not df.empty:
                             df = df.sort_values("trade_date")
                             latest = df.iloc[-1]
@@ -138,8 +134,10 @@ class StockDataSkill:
                     errors.append("akshare: 缺少指数代码列")
                 else:
                     code_to_ts = {
-                        "000001": "000001.SH", "399001": "399001.SZ",
-                        "399006": "399006.SZ", "000016": "000016.SH",
+                        "000001": "000001.SH",
+                        "399001": "399001.SZ",
+                        "399006": "399006.SZ",
+                        "000016": "000016.SH",
                         "000905": "000905.SH",
                     }
                     target_codes = set(code_to_ts.keys())
@@ -150,10 +148,7 @@ class StockDataSkill:
                         code = "".join(ch for ch in code_raw if ch.isdigit())[-6:]
                         if code not in target_codes:
                             continue
-                        name_cn = (
-                            str(row.get(col_name, "") or "").strip()
-                            or indices[code_to_ts[code]]
-                        )
+                        name_cn = str(row.get(col_name, "") or "").strip() or indices[code_to_ts[code]]
                         result[name_cn] = _build_index_record(
                             code_to_ts[code], today, row, col_close, col_pct, col_vol, col_amount
                         )
@@ -167,9 +162,7 @@ class StockDataSkill:
 
     # ── 指数历史日线 ─────────────────────────────────────────────────────────
 
-    def fetch_index_hist(
-        self, symbol: str, start: date, end: date
-    ) -> pd.DataFrame:
+    def fetch_index_hist(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         """获取指数历史日线（多源回退）。
 
         Args:
@@ -186,6 +179,7 @@ class StockDataSkill:
         """返回各数据源健康状态。"""
         try:
             from integrations.data_source import get_data_source_health
+
             return get_data_source_health()
         except Exception as e:
             logger.exception("StockDataSkill.health error")
@@ -214,6 +208,7 @@ class StockDataSkill:
         if ctx is not None:
             try:
                 from agents.chat_tools import _get_credential
+
                 api_key = _get_credential(ctx, "tickflow_api_key", "TICKFLOW_API_KEY")
             except Exception:
                 pass
@@ -225,6 +220,7 @@ class StockDataSkill:
         if api_key:
             try:
                 from integrations.tickflow_client import TickFlowClient
+
                 client = TickFlowClient(api_key=api_key)
                 df = client.get_klines(symbol, period="1d", count=days, adjust="none")
                 if df is not None and not df.empty:
@@ -235,9 +231,7 @@ class StockDataSkill:
             errors.append("tickflow: TICKFLOW_API_KEY 未配置")
         return None, errors
 
-    def fetch_market_hist(
-        self, symbol: str, days: int, tool_context: Any | None = None
-    ) -> tuple[Any, str, list[str]]:
+    def fetch_market_hist(self, symbol: str, days: int, tool_context: Any | None = None) -> tuple[Any, str, list[str]]:
         """获取指数历史日线，TickFlow 优先回退到 tushare/akshare。
 
         Args:
@@ -273,6 +267,7 @@ class StockDataSkill:
         """获取单只股票的实时快照。"""
         try:
             from integrations.data_source import fetch_stock_spot_snapshot
+
             return fetch_stock_spot_snapshot(code)
         except Exception:
             logger.debug("fetch_stock_spot_snapshot failed for %s", code, exc_info=True)
@@ -282,6 +277,7 @@ class StockDataSkill:
         """获取全市场流通市值映射（code → 亿）。"""
         try:
             from integrations.data_source import fetch_market_cap_map
+
             return fetch_market_cap_map()
         except Exception:
             logger.debug("fetch_market_cap_map failed", exc_info=True)
@@ -289,6 +285,7 @@ class StockDataSkill:
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
+
 
 def _spot_col(df: pd.DataFrame, *candidates: str) -> str:
     """返回 DataFrame 中第一个存在的候选列名。"""

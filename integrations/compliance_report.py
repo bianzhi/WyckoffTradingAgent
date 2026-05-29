@@ -556,8 +556,12 @@ def generate_compliance_brief(
     retries = max(_int_env("STEP3_COMPLIANCE_MAX_RETRIES", 1), 0)
     max_output_tokens = max(_int_env("STEP3_COMPLIANCE_MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS), 512)
     text = _compliance_llm_retry_loop(
-        llm_cfg, _compliance_user_message(payload), forbidden_names,
-        max_output_tokens, retries, fallback,
+        llm_cfg,
+        _compliance_user_message(payload),
+        forbidden_names,
+        max_output_tokens,
+        retries,
+        fallback,
     )
     if text is fallback:
         print("[step3][compliance] 已降级为确定性模板")

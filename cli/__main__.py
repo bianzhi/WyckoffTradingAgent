@@ -1193,7 +1193,7 @@ def _cmd_diagnose_headless(args):
                 return
             results = diagnose_portfolio(pf)
             for r in results:
-                print(f"\n{'='*50}")
+                print(f"\n{'=' * 50}")
                 print(f"  {r['symbol']} 健康度: {r.get('health_score', 'N/A')}")
                 for k, v in r.items():
                     if k != "symbol":
@@ -1456,7 +1456,11 @@ def main():
         description="威科夫终端读盘室 — Wyckoff 量价分析 Agent",
     )
     parser.add_argument("-v", "--version", action="version", version=f"wyckoff {_get_version()}")
-    parser.add_argument("--headless", action="store_true", help="无 LLM 模式：跳过 Agent 循环，直接输出引擎结果（适用于 LLM 不可用场景）")
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="无 LLM 模式：跳过 Agent 循环，直接输出引擎结果（适用于 LLM 不可用场景）",
+    )
     sub = parser.add_subparsers(dest="cmd")
 
     # wyckoff update

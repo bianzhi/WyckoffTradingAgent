@@ -65,7 +65,9 @@ def _compute_breadth_or_none(
         return None, "市场广度数据不足，使用纯指数分析"
 
 
-def _build_tuning_payload(context: dict, cfg_original: FunnelConfig, cfg_tuned: FunnelConfig, breadth_msg: str | None) -> dict:
+def _build_tuning_payload(
+    context: dict, cfg_original: FunnelConfig, cfg_tuned: FunnelConfig, breadth_msg: str | None
+) -> dict:
     """从 context 构建标准化调优报告 payload。"""
     return {
         "regime": context.get("regime", "UNKNOWN"),
@@ -105,7 +107,10 @@ def generate_tuning_report(
     breadth, breadth_msg = _compute_breadth_or_none(bench_df, smallcap_df)
 
     context = analyze_benchmark_and_tune_cfg(
-        bench_df=bench_df, smallcap_df=smallcap_df, cfg=cfg_tuned, breadth=breadth,
+        bench_df=bench_df,
+        smallcap_df=smallcap_df,
+        cfg=cfg_tuned,
+        breadth=breadth,
     )
     return _build_tuning_payload(context, cfg_original, cfg_tuned, breadth_msg)
 

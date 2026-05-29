@@ -51,12 +51,14 @@ def _generate_windows(
         test_end = train_end + timedelta(days=test_months * 30)
         if test_end > end:
             break
-        windows.append(WalkForwardWindow(
-            train_start=cursor,
-            train_end=train_end,
-            test_start=train_end + timedelta(days=1),
-            test_end=test_end,
-        ))
+        windows.append(
+            WalkForwardWindow(
+                train_start=cursor,
+                train_end=train_end,
+                test_start=train_end + timedelta(days=1),
+                test_end=test_end,
+            )
+        )
         cursor += timedelta(days=step_months * 30)
     return windows
 
@@ -69,8 +71,7 @@ def _grid_search_single_window(
 ) -> tuple[dict[str, float], float, float]:
     """在单个训练窗内网格搜索最优参数。返回 (best_params, sharpe, win_rate)。"""
     train = trades_df[
-        (trades_df["signal_date"] >= pd.Timestamp(train_start))
-        & (trades_df["signal_date"] <= pd.Timestamp(train_end))
+        (trades_df["signal_date"] >= pd.Timestamp(train_start)) & (trades_df["signal_date"] <= pd.Timestamp(train_end))
     ]
     if len(train) < 10:
         return ({}, 0.0, 0.0)
@@ -179,9 +180,7 @@ def run_walk_forward(
     all_params: dict[str, list[float]] = {}
 
     for w in windows:
-        best_p, train_sharpe, train_wr = _grid_search_single_window(
-            trades_df, param_grid, w.train_start, w.train_end
-        )
+        best_p, train_sharpe, train_wr = _grid_search_single_window(trades_df, param_grid, w.train_start, w.train_end)
         w.best_params = best_p
         w.train_sharpe = train_sharpe
         w.train_win_rate = train_wr

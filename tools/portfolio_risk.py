@@ -126,7 +126,11 @@ def correlation_matrix(returns_dict: dict[str, np.ndarray]) -> dict:
         names = [f"{p['code_a']}-{p['code_b']}({p['correlation']:.2f})" for p in high_corr]
         warnings.append(f"⚠️ 高相关对（>{0.7}）：{', '.join(names)}")
 
-    return {"matrix": {k: {kk: round(float(vv), 4) for kk, vv in v.items()} for k, v in corr.items()}, "pairs": pairs, "high_correlation_warnings": warnings}
+    return {
+        "matrix": {k: {kk: round(float(vv), 4) for kk, vv in v.items()} for k, v in corr.items()},
+        "pairs": pairs,
+        "high_correlation_warnings": warnings,
+    }
 
 
 # ── 压力测试 ──────────────────────────────────────────────
@@ -142,7 +146,12 @@ STRESS_SCENARIOS = [
 ]
 
 
-def stress_test(positions: list[dict], total_value: float, returns_dict: dict[str, np.ndarray], index_returns: np.ndarray | None = None) -> list[dict]:
+def stress_test(
+    positions: list[dict],
+    total_value: float,
+    returns_dict: dict[str, np.ndarray],
+    index_returns: np.ndarray | None = None,
+) -> list[dict]:
     """对组合进行多情景压力测试。"""
     results = []
     if not positions or total_value <= 0:
@@ -248,11 +257,16 @@ def _fetch_position_data(
             position_value = shares * latest_price
             pnl_pct = (latest_price / cost_price - 1) * 100 if cost_price > 0 else 0
 
-            position_details.append({
-                "code": code, "shares": shares, "cost_price": cost_price,
-                "latest_price": latest_price, "position_value": round(position_value, 2),
-                "pnl_pct": round(pnl_pct, 2),
-            })
+            position_details.append(
+                {
+                    "code": code,
+                    "shares": shares,
+                    "cost_price": cost_price,
+                    "latest_price": latest_price,
+                    "position_value": round(position_value, 2),
+                    "pnl_pct": round(pnl_pct, 2),
+                }
+            )
         except Exception as e:
             fetch_errors.append(f"{code}: {e}")
 
@@ -260,14 +274,24 @@ def _fetch_position_data(
 
 
 def _pos_error(code: str, shares: float, cost_price: float, msg: str) -> dict:
-    return {"code": code, "shares": shares, "cost_price": cost_price, "latest_price": None, "position_value": 0, "error": msg}
+    return {
+        "code": code,
+        "shares": shares,
+        "cost_price": cost_price,
+        "latest_price": None,
+        "position_value": 0,
+        "error": msg,
+    }
 
 
 def _pos_detail(code: str, shares: float, cost_price: float, latest_price: float, error: str | None = None) -> dict:
     pv = shares * latest_price
     return {
-        "code": code, "shares": shares, "cost_price": cost_price,
-        "latest_price": latest_price, "position_value": round(pv, 2),
+        "code": code,
+        "shares": shares,
+        "cost_price": cost_price,
+        "latest_price": latest_price,
+        "position_value": round(pv, 2),
         **({"error": error} if error else {}),
     }
 
@@ -323,7 +347,9 @@ def generate_risk_report(positions: list[dict], lookback_days: int = 252) -> dic
     start = end - timedelta(days=lookback_days + 30)
 
     returns_dict, prices, fetch_errors, position_details = _fetch_position_data(
-        positions, start.strftime("%Y%m%d"), end.strftime("%Y%m%d"),
+        positions,
+        start.strftime("%Y%m%d"),
+        end.strftime("%Y%m%d"),
     )
 
     if not returns_dict:
@@ -346,20 +372,32 @@ def generate_risk_report(positions: list[dict], lookback_days: int = 252) -> dic
     port_cvar_95 = cvar(portfolio_returns, 0.95) if portfolio_returns is not None else 0.0
 
     corr = correlation_matrix(returns_dict)
-    mdd_result = _compute_mdd(portfolio_returns) if portfolio_returns is not None else {"max_drawdown_pct": None, "note": "需要组合市值序列"}
+    mdd_result = (
+        _compute_mdd(portfolio_returns)
+        if portfolio_returns is not None
+        else {"max_drawdown_pct": None, "note": "需要组合市值序列"}
+    )
     index_returns = _load_index_returns(lookback_days)
     stress_results = stress_test(position_details, total_value, returns_dict, index_returns)
 
     annual_vol = _calc_annual_vol(portfolio_returns, all_returns)
 
     return {
-        "portfolio": {"total_value": round(total_value, 2), "position_count": len(position_details), "positions": position_details},
+        "portfolio": {
+            "total_value": round(total_value, 2),
+            "position_count": len(position_details),
+            "positions": position_details,
+        },
         "var": {
-            "historical_95pct": round(var_95_hist * 100, 4), "parametric_95pct": round(var_95_param * 100, 4),
-            "historical_99pct": round(var_99_hist * 100, 4), "cvar_95pct": round(cvar_95 * 100, 4),
-            "cvar_99pct": round(cvar_99 * 100, 4), "portfolio_var_95pct": round(port_var_95 * 100, 4),
+            "historical_95pct": round(var_95_hist * 100, 4),
+            "parametric_95pct": round(var_95_param * 100, 4),
+            "historical_99pct": round(var_99_hist * 100, 4),
+            "cvar_95pct": round(cvar_95 * 100, 4),
+            "cvar_99pct": round(cvar_99 * 100, 4),
+            "portfolio_var_95pct": round(port_var_95 * 100, 4),
             "portfolio_cvar_95pct": round(port_cvar_95 * 100, 4),
-            "confidence": "95%", "lookback_days": lookback_days,
+            "confidence": "95%",
+            "lookback_days": lookback_days,
         },
         "volatility": {"annualized_vol_pct": round(annual_vol * 100, 2)},
         "max_drawdown": mdd_result,
@@ -373,7 +411,9 @@ def generate_risk_report(positions: list[dict], lookback_days: int = 252) -> dic
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print(json.dumps({"error": "用法: python tools/portfolio_risk.py '<json_positions>' [lookback_days]"}), flush=True)
+        print(
+            json.dumps({"error": "用法: python tools/portfolio_risk.py '<json_positions>' [lookback_days]"}), flush=True
+        )
         sys.exit(1)
 
     try:

@@ -34,8 +34,13 @@ def _calc_metrics(trades: pd.DataFrame) -> dict[str, float]:
     peak = cum.expanding().max()
     dd = (cum / peak - 1) * 100
     mdd = float(dd.min())
-    return {"win_rate": round(wr, 2), "sharpe": round(sharpe, 3),
-            "max_dd": round(mdd, 2), "avg_ret": round(avg, 3), "n_trades": n}
+    return {
+        "win_rate": round(wr, 2),
+        "sharpe": round(sharpe, 3),
+        "max_dd": round(mdd, 2),
+        "avg_ret": round(avg, 3),
+        "n_trades": n,
+    }
 
 
 # ── 过滤交易 ───────────────────────────────────────────
@@ -81,12 +86,17 @@ def _run_single_param_sweep(
         test_params = {**baseline_params, param_name: v}
         filtered = _filter_trades(trades, test_params)
         m = _calc_metrics(filtered)
-        points.append(SensitivityPoint(
-            param_name=param_name, param_value=v,
-            win_rate=m["win_rate"], sharpe=m["sharpe"],
-            max_dd=m["max_dd"], avg_ret=m["avg_ret"],
-            n_trades=m["n_trades"],
-        ))
+        points.append(
+            SensitivityPoint(
+                param_name=param_name,
+                param_value=v,
+                win_rate=m["win_rate"],
+                sharpe=m["sharpe"],
+                max_dd=m["max_dd"],
+                avg_ret=m["avg_ret"],
+                n_trades=m["n_trades"],
+            )
+        )
     return points
 
 
@@ -124,16 +134,23 @@ def _sweep_all_params(
 
 
 def _build_sweep_result(
-    param_name: str, points: list[SensitivityPoint],
-    sharpe_range: float, wr_range: float,
+    param_name: str,
+    points: list[SensitivityPoint],
+    sharpe_range: float,
+    wr_range: float,
 ) -> dict:
     """构建单个参数的 sweep 结果。"""
     return {
         "param": param_name,
         "points": [
-            {"value": p.param_value, "win_rate": p.win_rate,
-             "sharpe": p.sharpe, "max_dd": p.max_dd,
-             "avg_ret": p.avg_ret, "n_trades": p.n_trades}
+            {
+                "value": p.param_value,
+                "win_rate": p.win_rate,
+                "sharpe": p.sharpe,
+                "max_dd": p.max_dd,
+                "avg_ret": p.avg_ret,
+                "n_trades": p.n_trades,
+            }
             for p in points
         ],
         "sharpe_range": round(sharpe_range, 3),

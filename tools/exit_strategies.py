@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 # ── 类型定义 ─────────────────────────────────────────────
 
+
 @dataclass
 class ExitResult:
     exit_price: float
@@ -37,6 +38,7 @@ class ExitResult:
     entry_price: float = 0.0
     ret_pct: float = 0.0
     hold_days: int = 0
+
 
 @dataclass
 class StrategyScore:
@@ -51,6 +53,7 @@ class StrategyScore:
     exit_rate: float  # 出场触发率（非到期离场的比例）
     trade_count: int
 
+
 # OHLC lookup: {date: (open, high, low, close)}
 OHLCLookup = dict[date, tuple[float, float, float, float]]
 
@@ -58,8 +61,11 @@ StrategyFunc = Callable[..., ExitResult | None]
 
 # ── 内部辅助 ─────────────────────────────────────────────
 
+
 def _calc_true_range(
-    high: float, low: float, prev_close: float,
+    high: float,
+    low: float,
+    prev_close: float,
 ) -> float:
     return max(high - low, abs(high - prev_close), abs(low - prev_close))
 
@@ -106,7 +112,9 @@ def _is_limit_locked(candle: tuple[float, float, float, float], prev_close: floa
 
 
 def _exit_price_for_trigger(
-    trigger_price: float, open_px: float, is_stop: bool = True,
+    trigger_price: float,
+    open_px: float,
+    is_stop: bool = True,
 ) -> float:
     """计算触发价格的实际执行价。止损用 min(trigger, open)，止盈用 max。"""
     if is_stop:
@@ -119,9 +127,13 @@ def _exit_price_for_trigger(
 # 策略 1: ATR Trailing Stop (Chandelier Exit)
 # ═══════════════════════════════════════════════════════
 
+
 def _atr_safety_net_exit(
-    ohlc: OHLCLookup, sorted_dates: list[date], entry_idx: int,
-    entry_price: float, window_end: int,
+    ohlc: OHLCLookup,
+    sorted_dates: list[date],
+    entry_idx: int,
+    entry_price: float,
+    window_end: int,
 ) -> ExitResult | None:
     """安全网到期：按最后一日收盘离场。"""
     last_day = sorted_dates[window_end]
@@ -129,8 +141,10 @@ def _atr_safety_net_exit(
     if last_candle:
         exit_px = last_candle[3]
         return ExitResult(
-            exit_price=exit_px, exit_date=last_day,
-            reason="max_hold_expired", entry_price=entry_price,
+            exit_price=exit_px,
+            exit_date=last_day,
+            reason="max_hold_expired",
+            entry_price=entry_price,
             ret_pct=(exit_px - entry_price) / entry_price * 100.0,
             hold_days=window_end - entry_idx,
         )
@@ -181,8 +195,10 @@ def atr_trailing_stop(
         if trailing_stop and trailing_activated and l <= trailing_stop:
             exit_px = _exit_price_for_trigger(trailing_stop, o, is_stop=True)
             return ExitResult(
-                exit_price=exit_px, exit_date=mkt_day,
-                reason=f"ATR{atr_mult}x_trailing", entry_price=entry_price,
+                exit_price=exit_px,
+                exit_date=mkt_day,
+                reason=f"ATR{atr_mult}x_trailing",
+                entry_price=entry_price,
                 ret_pct=(exit_px - entry_price) / entry_price * 100.0,
                 hold_days=i - entry_idx,
             )
@@ -195,6 +211,7 @@ def atr_trailing_stop(
 # ═══════════════════════════════════════════════════════
 # 策略 2: 时间止损 (Time Stop)
 # ═══════════════════════════════════════════════════════
+
 
 def time_stop(
     ohlc: OHLCLookup,
@@ -251,6 +268,7 @@ def time_stop(
 # 策略 3: 波动率扩张止损
 # ═══════════════════════════════════════════════════════
 
+
 def volatility_stop(
     ohlc: OHLCLookup,
     sorted_dates: list[date],
@@ -304,9 +322,8 @@ def volatility_stop(
 # 策略 4: 移动均线出场
 # ═══════════════════════════════════════════════════════
 
-def _ma_compute_ma_for_day(
-    ohlc: OHLCLookup, sorted_dates: list[date], day_idx: int, ma_period: int
-) -> float | None:
+
+def _ma_compute_ma_for_day(ohlc: OHLCLookup, sorted_dates: list[date], day_idx: int, ma_period: int) -> float | None:
     """计算指定日期索引的 MA 值，不足 ma_period 返回 None。"""
     ma_start = max(0, day_idx - ma_period + 1)
     closes = [ohlc[sorted_dates[j]][3] for j in range(ma_start, day_idx + 1)]
@@ -349,8 +366,10 @@ def ma_exit(
         if below_ma and prev_below:
             exit_px = o
             return ExitResult(
-                exit_price=exit_px, exit_date=mkt_day,
-                reason=f"MA{ma_period}_breakdown", entry_price=entry_price,
+                exit_price=exit_px,
+                exit_date=mkt_day,
+                reason=f"MA{ma_period}_breakdown",
+                entry_price=entry_price,
                 ret_pct=(exit_px - entry_price) / entry_price * 100.0,
                 hold_days=i - entry_idx,
             )
@@ -363,8 +382,12 @@ def ma_exit(
 # 策略 5: Parabolic SAR 出场
 # ═══════════════════════════════════════════════════════
 
+
 def _psar_init(
-    ohlc: OHLCLookup, sorted_dates: list[date], entry_idx: int, entry_price: float,
+    ohlc: OHLCLookup,
+    sorted_dates: list[date],
+    entry_idx: int,
+    entry_price: float,
     acceleration_factor: float,
 ) -> tuple[float, float]:
     """初始化 PSAR：基于入场日前 5 日的极值。返回 (sar, af, ep)。"""
@@ -435,16 +458,25 @@ def parabolic_sar_exit(
 # 策略 6: 混合出场 (Hybrid)
 # ═══════════════════════════════════════════════════════
 
+
 def _hybrid_vol_check(
-    ohlc: OHLCLookup, sorted_dates: list[date], mkt_day: date,
-    entry_atr: float, vol_expansion_mult: float, atr_period: int,
-    c: float, entry_price: float, entry_idx: int, i: int,
+    ohlc: OHLCLookup,
+    sorted_dates: list[date],
+    mkt_day: date,
+    entry_atr: float,
+    vol_expansion_mult: float,
+    atr_period: int,
+    c: float,
+    entry_price: float,
+    entry_idx: int,
+    i: int,
 ) -> ExitResult | None:
     """检查波动率扩张退出条件。"""
     current_atr = _calc_atr(ohlc, sorted_dates, mkt_day, atr_period)
     if current_atr and current_atr > entry_atr * vol_expansion_mult:
         return ExitResult(
-            exit_price=c, exit_date=mkt_day,
+            exit_price=c,
+            exit_date=mkt_day,
             reason=f"hybrid_vol_{vol_expansion_mult}x",
             entry_price=entry_price,
             ret_pct=(c - entry_price) / entry_price * 100.0,
@@ -454,10 +486,18 @@ def _hybrid_vol_check(
 
 
 def _hybrid_atr_check(
-    ohlc: OHLCLookup, sorted_dates: list[date], mkt_day: date,
-    peak_high: float, atr_mult: float, atr_period: int,
-    trailing_stop: float | None, o: float, l: float,
-    entry_price: float, entry_idx: int, i: int,
+    ohlc: OHLCLookup,
+    sorted_dates: list[date],
+    mkt_day: date,
+    peak_high: float,
+    atr_mult: float,
+    atr_period: int,
+    trailing_stop: float | None,
+    o: float,
+    l: float,
+    entry_price: float,
+    entry_idx: int,
+    i: int,
 ) -> tuple[float | None, ExitResult | None]:
     """更新 trailing stop 并检查 ATR 退出条件。返回 (new_stop, exit_result)。"""
     atr_val = _calc_atr(ohlc, sorted_dates, mkt_day, atr_period)
@@ -467,7 +507,8 @@ def _hybrid_atr_check(
     if trailing_stop and l <= trailing_stop:
         exit_px = _exit_price_for_trigger(trailing_stop, o, is_stop=True)
         return trailing_stop, ExitResult(
-            exit_price=exit_px, exit_date=mkt_day,
+            exit_price=exit_px,
+            exit_date=mkt_day,
             reason=f"hybrid_ATR{atr_mult}x",
             entry_price=entry_price,
             ret_pct=(exit_px - entry_price) / entry_price * 100.0,
@@ -518,8 +559,16 @@ def hybrid_exit(
         # 1. 波动率扩张（最高优先级）
         if entry_atr and entry_atr > 0:
             vol_exit = _hybrid_vol_check(
-                ohlc, sorted_dates, mkt_day, entry_atr, vol_expansion_mult,
-                atr_period, c, entry_price, entry_idx, i,
+                ohlc,
+                sorted_dates,
+                mkt_day,
+                entry_atr,
+                vol_expansion_mult,
+                atr_period,
+                c,
+                entry_price,
+                entry_idx,
+                i,
             )
             if vol_exit:
                 return vol_exit
@@ -527,8 +576,18 @@ def hybrid_exit(
         # 2. ATR trailing stop
         peak_high = max(peak_high, h)
         trailing_stop, atr_exit = _hybrid_atr_check(
-            ohlc, sorted_dates, mkt_day, peak_high, atr_mult, atr_period,
-            trailing_stop, o, l, entry_price, entry_idx, i,
+            ohlc,
+            sorted_dates,
+            mkt_day,
+            peak_high,
+            atr_mult,
+            atr_period,
+            trailing_stop,
+            o,
+            l,
+            entry_price,
+            entry_idx,
+            i,
         )
         if atr_exit:
             return atr_exit
@@ -538,7 +597,8 @@ def hybrid_exit(
             current_ret = (c - entry_price) / entry_price * 100.0
             if current_ret < min_return_pct:
                 return ExitResult(
-                    exit_price=c, exit_date=mkt_day,
+                    exit_price=c,
+                    exit_date=mkt_day,
                     reason=f"hybrid_time_{patience_days}d",
                     entry_price=entry_price,
                     ret_pct=current_ret,
@@ -618,9 +678,7 @@ def benchmark_exit_strategies(
 
         results[name] = exits
 
-    scores: dict[str, dict[str, Any]] = {
-        name: _score_single_strategy_exits(exits) for name, exits in results.items()
-    }
+    scores: dict[str, dict[str, Any]] = {name: _score_single_strategy_exits(exits) for name, exits in results.items()}
 
     # 排名（按 Sharpe）
     rankings = sorted(
@@ -641,6 +699,7 @@ def benchmark_exit_strategies(
 def _score_single_strategy_exits(exits: list[ExitResult]) -> dict[str, Any]:
     """对单个策略的出场结果评分。返回 avg_ret/win_rate/profit_factor/sharpe 等。"""
     import math
+
     if not exits:
         return {"avg_ret": 0, "win_rate": 0, "profit_factor": 0, "sharpe_approx": 0, "exit_rate": 0, "trade_count": 0}
     rets = [e.ret_pct for e in exits]
@@ -655,14 +714,20 @@ def _score_single_strategy_exits(exits: list[ExitResult]) -> dict[str, Any]:
     var_r = sum((r - mean_r) ** 2 for r in rets) / len(rets) if len(rets) > 1 else 0
     sharpe = mean_r / math.sqrt(var_r) if var_r > 0 else 0
     return {
-        "avg_ret": round(avg_ret, 2), "win_rate": round(win_rate, 1),
-        "avg_win": round(avg_win, 2), "avg_loss": round(avg_loss, 2),
-        "profit_factor": round(profit_factor, 2), "sharpe_approx": round(sharpe, 3),
-        "trade_count": len(exits), "max_drawdown_pct": 0,
+        "avg_ret": round(avg_ret, 2),
+        "win_rate": round(win_rate, 1),
+        "avg_win": round(avg_win, 2),
+        "avg_loss": round(avg_loss, 2),
+        "profit_factor": round(profit_factor, 2),
+        "sharpe_approx": round(sharpe, 3),
+        "trade_count": len(exits),
+        "max_drawdown_pct": 0,
     }
 
 
-def _compute_exit_quality_metrics(exits: list[dict[str, Any]]) -> tuple[int, list[float], list[float], list[float], int]:
+def _compute_exit_quality_metrics(
+    exits: list[dict[str, Any]],
+) -> tuple[int, list[float], list[float], list[float], int]:
     """从出场记录提取质量指标。返回 (early_count, givebacks, mfe_list, mae_list, early_count)。"""
     early_count = 0
     givebacks: list[float] = []
@@ -693,7 +758,9 @@ def _compute_exit_quality_metrics(exits: list[dict[str, Any]]) -> tuple[int, lis
     return early_count, givebacks, mfe_list, mae_list, len(exits)
 
 
-def _grade_exit_quality(avg_giveback: float, avg_mfe: float, avg_mae: float, early_count: int, n: int) -> tuple[str, list[str]]:
+def _grade_exit_quality(
+    avg_giveback: float, avg_mfe: float, avg_mae: float, early_count: int, n: int
+) -> tuple[str, list[str]]:
     """根据回吐率评级并生成建议。返回 (grade, advice)。"""
     giveback_ratio = avg_giveback / avg_mfe if avg_mfe > 0 else 1.0
     if giveback_ratio < 0.2:

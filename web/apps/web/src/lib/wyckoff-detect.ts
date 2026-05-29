@@ -11,7 +11,7 @@ interface KlineRow {
 
 export interface WyckoffMarker {
   date: string
-  type: 'spring' | 'sos' | 'lps' | 'evr'
+  type: 'spring' | 'sos' | 'lps' | 'evr' | 'bc' | 'ut'
   label: string
   position: 'aboveBar' | 'belowBar'
 }
@@ -27,13 +27,15 @@ export interface WyckoffAnnotation {
   tradingRange: TradingRangeResult | null
   markers: WyckoffMarker[]
   stage: string
+  phaseLabel: string
 }
 
 export function detectWyckoffAnnotations(data: KlineRow[]): WyckoffAnnotation {
   const tr = identifyTradingRange(data)
   const markers = tr ? detectTriggers(data, tr) : []
   const stage = inferStage(data, tr, markers)
-  return { tradingRange: tr, markers, stage }
+  const phaseLabel = getPhaseLabel(stage, markers)
+  return { tradingRange: tr, markers, stage, phaseLabel }
 }
 
 function identifyTradingRange(data: KlineRow[], lookback = 90): TradingRangeResult | null {
@@ -89,6 +91,10 @@ function detectTriggers(data: KlineRow[], tr: TradingRangeResult): WyckoffMarker
       markers.push({ date: bar.date, type: 'lps', label: 'LPS', position: 'belowBar' })
     } else if (detectEVR(bar, tr, pctChange, volAvg20)) {
       markers.push({ date: bar.date, type: 'evr', label: 'EVR', position: 'aboveBar' })
+    } else if (detectBC(bar, tr, pctChange, volAvg20)) {
+      markers.push({ date: bar.date, type: 'bc', label: 'BC', position: 'aboveBar' })
+    } else if (detectUT(bar, prev, tr, volAvg20)) {
+      markers.push({ date: bar.date, type: 'ut', label: 'UT', position: 'aboveBar' })
     }
   }
   return markers.slice(-8)
@@ -136,6 +142,30 @@ function detectEVR(bar: KlineRow, tr: TradingRangeResult, pctChange: number, vol
   return highVol && inLowerHalf && narrowChange && aboveFloor
 }
 
+function detectBC(bar: KlineRow, tr: TradingRangeResult, pctChange: number, volAvg20: number): boolean {
+  const nearResistance = bar.close >= tr.resistance * 0.98
+  const highVol = volAvg20 > 0 && bar.volume / volAvg20 >= 3.0
+  const wideRange = bar.high - bar.low > 0
+  const weakClose = wideRange && (bar.close - bar.low) / (bar.high - bar.low) <= 0.4
+  const strongUp = pctChange >= 4.0
+  return nearResistance && highVol && weakClose && strongUp
+}
+
+function detectUT(
+  bar: KlineRow,
+  prev: KlineRow | undefined,
+  tr: TradingRangeResult,
+  volAvg20: number,
+): boolean {
+  if (!prev) return false
+  const piercedResistance = bar.high >= tr.resistance * 1.005
+  const closedBack = bar.close <= tr.resistance * 0.995
+  const highVol = volAvg20 > 0 && bar.volume / volAvg20 >= 2.0
+  const weakClose = (bar.close - bar.low) / Math.max(bar.high - bar.low, 0.001) <= 0.45
+  const bearishEngulf = bar.close < prev.close && bar.open > prev.close
+  return piercedResistance && closedBack && highVol && weakClose && bearishEngulf
+}
+
 function inferStage(data: KlineRow[], tr: TradingRangeResult | null, markers: WyckoffMarker[]): string {
   if (!tr || data.length === 0) return ''
   const last = data[data.length - 1]!
@@ -146,6 +176,17 @@ function inferStage(data: KlineRow[], tr: TradingRangeResult | null, markers: Wy
   if (hasSpring) return 'Accum_C'
   if (last.close > tr.mid) return 'Accum_B'
   return '区间观察'
+}
+
+function getPhaseLabel(stage: string, markers: WyckoffMarker[]): string {
+  if (!stage) return ''
+  if (stage === 'Markup') return '📈 上涨阶段'
+  if (stage === 'Accum_C' || stage === 'Accum_B') return '📦 吸筹区'
+  const hasBC = markers.some((m) => m.type === 'bc')
+  const hasUT = markers.some((m) => m.type === 'ut')
+  if (hasBC) return '⚠️ 派发区 (BC)'
+  if (hasUT) return '⚠️ 派发区 (UT)'
+  return '⏳ 区间整理'
 }
 
 function swingValues(series: number[], kind: 'low' | 'high', window: number): number[] {

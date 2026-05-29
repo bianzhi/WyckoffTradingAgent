@@ -28,7 +28,7 @@ interface KlineData {
 
 interface WyckoffMarkerInput {
   date: string
-  type: 'spring' | 'sos' | 'lps' | 'evr'
+  type: 'spring' | 'sos' | 'lps' | 'evr' | 'bc' | 'ut'
   label: string
   position: 'aboveBar' | 'belowBar'
 }
@@ -47,6 +47,7 @@ interface StructureSnapshot {
   latestClose: number
   ma20: number
   ma50: number
+  ma60: number
   support: number
   resistance: number
   volumeRatio: number
@@ -58,8 +59,11 @@ interface ChartRefs {
   chart: IChartApi
   candle: ISeriesApi<'Candlestick'>
   ma5: ISeriesApi<'Line'>
+  ma10: ISeriesApi<'Line'>
   ma20: ISeriesApi<'Line'>
   ma50: ISeriesApi<'Line'>
+  ma60: ISeriesApi<'Line'>
+  ma120: ISeriesApi<'Line'>
   volume: ISeriesApi<'Histogram'>
   markers: ISeriesMarkersPluginApi<Time> | null
 }
@@ -117,11 +121,14 @@ function useChartInit(
     })
     const maOpts = { priceLineVisible: false, lastValueVisible: false } as const
     const ma5 = chart.addSeries(LineSeries, { ...maOpts, color: '#f59e0b', lineWidth: 1 })
+    const ma10 = chart.addSeries(LineSeries, { ...maOpts, color: '#06b6d4', lineWidth: 1 })
     const ma20 = chart.addSeries(LineSeries, { ...maOpts, color: '#2563eb', lineWidth: 2 })
     const ma50 = chart.addSeries(LineSeries, { ...maOpts, color: '#7c3aed', lineWidth: 2, lineStyle: LineStyle.Dashed })
+    const ma60 = chart.addSeries(LineSeries, { ...maOpts, color: '#e11d48', lineWidth: 2, lineStyle: LineStyle.Dashed })
+    const ma120 = chart.addSeries(LineSeries, { ...maOpts, color: '#84cc16', lineWidth: 2, lineStyle: LineStyle.Dotted })
     const volume = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: 'volume' })
     chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } })
-    chartRefs.current = { chart, candle, ma5, ma20, ma50, volume, markers: null }
+    chartRefs.current = { chart, candle, ma5, ma10, ma20, ma50, ma60, ma120, volume, markers: null }
     const handleResize = () => { if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth }) }
     window.addEventListener('resize', handleResize)
     handleResize()
@@ -146,8 +153,11 @@ function useChartData(
     }))
     refs.candle.setData(candles)
     refs.ma5.setData(movingAverage(data, 5))
+    refs.ma10.setData(movingAverage(data, 10))
     refs.ma20.setData(movingAverage(data, 20))
     refs.ma50.setData(movingAverage(data, 50))
+    refs.ma60.setData(movingAverage(data, 60))
+    refs.ma120.setData(movingAverage(data, 120))
     refs.volume.setData(volumes)
     const markers = wyckoffMarkers ? toSeriesMarkers(wyckoffMarkers) : buildMarkers(data)
     if (refs.markers) refs.markers.setMarkers(markers)
@@ -426,6 +436,7 @@ function buildStructureSnapshot(
   const previous = data[data.length - 2]
   const ma20 = data.length >= 20 ? avg(data.slice(-20).map((d) => d.close)) : latest.close
   const ma50 = data.length >= 50 ? avg(data.slice(-50).map((d) => d.close)) : ma20
+  const ma60 = data.length >= 60 ? avg(data.slice(-60).map((d) => d.close)) : ma50
   const levels = trOverride ?? buildPriceLevels(data)
   const volumeBase = data.length >= 21 ? avg(data.slice(-21, -1).map((d) => d.volume)) : avg(data.map((d) => d.volume))
   const changePct = previous ? (latest.close / previous.close - 1) * 100 : 0
@@ -433,18 +444,18 @@ function buildStructureSnapshot(
 
   if (stageOverride) {
     const tone = stageOverride === 'Markup' ? 'strong' : stageOverride === '回踩/弱势' ? 'weak' : 'watch'
-    return { changePct, latestClose: latest.close, ma20, ma50, volumeRatio, ...levels, phase: stageOverride, tone }
+    return { changePct, latestClose: latest.close, ma20, ma50, ma60, volumeRatio, ...levels, phase: stageOverride, tone }
   }
 
   const upperBand = levels.support + (levels.resistance - levels.support) * 0.72
   const lowerBand = levels.support + (levels.resistance - levels.support) * 0.28
   if (latest.close > ma20 && ma20 >= ma50 && latest.close >= upperBand) {
-    return { changePct, latestClose: latest.close, ma20, ma50, volumeRatio, ...levels, phase: '右侧走强', tone: 'strong' }
+    return { changePct, latestClose: latest.close, ma20, ma50, ma60, volumeRatio, ...levels, phase: '右侧走强', tone: 'strong' }
   }
   if (latest.close < ma20 || latest.close <= lowerBand) {
-    return { changePct, latestClose: latest.close, ma20, ma50, volumeRatio, ...levels, phase: '回踩/弱势', tone: 'weak' }
+    return { changePct, latestClose: latest.close, ma20, ma50, ma60, volumeRatio, ...levels, phase: '回踩/弱势', tone: 'weak' }
   }
-  return { changePct, latestClose: latest.close, ma20, ma50, volumeRatio, ...levels, phase: '区间观察', tone: 'watch' }
+  return { changePct, latestClose: latest.close, ma20, ma50, ma60, volumeRatio, ...levels, phase: '区间观察', tone: 'watch' }
 }
 
 function buildPriceLevels(data: KlineData[]) {

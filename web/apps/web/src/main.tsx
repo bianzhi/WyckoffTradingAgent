@@ -20,6 +20,7 @@ const HistoryPage = lazy(() => import('@/routes/history').then(m => ({ default: 
 const TailBuyPage = lazy(() => import('@/routes/tail-buy').then(m => ({ default: m.TailBuyPage })))
 const ExportPage = lazy(() => import('@/routes/export').then(m => ({ default: m.ExportPage })))
 const FeatureGuidePage = lazy(() => import('@/routes/feature-guide').then(m => ({ default: m.FeatureGuidePage })))
+const FunnelPage = lazy(() => import('@/routes/funnel').then(m => ({ default: m.FunnelPage })))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -48,6 +49,7 @@ createRoot(document.getElementById('root')!).render(
                   <Route path="/tail-buy" element={<TailBuyPage />} />
                   <Route path="/export" element={<ExportPage />} />
                   <Route path="/guide" element={<FeatureGuidePage />} />
+                  <Route path="/funnel" element={<FunnelPage />} />
                   <Route path="/settings" element={<SettingsPage />} />
                 </Route>
               </Route>

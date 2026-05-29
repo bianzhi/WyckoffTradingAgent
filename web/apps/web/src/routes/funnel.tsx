@@ -1,0 +1,225 @@
+/**
+ * Phase 1.3 — 漏斗结果可视化页面
+ *
+ * 展示：漏斗各层通过率柱状图 + 板块热力图 + L4 触发分布
+ */
+
+import { useEffect, useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { createChart, HistogramSeries, type IChartApi, type HistogramData, type Time } from 'lightweight-charts'
+import { fetchFunnelSummary, fetchFunnelDates, type FunnelSummary, type SectorStat, type TriggerStat } from '@/lib/funnel-data'
+import { WyckoffLoading } from '@/components/loading'
+import { usePreferences } from '@/lib/preferences'
+
+const SECTOR_COLORS = [
+  '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#22c55e', '#06b6d4',
+  '#2563eb', '#7c3aed', '#ec4899', '#e11d48', '#8b5cf6', '#14b8a6',
+]
+
+const TRIGGER_COLORS: Record<string, string> = {
+  sos_bypass: '#ef4444',
+  accum: '#f97316',
+  trend: '#22c55e',
+  stealth: '#7c3aed',
+  trend_cont: '#2563eb',
+  value: '#06b6d4',
+  other: '#6b7280',
+}
+
+export function FunnelPage() {
+  const { locale } = usePreferences()
+  const [selectedDate, setSelectedDate] = useState<string>('')
+
+  const { data: dates } = useQuery({
+    queryKey: ['funnel-dates'],
+    queryFn: fetchFunnelDates,
+    staleTime: 300_000,
+  })
+
+  const { data: summary, isLoading } = useQuery({
+    queryKey: ['funnel-summary', selectedDate],
+    queryFn: () => fetchFunnelSummary(selectedDate || undefined),
+    staleTime: 300_000,
+  })
+
+  useEffect(() => {
+    if (dates && dates.length > 0 && !selectedDate) {
+      setSelectedDate(dates[0]!)
+    }
+  }, [dates, selectedDate])
+
+  if (isLoading) return <WyckoffLoading />
+  if (!summary) {
+    return (
+      <div className="flex min-h-[300px] items-center justify-center text-muted-foreground">
+        {locale === 'zh-CN' ? '暂无漏斗数据，等待后台任务运行。' : 'No funnel data yet. Waiting for background jobs.'}
+      </div>
+    )
+  }
+
+  const isZh = locale === 'zh-CN'
+
+  return (
+    <div className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h1 className="text-lg font-bold">{isZh ? '威科夫漏斗' : 'Wyckoff Funnel'}</h1>
+          <p className="text-xs text-muted-foreground">
+            {isZh ? `日期: ${summary.date} · 扫描 ${summary.totalScanned} 只 · AI 精选 ${summary.aiCount} 只` : `Date: ${summary.date} · Scanned ${summary.totalScanned} · AI picked ${summary.aiCount}`}
+          </p>
+        </div>
+        {dates && dates.length > 0 && (
+          <select
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="rounded-md border border-border bg-background px-3 py-1.5 text-xs"
+          >
+            {dates.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      {/* Layer pass rate chart */}
+      <section className="rounded-xl border border-border bg-card/50 p-4">
+        <h2 className="mb-3 text-sm font-semibold">{isZh ? '各层通过率' : 'Layer Pass Rates'}</h2>
+        <FunnelLayersChart layers={summary.layers} />
+      </section>
+
+      {/* Sector heatmap + Trigger distribution */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <section className="rounded-xl border border-border bg-card/50 p-4">
+          <h2 className="mb-3 text-sm font-semibold">{isZh ? 'AI 精选板块分布' : 'AI-Picked Sector Distribution'}</h2>
+          <SectorHeatmap sectors={summary.sectors} />
+        </section>
+
+        <section className="rounded-xl border border-border bg-card/50 p-4">
+          <h2 className="mb-3 text-sm font-semibold">{isZh ? 'L4 触发类型分布' : 'L4 Trigger Distribution'}</h2>
+          <TriggerDistribution triggers={summary.triggers} />
+        </section>
+      </div>
+    </div>
+  )
+}
+
+function FunnelLayersChart({ layers }: { layers: FunnelSummary['layers'] }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const chartRef = useRef<IChartApi | null>(null)
+
+  useEffect(() => {
+    if (!containerRef.current || layers.length === 0) return
+
+    const theme = readTheme()
+    const chart = createChart(containerRef.current, {
+      height: 220,
+      layout: { background: { color: theme.background }, textColor: theme.mutedText, fontSize: 11 },
+      grid: { vertLines: { color: theme.grid }, horzLines: { color: theme.grid } },
+      rightPriceScale: { borderColor: theme.border },
+      timeScale: { borderColor: theme.border, visible: true, timeVisible: false },
+      localization: { priceFormatter: (v: number) => `${v.toFixed(1)}%` },
+    })
+
+    const hist = chart.addSeries(HistogramSeries, {
+      color: '#2563eb',
+      priceFormat: { type: 'custom', formatter: (v: number) => `${v.toFixed(1)}%` },
+    })
+
+    const colors = ['#2563eb', '#22c55e', '#f59e0b', '#ef4444']
+    const data: HistogramData<Time>[] = layers.map((layer, i) => ({
+      time: layer.layer as Time,
+      value: layer.passRate,
+      color: colors[i % colors.length],
+    }))
+
+    hist.setData(data)
+    chart.timeScale().fitContent()
+
+    const resize = () => {
+      if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth })
+    }
+    window.addEventListener('resize', resize)
+    resize()
+
+    chartRef.current = chart
+    return () => { window.removeEventListener('resize', resize); chart.remove() }
+  }, [layers])
+
+  return (
+    <div>
+      <div ref={containerRef} className="h-[220px] w-full overflow-hidden rounded-lg border border-border bg-background" />
+      <div className="mt-2 flex justify-around text-[11px] text-muted-foreground">
+        {layers.map(layer => (
+          <div key={layer.layer} className="text-center">
+            <div className="font-medium">{layer.label}</div>
+            <div>{layer.count} 只</div>
+            <div className="font-semibold text-foreground">{layer.passRate}%</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function SectorHeatmap({ sectors }: { sectors: SectorStat[] }) {
+  const maxCount = Math.max(...sectors.map(s => s.count), 1)
+  return (
+    <div className="space-y-2">
+      {sectors.map((s, i) => (
+        <div key={s.sector} className="flex items-center gap-2 text-xs">
+          <span className="w-16 shrink-0 truncate text-muted-foreground">{s.sector}</span>
+          <div className="flex-1">
+            <div className="h-5 rounded-sm transition-all" style={{
+              width: `${Math.max((s.count / maxCount) * 100, 3)}%`,
+              backgroundColor: SECTOR_COLORS[i % SECTOR_COLORS.length],
+              opacity: 0.85,
+            }} />
+          </div>
+          <span className="w-12 text-right font-medium tabular-nums">{s.count}</span>
+          <span className="w-10 text-right tabular-nums text-muted-foreground">{s.pct}%</span>
+        </div>
+      ))}
+      {sectors.length === 0 && (
+        <p className="py-6 text-center text-xs text-muted-foreground">暂无数据</p>
+      )}
+    </div>
+  )
+}
+
+function TriggerDistribution({ triggers }: { triggers: TriggerStat[] }) {
+  return (
+    <div className="space-y-2">
+      {triggers.map(t => (
+        <div key={t.trigger} className="flex items-center gap-2 text-xs">
+          <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: TRIGGER_COLORS[t.trigger] || '#6b7280' }} />
+          <span className="w-20 truncate">{t.label}</span>
+          <div className="flex-1">
+            <div className="h-4 rounded-sm transition-all" style={{
+              width: `${Math.max(t.pct, 2)}%`,
+              backgroundColor: TRIGGER_COLORS[t.trigger] || '#6b7280',
+              opacity: 0.75,
+            }} />
+          </div>
+          <span className="w-8 text-right font-medium tabular-nums">{t.count}</span>
+          <span className="w-10 text-right tabular-nums text-muted-foreground">{t.pct}%</span>
+        </div>
+      ))}
+      {triggers.length === 0 && (
+        <p className="py-6 text-center text-xs text-muted-foreground">暂无数据</p>
+      )}
+    </div>
+  )
+}
+
+function readTheme() {
+  if (typeof document === 'undefined') return { background: '#ffffff', mutedText: '#6b7194', border: '#e2e5f1', grid: '#eef1f6' }
+  const style = getComputedStyle(document.documentElement)
+  const color = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback
+  return {
+    background: color('--color-background', '#ffffff'),
+    mutedText: color('--color-muted-foreground', '#6b7194'),
+    border: color('--color-border', '#e2e5f1'),
+    grid: document.documentElement.classList.contains('dark') ? '#202938' : '#eef1f6',
+  }
+}

@@ -511,6 +511,15 @@ export async function execIntradayAnalysis(_deps: ToolDeps, _userId: string, cod
   return lines.join('\n')
 }
 
+// ── signal_quality ──────────────────────────────────────────
+
+export async function execGetSignalQuality(): Promise<string> {
+  const { report, error } = await dataSkill.fetchSignalQuality()
+  if (error) return `信号质量数据获取失败：${error}`
+  if (!report) return '暂无信号质量数据。信号反馈系统可能需要更多样本才能生成报告。'
+  return report
+}
+
 // ── intraday helpers (no data fetching) ────────────────────
 
 interface IntradayProfileWeb {

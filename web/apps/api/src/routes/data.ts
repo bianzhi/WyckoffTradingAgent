@@ -508,3 +508,26 @@ dataRoutes.get('/quotes', async (c) => {
   const quotes = await fetchQuotesTickFlow(symbols, keys.tickflow)
   return c.json({ quotes })
 })
+
+// ── GET /api/data/signal-quality ───────────────────────────
+
+dataRoutes.get('/signal-quality', async (c) => {
+  try {
+    const { spawnSync } = await import('node:child_process')
+    const proc = spawnSync('python3', [
+      '-c',
+      'from tools.signal_quality import generate_signal_quality_report; print(generate_signal_quality_report())',
+    ], {
+      timeout: 15_000,
+      encoding: 'utf-8',
+      env: { ...process.env, PYTHONPATH: process.env.PYTHONPATH || process.cwd() },
+      cwd: process.cwd(),
+    })
+    if (proc.error) {
+      return c.json({ error: `signal_quality: ${proc.error.message}`, report: '' })
+    }
+    return c.json({ report: proc.stdout?.trim() || '', error: proc.stderr?.trim() || undefined })
+  } catch (err: any) {
+    return c.json({ error: `signal_quality: ${err.message}`, report: '' })
+  }
+})

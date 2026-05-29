@@ -9,7 +9,7 @@ import {
   execSearchStock, execViewPortfolio, execMarketOverview,
   execQueryRecommendations, execQueryTailBuy, execExecutePortfolioUpdate,
   execAnalyzeStock, execScreenStocks, execGenerateAiReport, execStrategyDecision,
-  execMarketHistory, execIntradayAnalysis,
+  execMarketHistory, execIntradayAnalysis, execGetSignalQuality,
 } from './chat-tools'
 
 const SYSTEM_PROMPT = `# 角色设定
@@ -609,6 +609,12 @@ function buildTools(userId: string, config: LLMConfig, reasoningCache: string[])
       description: '盘中多周期分析：获取分钟线数据，返回VWAP位置、趋势方向、动量、量能分布和综合强度评分。用于判断当前是否适合交易。',
       inputSchema: z.object({ code: z.string().describe('股票代码：A股6位数字，如 000001') }),
       execute: ({ code }) => execIntradayAnalysis(deps, userId, code),
+    }),
+
+    get_signal_quality: tool({
+      description: '信号质量评分报告：查询当前所有信号类型（sos/spring/lps/evr/compression/trend_pullback）的健康状态、胜率、平均收益、样本量等统计指标。用于评估威科夫信号在当前市场环境下的有效性。',
+      inputSchema: z.object({}),
+      execute: () => execGetSignalQuality(),
     }),
   }
 }

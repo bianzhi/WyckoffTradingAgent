@@ -12,6 +12,7 @@ import {
   execScreenStocks,
   execAnalyzeStock,
   execMarketHistory,
+  execGetSignalQuality,
 } from '../chat-tools'
 
 // ── mock DataSkill ─────────────────────────────────────────
@@ -27,6 +28,7 @@ vi.mock('../data-skill', () => ({
     fetchQuotes: vi.fn().mockResolvedValue({}),
     fetchIndexLive: vi.fn().mockRejectedValue(new Error('no-key')),
     fetchIntraday: vi.fn().mockResolvedValue({ symbol: '', periods: {}, error: 'no-key' }),
+    fetchSignalQuality: vi.fn().mockResolvedValue({ report: '', error: 'no-key' }),
   },
 }))
 
@@ -438,5 +440,39 @@ describe('execAnalyzeStock', () => {
 
     expect(result).toContain('请在设置中配置 TickFlow API Key')
     expect(mockDS.fetchKline).toHaveBeenCalledWith('AAPL.US', 250)
+  })
+})
+
+describe('execGetSignalQuality', () => {
+  it('returns report when available', async () => {
+    const mockDS = vi.mocked(dataSkill)
+    mockDS.fetchSignalQuality.mockResolvedValue({
+      report: '## 信号注册表\n\n| 信号 | 赛道 | 状态 |\n|------|------|------|\n| sos | Trend | HEALTHY |',
+    })
+
+    const result = await execGetSignalQuality()
+
+    expect(result).toContain('信号注册表')
+    expect(result).toContain('sos')
+    expect(result).toContain('HEALTHY')
+  })
+
+  it('returns error message when fetch fails', async () => {
+    const mockDS = vi.mocked(dataSkill)
+    mockDS.fetchSignalQuality.mockResolvedValue({ report: '', error: 'DB connection failed' })
+
+    const result = await execGetSignalQuality()
+
+    expect(result).toContain('信号质量数据获取失败')
+    expect(result).toContain('DB connection failed')
+  })
+
+  it('returns empty message when no data', async () => {
+    const mockDS = vi.mocked(dataSkill)
+    mockDS.fetchSignalQuality.mockResolvedValue({ report: '' })
+
+    const result = await execGetSignalQuality()
+
+    expect(result).toContain('暂无信号质量数据')
   })
 })

@@ -123,4 +123,13 @@ export const dataSkill = {
       error: res.error as string | undefined,
     }
   },
+
+  /** 信号质量评分报告 */
+  async fetchSignalQuality(): Promise<{ report: string; error?: string }> {
+    const res = await authFetch('/api/data/signal-quality')
+    return {
+      report: String(res.report || ''),
+      error: res.error as string | undefined,
+    }
+  },
 }

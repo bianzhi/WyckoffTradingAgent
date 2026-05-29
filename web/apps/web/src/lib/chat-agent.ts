@@ -500,11 +500,11 @@ function createMarketHistoryTool(deps: ToolDeps, userId: string, model: unknown)
   })
 }
 
-function createMarketOverviewTool(deps: ToolDeps) {
+function createMarketOverviewTool(deps: ToolDeps, userId: string) {
   return tool({
     description: '查看当前/最新大盘行情信号：市场状态（regime）、上证指数、A50、VIX、市场提示。只适合回答今天或当前的大盘状态。',
     inputSchema: z.object({}),
-    execute: () => execMarketOverview(deps),
+    execute: () => execMarketOverview(deps, userId),
   })
 }
 
@@ -535,7 +535,7 @@ function buildTools(userId: string, config: LLMConfig, reasoningCache: string[])
       execute: () => execViewPortfolio(deps, userId),
     }),
 
-    market_overview: createMarketOverviewTool(deps),
+    market_overview: createMarketOverviewTool(deps, userId),
     market_history: createMarketHistoryTool(deps, userId, model),
 
     query_recommendations: tool({

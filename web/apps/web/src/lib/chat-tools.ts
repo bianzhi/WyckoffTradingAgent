@@ -339,48 +339,99 @@ export async function execViewPortfolio(deps: ToolDeps, userId: string): Promise
   ].join('\n')
 }
 
-export async function execMarketOverview(deps: ToolDeps): Promise<string> {
+async function fetchLiveMarketQuote(
+  deps: ToolDeps,
+  key: string,
+  code: string,
+): Promise<{ close: number; pct: number; name: string } | null> {
+  try {
+    const count = 5
+    const params = new URLSearchParams({
+      symbol: code, period: '1d', count: String(count), adjust: 'forward',
+    })
+    const resp = await deps.fetch(`/api/llm-proxy/v1/klines?${params}`, {
+      headers: { 'x-api-key': key, 'X-Target-URL': 'https://api.tickflow.org' },
+    })
+    if (!resp.ok) return null
+    const rows = parseTickFlowPayload(await resp.json(), code)
+    if (rows.length < 2) return null
+    const latest = rows[rows.length - 1]!
+    const prev = rows[rows.length - 2]!
+    const pct = prev.close > 0 ? ((latest.close - prev.close) / prev.close) * 100 : 0
+    return { close: latest.close, pct, name: '' }
+  } catch { return null }
+}
+
+function formatRegime(regime: string): string {
+  const regimeMap: Record<string, string> = {
+    RISK_ON: '偏强', NEUTRAL: '中性', RISK_OFF: '偏弱', CRASH: '极弱', BLACK_SWAN: '恶劣',
+  }
+  return regimeMap[regime] || regime
+}
+
+function formatMarketSignalLine(merged: Record<string, unknown>): string {
+  const regime = String(merged.benchmark_regime || 'NEUTRAL')
+  const close = Number(merged.main_index_close || 0)
+  const pct = Number(merged.main_index_today_pct || 0)
+  const sig = close && pct >= 0 ? '+' : ''
+  const a50Close = Number(merged.a50_close || 0)
+  const a50Pct = Number(merged.a50_pct_chg || 0)
+  const vixClose = Number(merged.vix_close || 0)
+  return [
+    `大盘状态：${formatRegime(regime)}`,
+    close ? `上证指数：${close.toFixed(0)} (${sig}${pct.toFixed(2)}%)` : '',
+    a50Close ? `A50：${a50Close.toFixed(0)} (${a50Pct >= 0 ? '+' : ''}${a50Pct.toFixed(2)}%)` : '',
+    vixClose ? `VIX：${vixClose.toFixed(1)}` : '',
+    String(merged.banner_title || '') ? `\n${merged.banner_title}` : '',
+    String(merged.banner_message || '') ? String(merged.banner_message) : '',
+  ].filter(Boolean).join('\n')
+}
+
+async function fetchLiveIndexQuotes(deps: ToolDeps, key: string): Promise<string> {
+  const indices = [
+    { code: '000001.SH', label: '上证指数' },
+    { code: '399001.SZ', label: '深证成指' },
+    { code: '399006.SZ', label: '创业板指' },
+  ]
+  const liveLines: string[] = ['📡 实时行情（TickFlow）：']
+  for (const idx of indices) {
+    const q = await fetchLiveMarketQuote(deps, key, idx.code)
+    if (q) {
+      liveLines.push(`${idx.label}：${q.close.toFixed(0)} (${q.pct >= 0 ? '+' : ''}${q.pct.toFixed(2)}%)`)
+    }
+  }
+  return liveLines.length === 1 ? '' : liveLines.join('\n')
+}
+
+export async function execMarketOverview(deps: ToolDeps, userId?: string): Promise<string> {
   const { data } = await deps.supabase
     .from('market_signal_daily')
     .select('*')
     .order('trade_date', { ascending: false })
     .limit(3)
 
-  if (!data || data.length === 0) return '暂无最新市场信号数据'
-
-  const merged: Record<string, unknown> = { ...data[0] }
-  for (const row of data) {
-    for (const key of ['benchmark_regime', 'main_index_close', 'main_index_today_pct']) {
-      if (!merged[key] && row[key]) merged[key] = row[key]
+  if (data && data.length > 0) {
+    const merged: Record<string, unknown> = { ...data[0] }
+    for (const row of data) {
+      for (const key of ['benchmark_regime', 'main_index_close', 'main_index_today_pct']) {
+        if (!merged[key] && row[key]) merged[key] = row[key]
+      }
+      for (const key of ['a50_close', 'a50_pct_chg']) {
+        if (!merged[key] && row[key]) merged[key] = row[key]
+      }
+      for (const key of ['vix_close', 'vix_pct_chg']) {
+        if (!merged[key] && row[key]) merged[key] = row[key]
+      }
     }
-    for (const key of ['a50_close', 'a50_pct_chg']) {
-      if (!merged[key] && row[key]) merged[key] = row[key]
-    }
-    for (const key of ['vix_close', 'vix_pct_chg']) {
-      if (!merged[key] && row[key]) merged[key] = row[key]
-    }
+    return formatMarketSignalLine(merged)
   }
 
-  const regimeMap: Record<string, string> = {
-    RISK_ON: '偏强', NEUTRAL: '中性', RISK_OFF: '偏弱', CRASH: '极弱', BLACK_SWAN: '恶劣',
-  }
-  const regime = String(merged.benchmark_regime || 'NEUTRAL')
-  const close = Number(merged.main_index_close || 0)
-  const pct = Number(merged.main_index_today_pct || 0)
-  const a50Close = Number(merged.a50_close || 0)
-  const a50Pct = Number(merged.a50_pct_chg || 0)
-  const vixClose = Number(merged.vix_close || 0)
-  const title = String(merged.banner_title || '')
-  const body = String(merged.banner_message || '')
+  const userIdStr = userId || ''
+  const key = userIdStr ? await fetchTickFlowKey(deps, userIdStr) : null
+  if (!key) return '暂无最新市场信号数据（未配置 TickFlow API Key，无法获取实时行情）。请在设置中配置。'
 
-  return [
-    `大盘状态：${regimeMap[regime] || regime}`,
-    close ? `上证指数：${close.toFixed(0)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)` : '',
-    a50Close ? `A50：${a50Close.toFixed(0)} (${a50Pct >= 0 ? '+' : ''}${a50Pct.toFixed(2)}%)` : '',
-    vixClose ? `VIX：${vixClose.toFixed(1)}` : '',
-    title ? `\n${title}` : '',
-    body ? body : '',
-  ].filter(Boolean).join('\n')
+  const live = await fetchLiveIndexQuotes(deps, key)
+  return live || '暂无最新市场信号数据（实时行情获取失败）。请稍后重试或检查 TickFlow 权限。'
 }
 
 type MarketIndexKey = 'sse' | 'csi300' | 'szse' | 'chinext'
@@ -392,6 +443,36 @@ const MARKET_INDEXES: Record<MarketIndexKey, { code: string; name: string }> = {
   chinext: { code: '399006.SZ', name: '创业板指' },
 }
 
+async function analyzeMarketDigest(
+  deps: ToolDeps, model: unknown, name: string, rows: KlineRow[],
+): Promise<string> {
+  const digest = buildMarketHistoryDigest(name, rows)
+  const result = await deps.generateText({
+    model: model as Parameters<typeof GenerateTextFn>[0]['model'],
+    system: '你是威科夫大盘量价分析师。基于指数历史OHLCV，判断过去一段时间的大盘阶段、供需关系、量价背离、关键支撑压力与当前市场位置。不得只引用当天水温，不得编造数据。',
+    prompt: digest,
+  })
+  return result.text || digest
+}
+
+async function fetchIndexViaTushare(
+  deps: ToolDeps, token: string, code: string, fetchDays: number,
+): Promise<KlineRow[]> {
+  const end = new Date()
+  const start = new Date()
+  start.setDate(start.getDate() - fetchDays * 2 - 30)
+  const fmt = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, '')
+  const idxJson = await tusharePost(deps, token, 'index_daily',
+    { ts_code: code, start_date: fmt(start), end_date: fmt(end) },
+    'trade_date,open,high,low,close,vol,pct_chg')
+  const items = idxJson?.data?.items
+  if (!Array.isArray(items) || items.length === 0) return []
+  return items.map((row: unknown[]) => ({
+    date: String(row[0]), open: Number(row[1]), high: Number(row[2]),
+    low: Number(row[3]), close: Number(row[4]), volume: Number(row[5]),
+  })).reverse()
+}
+
 export async function execMarketHistory(
   deps: ToolDeps,
   userId: string,
@@ -399,20 +480,29 @@ export async function execMarketHistory(
   days = 100,
   index: MarketIndexKey = 'sse',
 ): Promise<string> {
-  const key = await fetchTickFlowKey(deps, userId)
-  if (!key) return '无法回看大盘历史K线：请先在设置页配置 TickFlow API Key。'
+  const keys = await fetchUserDataKeys(deps, userId)
   const requestedDays = Math.min(Math.max(Math.trunc(days) || 100, 1), 250)
   const fetchDays = Math.max(requestedDays, 20)
   const target = MARKET_INDEXES[index] || MARKET_INDEXES.sse
-  const rows = await fetchKlineViaTickFlow(deps, target.code, key, fetchDays)
-  if (rows.length === 0) return `无法获取 ${target.name} 过去 ${requestedDays} 个交易日K线。请检查 TickFlow 数据权限或稍后重试。`
-  const digest = buildMarketHistoryDigest(target.name, rows.slice(-requestedDays))
-  const result = await deps.generateText({
-    model: model as Parameters<typeof GenerateTextFn>[0]['model'],
-    system: '你是威科夫大盘量价分析师。基于指数历史OHLCV，判断过去一段时间的大盘阶段、供需关系、量价背离、关键支撑压力与当前市场位置。不得只引用当天水温，不得编造数据。',
-    prompt: digest,
-  })
-  return result.text || digest
+
+  if (keys.tickflow) {
+    const rows = await fetchKlineViaTickFlow(deps, target.code, keys.tickflow, fetchDays)
+    if (rows.length > 0) return analyzeMarketDigest(deps, model, target.name, rows.slice(-requestedDays))
+  }
+
+  if (keys.tushare) {
+    const tsCode = `${target.code.split('.')[0]}.${target.code.split('.')[1]}`
+    const rows = await fetchIndexViaTushare(deps, keys.tushare, tsCode, fetchDays)
+    if (rows.length > 0) return analyzeMarketDigest(deps, model, target.name, rows.slice(-requestedDays))
+  }
+
+  const configured = keys.tickflow ? 'TickFlow ' : ''
+  const sep = keys.tickflow && keys.tushare ? '和 ' : ''
+  const configured2 = keys.tushare ? 'tushare ' : ''
+  const sourceHint = configured || configured2
+    ? `（已配置${configured}${sep}${configured2}，但指数K线获取失败）`
+    : '（请先在设置页配置 TickFlow API Key 或 tushare Token）'
+  return `无法获取 ${target.name} 过去 ${requestedDays} 个交易日K线${sourceHint}。`
 }
 
 function buildMarketHistoryDigest(name: string, rows: KlineRow[]): string {

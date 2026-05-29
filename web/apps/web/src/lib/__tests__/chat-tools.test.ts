@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { ToolDeps, KlineRow } from '../chat-tools'
 import {
   buildValueAgentDigest,
@@ -14,6 +14,26 @@ import {
   execMarketHistory,
 } from '../chat-tools'
 
+// ── mock DataSkill ─────────────────────────────────────────
+// Tools no longer make direct TickFlow/tushare calls; they delegate to
+// /api/data/* via DataSkill.  We mock DataSkill methods to control the
+// data pipeline and test tool logic (digest building, error handling).
+
+vi.mock('../data-skill', () => ({
+  dataSkill: {
+    fetchKline: vi.fn(),
+    fetchIndex: vi.fn(),
+    fetchValueSnapshot: vi.fn(),
+    fetchQuotes: vi.fn().mockResolvedValue({}),
+    fetchIndexLive: vi.fn().mockRejectedValue(new Error('no-key')),
+    fetchIntraday: vi.fn().mockResolvedValue({ symbol: '', periods: {}, error: 'no-key' }),
+  },
+}))
+
+import { dataSkill } from '../data-skill'
+
+// ── helpers ────────────────────────────────────────────────
+
 function createMockChain(resolvedData: unknown = null, error: unknown = null) {
   const chain: Record<string, unknown> = {}
   const terminal = () => Promise.resolve({ data: resolvedData, error })
@@ -28,12 +48,12 @@ function createMockChain(resolvedData: unknown = null, error: unknown = null) {
   return chain
 }
 
-function createPortfolioWriteDeps(updateRows: unknown[]) {
-  const updateChain = createMockChain(updateRows)
+function createPortfolioWriteDeps(existingRow: Record<string, unknown> | null) {
+  const updateChain = createMockChain(existingRow)
   const insertChain = createMockChain(null)
   const mockFrom = vi.fn()
-    .mockReturnValueOnce(updateChain)
-    .mockReturnValueOnce(insertChain)
+    .mockReturnValueOnce(updateChain)   // first from(): maybeSingle query
+    .mockReturnValueOnce(insertChain)   // second from(): insert
   const deps = {
     supabase: { from: mockFrom } as unknown as ToolDeps['supabase'],
     fetch: vi.fn(),
@@ -65,6 +85,20 @@ function makeKlineRows(n: number, base = 10): KlineRow[] {
     volume: 100000 + i * 1000,
   }))
 }
+
+// ── tests ──────────────────────────────────────────────────
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  // Reset DataSkill mocks to defaults
+  const mockDS = vi.mocked(dataSkill)
+  mockDS.fetchKline.mockReset().mockResolvedValue({ source: 'mock', rows: [], error: 'mock-not-configured' })
+  mockDS.fetchIndex.mockReset().mockResolvedValue({ source: 'mock', rows: [], error: 'mock-not-configured' })
+  mockDS.fetchValueSnapshot.mockReset().mockResolvedValue({ symbol: '', source: 'none', metrics: null, reason: 'missing-source' } as const)
+  mockDS.fetchQuotes.mockReset().mockResolvedValue({})
+  mockDS.fetchIndexLive.mockReset().mockRejectedValue(new Error('no-key'))
+  mockDS.fetchIntraday.mockReset().mockResolvedValue({ symbol: '', periods: {}, error: 'no-key' })
+})
 
 describe('buildKlineDigest', () => {
   it('returns placeholder for empty data', () => {
@@ -167,10 +201,10 @@ describe('execViewPortfolio', () => {
 })
 
 describe('execMarketOverview', () => {
-  it('returns no-data message when empty', async () => {
+  it('returns no-data message when DB empty and index-live unavailable', async () => {
     const deps = createMockDeps({ market_signal_daily: [] })
     const result = await execMarketOverview(deps)
-    expect(result).toBe('暂无最新市场信号数据')
+    expect(result).toContain('暂无最新市场信号数据')
   })
 
   it('returns formatted market data', async () => {
@@ -183,46 +217,45 @@ describe('execMarketOverview', () => {
     expect(result).toContain('偏强')
     expect(result).toContain('3200')
   })
+
+  it('falls back to live quotes when DB has data but missing fields', async () => {
+    const deps = createMockDeps({
+      market_signal_daily: [{ benchmark_regime: 'NEUTRAL' }],
+    })
+    const result = await execMarketOverview(deps)
+    expect(result).toContain('中性')
+  })
 })
 
 describe('execMarketHistory', () => {
-  it('uses TickFlow index K-line history for historical market questions', async () => {
-    const deps = createMockDeps({ user_settings: { tickflow_api_key: ' tf-test ', tushare_token: '' } })
-    deps.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({
-        data: {
-          '000001.SH': {
-            timestamp: [1704067200000, 1704153600000, 1704240000000],
-            open: [3000, 3010, 3020],
-            high: [3030, 3040, 3050],
-            low: [2990, 3000, 3010],
-            close: [3020, 3030, 3040],
-            volume: [1000, 1200, 1300],
-          },
-        },
-      }),
-    } as Response) as unknown as ToolDeps['fetch']
+  it('builds index digest and returns LLM analysis via DataSkill', async () => {
+    const deps = createMockDeps({})
+    const mockDS = vi.mocked(dataSkill)
+    mockDS.fetchIndex.mockResolvedValue({
+      source: 'tickflow',
+      rows: makeKlineRows(3, 3000).map(r => ({ ...r, close: r.close + 2000 })),
+    })
 
     const result = await execMarketHistory(deps, 'user1', {}, 100, 'sse')
 
     expect(result).toBe('mocked LLM response')
-    expect(deps.fetch).toHaveBeenCalledWith(
-      expect.stringContaining('symbol=000001.SH'),
-      expect.objectContaining({ headers: expect.objectContaining({ 'x-api-key': 'tf-test' }) }),
-    )
+    expect(mockDS.fetchIndex).toHaveBeenCalledWith('000001.SH', 100)
     expect(deps.generateText).toHaveBeenCalledWith(expect.objectContaining({
       prompt: expect.stringContaining('最近3个交易日'),
     }))
   })
 
-  it('explains missing TickFlow key', async () => {
-    const deps = createMockDeps({ user_settings: { tickflow_api_key: '', tushare_token: '' } })
+  it('returns error message when DataSkill fails', async () => {
+    const deps = createMockDeps({})
+    const mockDS = vi.mocked(dataSkill)
+    mockDS.fetchIndex.mockResolvedValue({ source: 'none', rows: [], error: 'no key configured' })
 
     const result = await execMarketHistory(deps, 'user1', {}, 100, 'sse')
 
-    expect(result).toContain('配置 TickFlow API Key')
-    expect(deps.fetch).not.toHaveBeenCalled()
+    expect(result).toContain('无法获取')
+    expect(result).toContain('上证指数')
+    expect(result).toContain('来源')
+    expect(result).toContain('no key configured')
   })
 })
 
@@ -277,19 +310,18 @@ describe('execExecutePortfolioUpdate', () => {
   })
 
   it('updates an existing position without inserting a duplicate row', async () => {
-    const { deps, updateChain, insertChain } = createPortfolioWriteDeps([{ id: 'pos-1' }])
+    const { deps, insertChain } = createPortfolioWriteDeps({ id: 'pos-1' })
 
     const result = await execExecutePortfolioUpdate(deps, 'user1', 'update', '600519', '贵州茅台', 200, 1810, 1700)
 
     expect(result).toContain('已更新')
-    expect(updateChain.update).toHaveBeenCalledWith(expect.objectContaining({ code: '600519', shares: 200 }))
-    expect(updateChain.eq).toHaveBeenCalledWith('portfolio_id', 'USER_LIVE:user1')
-    expect(updateChain.eq).toHaveBeenCalledWith('code', '600519')
+    expect(insertChain.update).toHaveBeenCalledWith(expect.objectContaining({ name: '贵州茅台', shares: 200 }))
+    expect(insertChain.eq).toHaveBeenCalledWith('id', 'pos-1')
     expect(insertChain.insert).not.toHaveBeenCalled()
   })
 
   it('inserts a position only when no existing row matches', async () => {
-    const { deps, insertChain } = createPortfolioWriteDeps([])
+    const { deps, insertChain } = createPortfolioWriteDeps(null)
 
     const result = await execExecutePortfolioUpdate(deps, 'user1', 'add', '600519', '贵州茅台', 100, 1800, 1700)
 
@@ -309,36 +341,30 @@ describe('execScreenStocks', () => {
 })
 
 describe('execAnalyzeStock', () => {
-  it('includes value snapshot when analyzing A-share stocks', async () => {
-    const deps = createMockDeps({ user_settings: { tickflow_api_key: ' tf-test ', tushare_token: '' } })
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({
-          data: [
-            { date: '2024-01-01', open: 100, high: 103, low: 99, close: 102, volume: 1000 },
-            { date: '2024-01-02', open: 102, high: 105, low: 101, close: 104, volume: 1200 },
-          ],
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({
-          data: {
-            '600519.SH': [{
-              period_end: '2026-03-31',
-              roe: 18.2,
-              net_income_yoy: 11.8,
-              revenue_yoy: 6.5,
-              gross_margin: 91.6,
-              net_margin: 48.3,
-              debt_to_asset_ratio: 21.4,
-              operating_cash_to_revenue: 16.2,
-            }],
-          },
-        }),
-      })
-    deps.fetch = fetchMock as unknown as ToolDeps['fetch']
+  it('builds full digest from K-line + value snapshot via DataSkill', async () => {
+    const deps = createMockDeps({})
+    const mockDS = vi.mocked(dataSkill)
+
+    mockDS.fetchKline.mockResolvedValue({
+      source: 'tickflow',
+      rows: makeKlineRows(2, 100),
+    })
+
+    mockDS.fetchValueSnapshot.mockResolvedValue({
+      symbol: '600519.SH',
+      source: 'tickflow',
+      metrics: {
+        period_end: '2026-03-31',
+        roe: 18.2,
+        net_income_yoy: 11.8,
+        revenue_yoy: 6.5,
+        gross_margin: 91.6,
+        net_margin: 48.3,
+        debt_to_asset_ratio: 21.4,
+        operating_cash_to_revenue: 16.2,
+      },
+      reason: undefined,
+    })
 
     const result = await execAnalyzeStock(
       deps,
@@ -350,10 +376,8 @@ describe('execAnalyzeStock', () => {
     )
 
     expect(result).toBe('mocked LLM response')
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('/api/llm-proxy/v1/financials/metrics?'),
-      expect.objectContaining({ headers: expect.objectContaining({ 'x-api-key': 'tf-test' }) }),
-    )
+    expect(mockDS.fetchKline).toHaveBeenCalledWith('600519', 250)
+    expect(mockDS.fetchValueSnapshot).toHaveBeenCalledWith('600519')
     expect(deps.generateText).toHaveBeenCalledWith(expect.objectContaining({
       system: expect.stringContaining('价值面校准'),
       prompt: expect.stringContaining('价值面摘要（来源：TickFlow，报告期：2026-03-31）'),
@@ -363,46 +387,45 @@ describe('execAnalyzeStock', () => {
     }))
   })
 
-  it('uses TickFlow batch fallback for market symbols', async () => {
-    const deps = createMockDeps({ user_settings: { tickflow_api_key: ' tf-test ', tushare_token: '' } })
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ data: {} }) })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({
-          data: {
-            'AAPL.US': {
-              timestamp: [1704067200000, 1704153600000],
-              open: [100, 101],
-              high: [102, 103],
-              low: [99, 100],
-              close: [101, 102],
-              volume: [1000, 1200],
-            },
-          },
-        }),
-      })
-    deps.fetch = fetchMock as unknown as ToolDeps['fetch']
+  it('falls back to tushare when TickFlow value fails', async () => {
+    const deps = createMockDeps({})
+    const mockDS = vi.mocked(dataSkill)
+
+    mockDS.fetchKline.mockResolvedValue({
+      source: 'tushare',
+      rows: makeKlineRows(5, 10),
+    })
+
+    mockDS.fetchValueSnapshot.mockResolvedValue({
+      symbol: '000001.SZ',
+      source: 'tushare',
+      metrics: {
+        period_end: '20251231',
+        eps_basic: 2.5,
+        bps: 15.0,
+        roe: 16.0,
+      },
+      reason: undefined,
+    })
 
     const result = await execAnalyzeStock(
       deps,
       'user1',
       { api_key: 'llm-key', model: 'test-model', base_url: 'https://example.com/v1' },
       {},
-      'AAPL.US',
-      '苹果',
+      '000001',
+      '平安银行',
     )
 
     expect(result).toBe('mocked LLM response')
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      expect.stringContaining('/api/llm-proxy/v1/klines/batch?'),
-      expect.objectContaining({ headers: expect.objectContaining({ 'x-api-key': 'tf-test' }) }),
-    )
+    expect(mockDS.fetchKline).toHaveBeenCalledWith('000001', 250)
+    expect(mockDS.fetchValueSnapshot).toHaveBeenCalledWith('000001')
   })
 
-  it('explains missing TickFlow key for market symbols', async () => {
-    const deps = createMockDeps({ user_settings: { tickflow_api_key: '', tushare_token: '' } })
+  it('explains missing data for market symbols', async () => {
+    const deps = createMockDeps({})
+    const mockDS = vi.mocked(dataSkill)
+    mockDS.fetchKline.mockResolvedValue({ source: 'none', rows: [], error: 'not found' })
 
     const result = await execAnalyzeStock(
       deps,
@@ -413,7 +436,7 @@ describe('execAnalyzeStock', () => {
       '苹果',
     )
 
-    expect(result).toContain('设置页配置 TickFlow API Key')
-    expect(deps.fetch).not.toHaveBeenCalled()
+    expect(result).toContain('请在设置中配置 TickFlow API Key')
+    expect(mockDS.fetchKline).toHaveBeenCalledWith('AAPL.US', 250)
   })
 })

@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { chatRoutes } from './routes/chat'
+import { dataRoutes } from './routes/data'
 import { portfolioRoutes } from './routes/portfolio'
 import { settingsRoutes } from './routes/settings'
 import { llmProxyRoutes } from './routes/llm-proxy'
@@ -63,6 +64,7 @@ app.use('*', cors({
 app.get('/api/health', (c) => c.json({ status: 'ok' }))
 
 app.route('/api/chat', chatRoutes)
+app.route('/api/data', dataRoutes)
 app.route('/api/portfolio', portfolioRoutes)
 app.route('/api/settings', settingsRoutes)
 app.route('/api/llm-proxy', llmProxyRoutes)

@@ -522,15 +522,32 @@ def _resolve_llm_config(tool_context) -> tuple[str, str, str, str]:
     return "gemini", api_key, model, base_url
 
 
-def _ensure_tushare_token(tool_context: ToolContext | None) -> None:
-    """确保 tushare 能拿到 token：从 Supabase 获取后设置到环境变量。
+def _ensure_data_tokens(tool_context: ToolContext | None) -> None:
+    """统一注入数据源凭据到环境变量。
 
-    tushare 库内部只认 ts.set_token() 或 TUSHARE_TOKEN 环境变量，
-    无法通过函数参数传递，所以这里做一次即时注入。
+    从凭据链（Supabase → wyckoff.json → env）获取 TickFlow 和 Tushare Token，
+    set 到 os.environ[TICKFLOW_API_KEY] / os.environ[TUSHARE_TOKEN]。
+    integrations/data_source.py 中的 _get_tickflow_client() 和 tushare 库
+    都只认环境变量，所以需要做一次即时注入。
     """
-    token = _get_credential(tool_context, "tushare_token", "TUSHARE_TOKEN")
-    if token:
-        os.environ["TUSHARE_TOKEN"] = token
+    # TickFlow
+    tf_key = _get_credential(tool_context, "tickflow_api_key", "TICKFLOW_API_KEY")
+    if tf_key:
+        os.environ["TICKFLOW_API_KEY"] = tf_key
+
+    # Tushare
+    ts_token = _get_credential(tool_context, "tushare_token", "TUSHARE_TOKEN")
+    if ts_token:
+        os.environ["TUSHARE_TOKEN"] = ts_token
+
+    # System-level overrides (allow env-level overrides from dev.vars)
+    for env_var in ("SYSTEM_TICKFLOW_API_KEY", "SYSTEM_TUSHARE_TOKEN"):
+        sys_val = os.getenv(env_var, "").strip()
+        if sys_val:
+            if env_var == "SYSTEM_TICKFLOW_API_KEY":
+                os.environ["TICKFLOW_API_KEY"] = sys_val
+            elif env_var == "SYSTEM_TUSHARE_TOKEN":
+                os.environ["TUSHARE_TOKEN"] = sys_val
 
 
 # ---------------------------------------------------------------------------
@@ -670,7 +687,7 @@ def analyze_stock(
         诊断结果或行情数据 dict。
     """
     try:
-        _ensure_tushare_token(tool_context)
+        _ensure_data_tokens(tool_context)
         from integrations.stock_hist_repository import _COL_MAP, get_stock_hist
 
         mode = (mode or "diagnose").strip().lower()
@@ -843,7 +860,7 @@ def portfolio(mode: str = "view", tool_context: ToolContext = None) -> dict:
             }
 
         # mode == "diagnose"
-        _ensure_tushare_token(tool_context)
+        _ensure_data_tokens(tool_context)
         from core.holding_diagnostic import diagnose_one_stock, format_diagnostic_text
         from integrations.stock_hist_repository import get_stock_hist
 
@@ -942,7 +959,7 @@ def get_market_overview(tool_context: ToolContext) -> dict:
 
         # 优先 tushare（有 token 时数据更稳定）
         try:
-            _ensure_tushare_token(tool_context)
+            _ensure_data_tokens(tool_context)
             from integrations.tushare_client import get_pro
 
             pro = get_pro()
@@ -1113,7 +1130,7 @@ def _fetch_market_history_frame(symbol: str, days: int, tool_context: ToolContex
     else:
         errors.append("tickflow: TICKFLOW_API_KEY 未配置")
     try:
-        _ensure_tushare_token(tool_context)
+        _ensure_data_tokens(tool_context)
         from integrations.data_source import fetch_index_hist
 
         end = date.today()
@@ -1233,7 +1250,7 @@ def screen_stocks(board: str = "all", tool_context: ToolContext = None) -> dict:
         筛选结果 dict，包含各层统计和最终候选股票列表。
     """
     try:
-        _ensure_tushare_token(tool_context)
+        _ensure_data_tokens(tool_context)
         # 参数校验与别名映射
         board = str(board or "all").strip().lower()
         board = _BOARD_ALIAS.get(board, board)
@@ -1326,7 +1343,7 @@ def generate_ai_report(stock_codes: list[str], tool_context: ToolContext) -> dic
         包含研报文本和起跳板代码的 dict。
     """
     try:
-        _ensure_tushare_token(tool_context)
+        _ensure_data_tokens(tool_context)
         if not stock_codes:
             return {"error": "请提供至少一个股票代码"}
         if len(stock_codes) > 10:
@@ -1386,7 +1403,7 @@ def generate_strategy_decision(tool_context: ToolContext) -> dict:
         策略决策结果 dict。
     """
     try:
-        _ensure_tushare_token(tool_context)
+        _ensure_data_tokens(tool_context)
 
         provider, api_key, model, base_url = _resolve_llm_config(tool_context)
         if not api_key:
@@ -2030,7 +2047,7 @@ def run_backtest(
 
         from core.backtester import run_backtest as _run_backtest
 
-        _ensure_tushare_token(tool_context)
+        _ensure_data_tokens(tool_context)
 
         start_dt = date.fromisoformat(str(start).strip()[:10]) if start else date.today() - timedelta(days=180)
         end_dt = date.fromisoformat(str(end).strip()[:10]) if end else date.today() - timedelta(days=1)
@@ -2251,6 +2268,24 @@ def web_fetch(url: str, tool_context: ToolContext = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# 数据源健康监控工具
+# ---------------------------------------------------------------------------
+
+
+def get_data_source_health(tool_context: ToolContext) -> dict[str, Any]:
+    """Query data source health: success rate, avg latency, circuit state, last error per source.
+
+    Used for diagnosing data fetch issues and monitoring source availability.
+    """
+    try:
+        from integrations.data_source import get_data_source_health as _health
+
+        return _health()
+    except Exception as e:
+        return {"error": f"获取数据源健康状态失败: {e}"}
+
+
+# ---------------------------------------------------------------------------
 # 工具列表导出（Web/MCP/CLI 端，不含 exec/read/write/web_fetch）
 # ---------------------------------------------------------------------------
 
@@ -2266,4 +2301,5 @@ WYCKOFF_TOOLS = [
     query_history,
     update_portfolio,
     run_backtest,
+    get_data_source_health,
 ]

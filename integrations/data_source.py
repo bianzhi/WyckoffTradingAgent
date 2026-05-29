@@ -853,12 +853,13 @@ def fetch_stock_hist(
         failed_details.append("tickflow=unconfigured")
     else:
         try:
-            return _tag_source(
-                _fetch_stock_tickflow(symbol, start_s, end_s, adjust),
-                "tickflow",
-            )
+            _t0 = time.monotonic()
+            result = _fetch_stock_tickflow(symbol, start_s, end_s, adjust)
+            record_source_success("tickflow", (time.monotonic() - _t0) * 1000)
+            return _tag_source(result, "tickflow")
         except Exception as e:
             tickflow_failed = True
+            record_source_failure("tickflow", _compact_error(e))
             _debug_source_fail("tickflow", e)
             failed_sources.append("tickflow")
             failed_details.append(f"tickflow={_compact_error(e)}")
@@ -884,6 +885,7 @@ def fetch_stock_hist(
     pro = get_pro()
     if pro is not None:
         try:
+            _t0 = time.monotonic()
             out = _tag_source(
                 _attach_tickflow_limit_notices(
                     _fetch_stock_tushare(symbol, start_s, end_s, "qfq"),
@@ -891,6 +893,7 @@ def fetch_stock_hist(
                 ),
                 "tushare",
             )
+            record_source_success("tushare", (time.monotonic() - _t0) * 1000)
             if tickflow_failed:
                 print(
                     f"[data_source] fallback命中: symbol={symbol}, source=tushare, "
@@ -899,6 +902,7 @@ def fetch_stock_hist(
                 )
             return out
         except Exception as e:
+            record_source_failure("tushare", _compact_error(e))
             _debug_source_fail("tushare", e)
             failed_sources.append("tushare")
             failed_details.append(f"tushare={_compact_error(e)}")
@@ -913,6 +917,7 @@ def fetch_stock_hist(
     else:
         for attempt in range(1, _AKSHARE_RETRY_TIMES + 1):
             try:
+                _t0 = time.monotonic()
                 out = _tag_source(
                     _attach_tickflow_limit_notices(
                         _fetch_stock_akshare(symbol, start_s, end_s, adjust),
@@ -920,6 +925,7 @@ def fetch_stock_hist(
                     ),
                     "akshare",
                 )
+                record_source_success("akshare", (time.monotonic() - _t0) * 1000)
                 if tickflow_failed:
                     print(
                         f"[data_source] fallback命中: symbol={symbol}, source=akshare, "
@@ -929,6 +935,7 @@ def fetch_stock_hist(
                 return out
             except ModuleNotFoundError as e:
                 _debug_source_fail("akshare", e)
+                record_source_failure("akshare", _compact_error(e))
                 failed_sources.append(f"akshare(缺少依赖 {e.name})")
                 failed_details.append(f"akshare={_compact_error(e)}")
                 break
@@ -937,6 +944,7 @@ def fetch_stock_hist(
                 if attempt < _AKSHARE_RETRY_TIMES and _is_retryable_akshare_error(e):
                     time.sleep(max(_AKSHARE_RETRY_SLEEP_SECONDS, 0.0))
                     continue
+                record_source_failure("akshare", _compact_error(e))
                 failed_sources.append("akshare")
                 failed_details.append(f"akshare={_compact_error(e)}")
                 break
@@ -958,6 +966,7 @@ def fetch_stock_hist(
             if _BAOSTOCK_MAX_SECONDS > 0 and elapsed > _BAOSTOCK_MAX_SECONDS:
                 raise TimeoutError(f"baostock slow={elapsed:.2f}s > {_BAOSTOCK_MAX_SECONDS:.2f}s")
             _baostock_mark_success()
+            record_source_success("baostock", elapsed * 1000)
             out = _tag_source(
                 _attach_tickflow_limit_notices(df, tickflow_limit_notices),
                 "baostock",
@@ -972,11 +981,13 @@ def fetch_stock_hist(
         except ModuleNotFoundError as e:
             _debug_source_fail("baostock", e)
             _baostock_mark_failure(_compact_error(e))
+            record_source_failure("baostock", _compact_error(e))
             failed_sources.append(f"baostock(未安装: {e.name})")
             failed_details.append(f"baostock={_compact_error(e)}")
         except Exception as e:
             _debug_source_fail("baostock", e)
             _baostock_mark_failure(_compact_error(e))
+            record_source_failure("baostock", _compact_error(e))
             failed_sources.append("baostock")
             failed_details.append(f"baostock={_compact_error(e)}")
 
@@ -986,6 +997,7 @@ def fetch_stock_hist(
         failed_details.append("efinance=disabled_by_env")
     else:
         try:
+            _t0 = time.monotonic()
             out = _tag_source(
                 _attach_tickflow_limit_notices(
                     _fetch_stock_efinance(symbol, start_s, end_s),
@@ -993,6 +1005,7 @@ def fetch_stock_hist(
                 ),
                 "efinance",
             )
+            record_source_success("efinance", (time.monotonic() - _t0) * 1000)
             if tickflow_failed:
                 print(
                     f"[data_source] fallback命中: symbol={symbol}, source=efinance, "
@@ -1002,10 +1015,12 @@ def fetch_stock_hist(
             return out
         except ModuleNotFoundError as e:
             _debug_source_fail("efinance", e)
+            record_source_failure("efinance", _compact_error(e))
             failed_sources.append(f"efinance(未安装: {e.name})")
             failed_details.append(f"efinance={_compact_error(e)}")
         except Exception as e:
             _debug_source_fail("efinance", e)
+            record_source_failure("efinance", _compact_error(e))
             failed_sources.append("efinance")
             failed_details.append(f"efinance={_compact_error(e)}")
 
@@ -1481,3 +1496,71 @@ def detect_theme_lines(min_days: int = 3) -> list[str]:
             concept_streak[concept] = streak
 
     return sorted(concept_streak, key=lambda c: concept_streak[c], reverse=True)
+
+
+# ---------------------------------------------------------------------------
+# 数据源健康监控（Phase 0.2）
+# ---------------------------------------------------------------------------
+
+_SOURCE_HEALTH_LOCK = threading.RLock()
+_SOURCE_METRICS: dict[str, dict[str, Any]] = {}
+
+
+def _init_source_metrics(name: str) -> None:
+    """初始化某个数据源的 metric 槽位。"""
+    with _SOURCE_HEALTH_LOCK:
+        if name not in _SOURCE_METRICS:
+            _SOURCE_METRICS[name] = {
+                "success": 0,
+                "failure": 0,
+                "total_latency_ms": 0.0,
+                "last_success_ts": 0.0,
+                "last_failure_ts": 0.0,
+                "last_error": "",
+            }
+
+
+def record_source_success(name: str, latency_ms: float) -> None:
+    """记录数据源调用成功。"""
+    with _SOURCE_HEALTH_LOCK:
+        _init_source_metrics(name)
+        m = _SOURCE_METRICS[name]
+        m["success"] += 1
+        m["total_latency_ms"] += latency_ms
+        m["last_success_ts"] = time.monotonic()
+
+
+def record_source_failure(name: str, error: str) -> None:
+    """记录数据源调用失败。"""
+    with _SOURCE_HEALTH_LOCK:
+        _init_source_metrics(name)
+        m = _SOURCE_METRICS[name]
+        m["failure"] += 1
+        m["last_failure_ts"] = time.monotonic()
+        m["last_error"] = error[:200]
+
+
+def get_data_source_health() -> dict[str, Any]:
+    """获取所有数据源的健康状态快照。
+
+    返回 dict，包含各数据源的成功/失败次数、平均延迟、熔断状态、最后错误。
+    """
+    with _SOURCE_HEALTH_LOCK:
+        health: dict[str, Any] = {}
+        for name, m in _SOURCE_METRICS.items():
+            total = m["success"] + m["failure"]
+            success_rate = (m["success"] / total * 100) if total > 0 else 100.0
+            avg_latency = (m["total_latency_ms"] / m["success"]) if m["success"] > 0 else 0.0
+            last_success_ago = (time.monotonic() - m["last_success_ts"]) if m["last_success_ts"] > 0 else None
+            health[name] = {
+                "success": m["success"],
+                "failure": m["failure"],
+                "success_rate_pct": round(success_rate, 1),
+                "avg_latency_ms": round(avg_latency, 1),
+                "last_success_ago_s": round(last_success_ago, 1) if last_success_ago is not None else None,
+                "last_error": m["last_error"],
+            }
+        # 附加熔断器状态
+        bao_open, bao_note = _baostock_circuit_state()
+        health["baostock_circuit"] = {"open": bao_open, "note": bao_note}
+        return health

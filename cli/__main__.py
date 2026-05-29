@@ -1152,6 +1152,57 @@ def _cmd_diag(args):
 
 
 # ---------------------------------------------------------------------------
+# wyckoff diagnose — 无 LLM 持仓诊断（headless）
+# ---------------------------------------------------------------------------
+
+
+def _cmd_diagnose_headless(args):
+    """无 LLM 模式：直接调用持仓诊断/行情引擎，输出文本结果。"""
+    from integrations.local_db import init_db
+
+    init_db()
+
+    code = (args.code or "").strip()
+    mode = (getattr(args, "mode", "diagnose") or "diagnose").strip().lower()
+
+    if code:
+        print(f"正在诊断 {code} ...")
+        try:
+            from core.holding_diagnostic import diagnose_one_stock, format_diagnostic_text
+            from integrations.stock_hist_repository import get_stock_hist
+            from datetime import date, timedelta
+
+            end = date.today()
+            start = end - timedelta(days=365)
+            df = get_stock_hist(symbol=code, start=start, end=end)
+            diag = diagnose_one_stock(symbol=code, df=df, end_date=end)
+            print(format_diagnostic_text(code, diag))
+        except Exception as e:
+            print(f"✗ 诊断失败: {e}")
+            sys.exit(1)
+    else:
+        print("正在诊断全部持仓 ...")
+        try:
+            from core.holding_diagnostic import diagnose_portfolio
+            from integrations.portfolio_store import load_portfolio
+
+            pf = load_portfolio()
+            if not pf or not pf.get("positions"):
+                print("持仓列表为空，请先添加持仓")
+                return
+            results = diagnose_portfolio(pf)
+            for r in results:
+                print(f"\n{'='*50}")
+                print(f"  {r['symbol']} 健康度: {r.get('health_score', 'N/A')}")
+                for k, v in r.items():
+                    if k != "symbol":
+                        print(f"    {k}: {v}")
+        except Exception as e:
+            print(f"✗ 诊断失败: {e}")
+            sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
 # wyckoff sync — 手动同步 Supabase → SQLite
 # ---------------------------------------------------------------------------
 
@@ -1366,6 +1417,10 @@ def _dispatch_command(args) -> None:
         start_dashboard(port=args.port)
     elif args.cmd == "screen":
         _cmd_screen(args)
+    elif args.cmd == "funnel":
+        _cmd_screen(args)  # headless: 直接复用 screen
+    elif args.cmd in ("diagnose", "dx"):
+        _cmd_diagnose_headless(args)
     elif args.cmd in ("backtest", "bt"):
         _cmd_backtest(args)
     elif args.cmd == "report":
@@ -1400,6 +1455,7 @@ def main():
         description="威科夫终端读盘室 — Wyckoff 量价分析 Agent",
     )
     parser.add_argument("-v", "--version", action="version", version=f"wyckoff {_get_version()}")
+    parser.add_argument("--headless", action="store_true", help="无 LLM 模式：跳过 Agent 循环，直接输出引擎结果（适用于 LLM 不可用场景）")
     sub = parser.add_subparsers(dest="cmd")
 
     # wyckoff update
@@ -1454,6 +1510,15 @@ def main():
     # wyckoff screen
     p_screen = sub.add_parser("screen", help="全市场漏斗筛选")
     p_screen.add_argument("--board", default="all", help="板块 (all/main/gem/star)")
+
+    # wyckoff funnel (headless 别名)
+    p_funnel = sub.add_parser("funnel", help="无 LLM 漏斗筛选（等同于 screen --board=all）")
+    p_funnel.add_argument("--board", default="all", help="板块 (all/main/gem/star)")
+
+    # wyckoff diagnose (headless 别名)
+    p_diagnose = sub.add_parser("diagnose", help="无 LLM 持仓诊断", aliases=["dx"])
+    p_diagnose.add_argument("code", nargs="?", default="", help="股票代码（留空则诊断全部持仓）")
+    p_diagnose.add_argument("--mode", default="diagnose", choices=["diagnose", "overview"], help="诊断模式")
 
     # wyckoff backtest
     p_bt = sub.add_parser("backtest", help="策略历史回测", aliases=["bt"])

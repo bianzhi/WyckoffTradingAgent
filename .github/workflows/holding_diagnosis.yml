@@ -1,6 +1,9 @@
 name: Holding Diagnosis
 
 on:
+  schedule:
+    # 北京时间 15:30（UTC+8）= UTC 07:30，盘后持仓诊断
+    - cron: "30 7 * * 1-5"
   workflow_dispatch:
 
 concurrency:

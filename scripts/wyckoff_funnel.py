@@ -36,6 +36,7 @@ from core.theme_radar import build_theme_radar_snapshot, summarize_theme_radar
 from core.wyckoff_engine import (
     FunnelConfig,
     FunnelResult,
+    adjust_funnel_for_regime,
     allocate_ai_candidates,
     detect_accum_stage,
     detect_markup_stage,
@@ -1364,6 +1365,12 @@ def run_funnel_job(
         f"repair_triggered={benchmark_context.get('repair_triggered')}, repair_reasons={benchmark_context.get('repair_reasons')}, "
         f"tuned={benchmark_context['tuned']}"
     )
+
+    # 根据大盘水温自适应调整漏斗检测阈值（补充 market_regime 的基座调参）
+    regime = str(benchmark_context.get("regime", ""))
+    if regime:
+        cfg = adjust_funnel_for_regime(cfg, regime)
+        print(f"[funnel] 漏斗阈值已按 regime={regime} 自适应调整")
 
     print("[funnel] 开始执行全量漏斗筛选...")
     report_progress("漏斗筛选", "L1~L4 计算中", 0.85)

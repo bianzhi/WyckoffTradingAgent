@@ -378,6 +378,53 @@ def resolve_ai_candidate_policy(
     }
 
 
+def adjust_funnel_for_regime(cfg: FunnelConfig, regime: str) -> FunnelConfig:
+    """根据大盘水温自适应调整漏斗检测阈值。"""
+    from dataclasses import replace
+
+    defensive = regime in ("RISK_OFF", "CRASH", "BLACK_SWAN")
+    aggressive = regime == "RISK_ON"
+
+    if not defensive and not aggressive:
+        return cfg
+
+    if defensive:
+        return replace(
+            cfg,
+            # 提高 RPS 门槛，只选最强个股
+            rps_fast_min=cfg.rps_fast_min + 5,
+            rps_slow_min=cfg.rps_slow_min + 5,
+            rps_slow_strong_bypass=cfg.rps_slow_strong_bypass + 5,
+            rps_fast_bypass_min=cfg.rps_fast_bypass_min + 3,
+            rps_accel_fast_min=cfg.rps_accel_fast_min + 5,
+            rps_accel_slow_min=cfg.rps_accel_slow_min + 5,
+            # 收紧相对强度要求
+            rs_min_long=cfg.rs_min_long + 1.0,
+            rs_min_short=cfg.rs_min_short + 0.5,
+            # 收紧 MA200 乖离，防止追高
+            momentum_bias_200_max=cfg.momentum_bias_200_max - 0.05,
+            # 提高行业共振门槛
+            sector_count_quantile=cfg.sector_count_quantile + 0.05,
+            # 提高 Spring 量能确认要求
+            spring_vol_ratio=cfg.spring_vol_ratio + 0.1,
+            spring_vol_expand_ratio=cfg.spring_vol_expand_ratio + 0.05,
+        )
+    # RISK_ON
+    return replace(
+        cfg,
+        rps_fast_min=max(55, cfg.rps_fast_min - 3),
+        rps_slow_min=max(60, cfg.rps_slow_min - 3),
+        rps_slow_strong_bypass=cfg.rps_slow_strong_bypass - 3,
+        rps_fast_bypass_min=cfg.rps_fast_bypass_min - 3,
+        rps_accel_fast_min=cfg.rps_accel_fast_min - 3,
+        rps_accel_slow_min=cfg.rps_accel_slow_min - 3,
+        rs_min_long=cfg.rs_min_long - 0.5,
+        momentum_bias_200_max=cfg.momentum_bias_200_max + 0.05,
+        sector_count_quantile=cfg.sector_count_quantile - 0.05,
+        spring_vol_ratio=cfg.spring_vol_ratio - 0.05,
+    )
+
+
 # Layer 1: 剥离垃圾
 
 
@@ -1986,9 +2033,12 @@ def run_funnel(
     market_cap_map: dict[str, float],
     sector_map: dict[str, str],
     cfg: FunnelConfig | None = None,
+    regime: str = "",
 ) -> FunnelResult:
     if cfg is None:
         cfg = FunnelConfig()
+    if regime:
+        cfg = adjust_funnel_for_regime(cfg, regime)
 
     # 预先整理时序，避免各层重复 sort/copy 产生大量临时对象。
     prepared_df_map: dict[str, pd.DataFrame] = {

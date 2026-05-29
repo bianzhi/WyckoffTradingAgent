@@ -4,6 +4,7 @@ import { chatRoutes } from './routes/chat'
 import { portfolioRoutes } from './routes/portfolio'
 import { settingsRoutes } from './routes/settings'
 import { llmProxyRoutes } from './routes/llm-proxy'
+import { realtimeRoutes } from './routes/realtime'
 
 export type Env = {
   SUPABASE_URL: string
@@ -25,5 +26,6 @@ app.route('/api/chat', chatRoutes)
 app.route('/api/portfolio', portfolioRoutes)
 app.route('/api/settings', settingsRoutes)
 app.route('/api/llm-proxy', llmProxyRoutes)
+app.route('/api/realtime', realtimeRoutes)
 
 export default app

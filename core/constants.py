@@ -1,5 +1,18 @@
 import os
 
+# ── 数据列名映射（中→英）────────────────────────────────────────────────────
+# 用于 normalize_hist_from_fetch() 等适配层
+COL_MAP: dict[str, str] = {
+    "日期": "date",
+    "开盘": "open",
+    "最高": "high",
+    "最低": "low",
+    "收盘": "close",
+    "成交量": "volume",
+    "成交额": "amount",
+    "涨跌幅": "pct_chg",
+}
+
 # Supabase 内置 anon 凭据（需要替换为你自己的 Supabase 项目凭据）
 # 前往 https://supabase.com/dashboard 创建项目，在 Settings → API 中获取
 SUPABASE_ANON_URL = os.environ.get("SUPABASE_URL", "")

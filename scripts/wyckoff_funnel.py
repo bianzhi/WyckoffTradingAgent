@@ -24,12 +24,13 @@ import pandas as pd
 # Ensure project root is on sys.path for direct script invocation
 if __name__ == "__main__" or not __package__:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from core.dynamic_policy import (
+from tools.dynamic_policy import (
     build_signal_weight_map,
     dynamic_policy_mode,
     filter_triggers_by_registry,
     resolve_dynamic_candidate_policy,
 )
+from tools.ai_quota_config import load_ai_quota_config
 from core.sector_rotation import analyze_sector_rotation
 from core.theme_radar import build_theme_radar_snapshot, summarize_theme_radar
 from core.wyckoff_engine import (
@@ -749,7 +750,8 @@ def _load_dynamic_policy_context(regime: str, benchmark_context: dict) -> dict:
         logger.warning("动态策略上下文加载失败，降级为静态: %s", exc)
         return {"mode": "off", "health": [], "registry": [], "weights": {}, "policy": None}
     weights = build_signal_weight_map(health_rows, registry_rows, regime=regime)
-    base_policy = resolve_ai_candidate_policy(regime)
+    ai_quotas = load_ai_quota_config()
+    base_policy = resolve_ai_candidate_policy(regime, quotas=ai_quotas)
     policy = resolve_dynamic_candidate_policy(
         base_policy,
         weights,
@@ -815,6 +817,7 @@ def _allocate_candidates_for_ai(
 ) -> tuple[list[str], list[str], dict[str, float], dict]:
     dynamic_ctx = _load_dynamic_policy_context(str(regime), benchmark_context)
     dynamic_mode = str(dynamic_ctx.get("mode") or "off")
+    ai_quotas = load_ai_quota_config()
     allocation_triggers = triggers
     if dynamic_mode == "on":
         allocation_triggers = filter_triggers_by_registry(triggers, dynamic_ctx.get("registry", []) or [])
@@ -829,8 +832,9 @@ def _allocate_candidates_for_ai(
         max_per_sector=2,
         policy_override=dynamic_policy,
         signal_weight_map=(dynamic_ctx.get("weights") or {}) if dynamic_mode == "on" else None,
+        ai_quotas=ai_quotas,
     )
-    ai_policy = dynamic_policy or resolve_ai_candidate_policy(regime)
+    ai_policy = dynamic_policy or resolve_ai_candidate_policy(regime, quotas=ai_quotas)
     _attach_shadow_policy(ai_policy, dynamic_ctx)
     alloc_elapsed = time.monotonic() - alloc_started
     print(

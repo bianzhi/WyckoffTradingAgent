@@ -29,7 +29,7 @@ def _sample_df() -> pd.DataFrame:
 
 
 def test_public_payload_is_deidentified():
-    from core.compliance_report import build_public_payload
+    from integrations.compliance_report import build_public_payload
 
     payload = build_public_payload(
         benchmark_context={"regime": "NEUTRAL", "breadth": {"ratio_pct": 51.2}},
@@ -48,7 +48,7 @@ def test_public_payload_is_deidentified():
 
 
 def test_public_payload_includes_market_and_etf_metrics_without_codes():
-    from core.compliance_report import build_public_payload
+    from integrations.compliance_report import build_public_payload
 
     payload = build_public_payload(
         benchmark_context={
@@ -77,7 +77,7 @@ def test_public_payload_includes_market_and_etf_metrics_without_codes():
 
 
 def test_public_payload_handles_missing_industry_column():
-    from core.compliance_report import build_public_payload
+    from integrations.compliance_report import build_public_payload
 
     payload = build_public_payload(
         benchmark_context={"regime": "NEUTRAL"},
@@ -89,7 +89,7 @@ def test_public_payload_handles_missing_industry_column():
 
 
 def test_validate_compliance_report_blocks_codes_names_and_action_terms():
-    from core.compliance_report import validate_compliance_report
+    from integrations.compliance_report import validate_compliance_report
 
     bad = "建议关注 600000 浦发银行，明日买入并设置止损。"
     result = validate_compliance_report(bad, forbidden_names=["浦发银行"])
@@ -101,7 +101,7 @@ def test_validate_compliance_report_blocks_codes_names_and_action_terms():
 
 
 def test_resolve_compliance_llm_uses_efficiency(monkeypatch):
-    from core.compliance_report import resolve_compliance_llm_config
+    from integrations.compliance_report import resolve_compliance_llm_config
 
     monkeypatch.setenv("EFFICIENCY_API_KEY", "eff-key")
     monkeypatch.setenv("EFFICIENCY_MODEL", "longcat")
@@ -115,7 +115,7 @@ def test_resolve_compliance_llm_uses_efficiency(monkeypatch):
 
 
 def test_generate_compliance_brief_fallback_has_no_stock_identifiers(monkeypatch):
-    from core.compliance_report import generate_compliance_brief
+    from integrations.compliance_report import generate_compliance_brief
 
     monkeypatch.delenv("EFFICIENCY_API_KEY", raising=False)
     monkeypatch.delenv("EFFICIENCY_MODEL", raising=False)
@@ -141,7 +141,7 @@ def test_generate_compliance_brief_fallback_has_no_stock_identifiers(monkeypatch
 
 
 def test_generate_compliance_brief_rejects_bad_llm_output(monkeypatch):
-    import core.compliance_report as cr
+    import integrations.compliance_report as cr
 
     monkeypatch.setenv("EFFICIENCY_API_KEY", "eff-key")
     monkeypatch.setenv("EFFICIENCY_MODEL", "mimo-v2.5-pro")

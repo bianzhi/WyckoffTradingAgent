@@ -22,9 +22,9 @@ logger = logging.getLogger(__name__)
 
 def normalize_hist_from_fetch(df: pd.DataFrame) -> pd.DataFrame:
     """将 fetch_a_share_csv._fetch_hist 返回的 DataFrame 转为筛选器所需格式。"""
-    from integrations.stock_hist_repository import _COL_MAP
+    from core.constants import COL_MAP
 
-    col_map = {**_COL_MAP, "换手率": "turnover", "换手": "turnover"}
+    col_map = {**COL_MAP, "换手率": "turnover", "换手": "turnover"}
     out = df.rename(columns=col_map)
     keep = [
         c
@@ -307,30 +307,33 @@ def fit_ai_candidate_quotas(
 def resolve_ai_candidate_policy(
     regime: str,
     override_total_cap: int = -1,
+    *,
+    quotas: dict[str, int] | None = None,
 ) -> dict[str, int | str]:
     """
     Central source of truth for AI allocation defaults.
 
     CRASH / PANIC_REPAIR / BLACK_SWAN all share the defensive quota family
     instead of silently falling back to NEUTRAL.
-    """
-    import os
 
+    Args:
+        regime: 大盘水温 (RISK_ON / RISK_OFF / NEUTRAL / CRASH / BLACK_SWAN)
+        override_total_cap: 覆盖总配额上限 (-1 表示使用默认)
+        quotas: 配额配置 dict，键见 ai_quota_config.load_ai_quota_config()。
+                传 None 时使用内置默认值。
+    """
+    q = quotas or {}
     total_cap = (
-        max(int(os.getenv("FUNNEL_AI_TOTAL_CAP", "12")), 0)
-        if override_total_cap < 0
-        else max(int(override_total_cap), 0)
+        max(int(override_total_cap if override_total_cap >= 0 else q.get("total_cap", 12)), 0)
     )
-    # 配额重平衡：原版严重偏向 Accum 左侧（4/8, 3/7, 1/5），导致大量底部横盘股拉低胜率。
-    # 现改为 Trend 优先：右侧已确认趋势的股票胜率远高于左侧潜伏。
-    risk_on_trend = max(int(os.getenv("FUNNEL_AI_RISK_ON_TREND", "7")), 0)
-    risk_on_accum = max(int(os.getenv("FUNNEL_AI_RISK_ON_ACCUM", "5")), 0)
-    risk_off_trend = max(int(os.getenv("FUNNEL_AI_RISK_OFF_TREND", "2")), 0)
-    risk_off_accum = max(int(os.getenv("FUNNEL_AI_RISK_OFF_ACCUM", "3")), 0)
-    neutral_trend = max(int(os.getenv("FUNNEL_AI_NEUTRAL_TREND", "5")), 0)
-    neutral_accum = max(int(os.getenv("FUNNEL_AI_NEUTRAL_ACCUM", "5")), 0)
-    max_trend_l3_fill = max(int(os.getenv("FUNNEL_AI_MAX_TREND_L3_FILL", "0")), 0)
-    max_accum_l3_fill = max(int(os.getenv("FUNNEL_AI_MAX_ACCUM_L3_FILL", "0")), 0)
+    risk_on_trend = max(int(q.get("risk_on_trend", 7)), 0)
+    risk_on_accum = max(int(q.get("risk_on_accum", 5)), 0)
+    risk_off_trend = max(int(q.get("risk_off_trend", 2)), 0)
+    risk_off_accum = max(int(q.get("risk_off_accum", 3)), 0)
+    neutral_trend = max(int(q.get("neutral_trend", 5)), 0)
+    neutral_accum = max(int(q.get("neutral_accum", 5)), 0)
+    max_trend_l3_fill = max(int(q.get("max_trend_l3_fill", 0)), 0)
+    max_accum_l3_fill = max(int(q.get("max_accum_l3_fill", 0)), 0)
 
     regime_norm = str(regime or "").strip().upper()
     if regime_norm == "RISK_ON":
@@ -1938,11 +1941,12 @@ def allocate_ai_candidates(
     max_per_sector: int = 2,
     policy_override: dict[str, int | str] | None = None,
     signal_weight_map: dict[str, float] | None = None,
+    ai_quotas: dict[str, int] | None = None,
 ) -> tuple[list[str], list[str], dict[str, float]]:
     """
     根据大盘政权和各轨配额，计算优先级得分，输出 (trend_selected, accum_selected, score_map)
     """
-    policy = policy_override or resolve_ai_candidate_policy(regime, override_total_cap=override_total_cap)
+    policy = policy_override or resolve_ai_candidate_policy(regime, override_total_cap=override_total_cap, quotas=ai_quotas)
     total_cap = int(policy["total_cap"])
     trend_quota = int(policy["trend_quota"])
     accum_quota = int(policy["accum_quota"])

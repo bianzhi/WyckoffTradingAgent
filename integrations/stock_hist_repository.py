@@ -8,21 +8,9 @@ from typing import Literal
 import pandas as pd
 
 from integrations.data_source import fetch_stock_hist as fetch_stock_hist_from_source
+from core.constants import COL_MAP as _COL_MAP
 
 AdjustType = Literal["", "qfq", "hfq"]
-
-# ─── 纯工具函数（原 core/stock_cache.py，多文件依赖） ───
-
-_COL_MAP = {
-    "日期": "date",
-    "开盘": "open",
-    "最高": "high",
-    "最低": "low",
-    "收盘": "close",
-    "成交量": "volume",
-    "成交额": "amount",
-    "涨跌幅": "pct_chg",
-}
 
 
 def normalize_hist_df(df: pd.DataFrame) -> pd.DataFrame:

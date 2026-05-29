@@ -5,7 +5,7 @@ import argparse
 import pandas as pd
 import pytest
 
-from core.dynamic_policy import filter_triggers_by_registry, resolve_dynamic_candidate_policy
+from tools.dynamic_policy import filter_triggers_by_registry, resolve_dynamic_candidate_policy
 from core.signal_feedback import build_signal_observations, build_signal_registry_updates, summarize_signal_health
 from scripts.signal_feedback_job import _outcome_rows
 

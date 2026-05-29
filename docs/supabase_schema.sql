@@ -438,7 +438,29 @@ CREATE INDEX IF NOT EXISTS idx_signal_observations_date
 CREATE INDEX IF NOT EXISTS idx_signal_outcomes_date
     ON public.signal_outcomes (market, trade_date DESC);
 
+
+-- ──────────────────────────────────────────
+-- 20. funnel_requests — 漏斗选股请求队列
+-- ──────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.funnel_requests (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending',
+    created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.funnel_requests ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can read own funnel_requests" ON public.funnel_requests
+  FOR SELECT USING (auth.uid()::text = user_id);
+
+CREATE POLICY "Users can insert own funnel_requests" ON public.funnel_requests
+  FOR INSERT WITH CHECK (auth.uid()::text = user_id);
+
+CREATE INDEX IF NOT EXISTS idx_funnel_requests_user_date
+    ON public.funnel_requests (user_id, created_at DESC);
+
 -- ============================================================
--- 完成！共 19 张表。
+-- 完成！共 20 张表。
 -- 如有问题，请对照 Supabase Dashboard → Table Editor 逐个验证。
 -- ============================================================

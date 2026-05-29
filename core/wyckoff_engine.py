@@ -67,6 +67,7 @@ class FunnelConfig:
 
     # Layer 1
     require_cn_main_or_chinext: bool = True
+    board_allowlist: list[str] | None = None
     min_market_cap_yi: float = 35.0
     min_avg_amount_wan: float = 5000.0
     l1_cap_bypass_amount_wan: float = 8000.0  # 市值不足但日均额 >= 此值可放行
@@ -426,7 +427,27 @@ def adjust_funnel_for_regime(cfg: FunnelConfig, regime: str) -> FunnelConfig:
 # Layer 1: 剥离垃圾
 
 
-def _is_main_or_chinext(code: str) -> bool:
+# 板块白名单前缀映射
+_BOARD_PREFIX_MAP: dict[str, tuple[str, ...]] = {
+    "main": ("600", "601", "603", "605", "000", "001", "002", "003"),
+    "chinext": ("300", "301"),
+    "star": ("688",),
+}
+
+
+def _is_main_or_chinext(code: str, allowlist: list[str] | None = None) -> bool:
+    """检查股票代码是否属于沪深主板或创业板。
+
+    Args:
+        code: 股票代码
+        allowlist: 可选的白名单板块列表，如 ['main', 'chinext', 'star']。
+                   若提供，则仅检查这些板块的前缀；否则使用默认的沪深主板+创业板+科创板。
+    """
+    if allowlist:
+        prefixes: tuple[str, ...] = ()
+        for board in allowlist:
+            prefixes += _BOARD_PREFIX_MAP.get(board, ())
+        return code.startswith(prefixes) if prefixes else False
     return code.startswith(("600", "601", "603", "605", "688", "000", "001", "002", "003", "300", "301"))
 
 
@@ -450,7 +471,7 @@ def layer1_filter(
     l1_roe_negative = 0
     l1_high_debt = 0
     for sym in symbols:
-        if cfg.require_cn_main_or_chinext and not _is_main_or_chinext(sym):
+        if cfg.require_cn_main_or_chinext and not _is_main_or_chinext(sym, cfg.board_allowlist):
             continue
         name = name_map.get(sym, "")
         if "ST" in name.upper():

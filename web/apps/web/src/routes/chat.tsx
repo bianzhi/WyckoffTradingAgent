@@ -18,6 +18,7 @@ const TOOL_LABEL_KEYS: Record<string, TranslationKey> = {
   execute_portfolio_update: 'tool.execute_portfolio_update',
   analyze_stock: 'tool.analyze_stock',
   screen_stocks: 'tool.screen_stocks',
+  trigger_funnel_screening: 'tool.trigger_funnel_screening',
   generate_ai_report: 'tool.generate_ai_report',
   generate_strategy_decision: 'tool.generate_strategy_decision',
 }
@@ -30,6 +31,65 @@ interface Message {
   content: string
   isError?: boolean
   steps?: StepInfo[]
+}
+
+// ── Chat History Persistence (localStorage) ──────────────────────
+const CHAT_SESSIONS_KEY = 'wyckoff_chat_sessions'
+const CHAT_SESSION_PREFIX = 'wyckoff_chat_session_'
+const MAX_SESSIONS = 20
+
+interface ChatSessionMeta {
+  id: string
+  title: string
+  updatedAt: string
+}
+
+interface PersistedMessage {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+  isError?: boolean
+}
+
+function loadSessionList(): ChatSessionMeta[] {
+  try {
+    const raw = localStorage.getItem(CHAT_SESSIONS_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch { return [] }
+}
+
+function saveSessionList(sessions: ChatSessionMeta[]) {
+  try {
+    localStorage.setItem(CHAT_SESSIONS_KEY, JSON.stringify(sessions.slice(0, MAX_SESSIONS)))
+  } catch { /* quota exceeded */ }
+}
+
+function loadSessionMessages(sessionId: string): Message[] {
+  try {
+    const raw = localStorage.getItem(CHAT_SESSION_PREFIX + sessionId)
+    if (!raw) return []
+    const items: PersistedMessage[] = JSON.parse(raw)
+    return items.map(m => ({ ...m, id: m.id || ++msgIdCounter }))
+  } catch { return [] }
+}
+
+function saveSessionMessages(sessionId: string, messages: Message[]) {
+  try {
+    const persistable: PersistedMessage[] = messages
+      .filter(m => !m.isError)
+      .map(m => ({ id: m.id, role: m.role, content: m.content, isError: m.isError }))
+    localStorage.setItem(CHAT_SESSION_PREFIX + sessionId, JSON.stringify(persistable))
+  } catch { /* quota exceeded */ }
+}
+
+function makeSessionTitle(messages: Message[]): string {
+  const firstUser = messages.find(m => m.role === 'user')
+  if (firstUser) return firstUser.content.slice(0, 30) + (firstUser.content.length > 30 ? '...' : '')
+  return '新对话'
+}
+
+function removeSession(sessionId: string) {
+  try { localStorage.removeItem(CHAT_SESSION_PREFIX + sessionId) } catch { /* */ }
 }
 
 function StepsCollapsible({ steps }: { steps: StepInfo[] }) {
@@ -179,8 +239,12 @@ function ChatHeader(props: {
   onToggleModelPicker: () => void
   onSelectModel: (m: ModelOption) => void
   onNewChat: () => void
+  sessionId: string
+  sessionList: ChatSessionMeta[]
+  onSwitchSession: (sId: string) => void
   t: (key: TranslationKey) => string
 }) {
+  const [showSessions, setShowSessions] = useState(false)
   return (
     <div className="flex items-center justify-between border-b border-border px-6 py-3">
       <div className="flex items-center gap-3">
@@ -201,13 +265,39 @@ function ChatHeader(props: {
           </span>
         )}
       </div>
-      <button
-        onClick={props.onNewChat}
-        className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-muted/50"
-      >
-        <RotateCcw size={14} />
-        {props.t('chat.newChat')}
-      </button>
+      <div className="flex items-center gap-2">
+        {props.sessionList.length > 1 && (
+          <div className="relative">
+            <button
+              onClick={() => setShowSessions(!showSessions)}
+              className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted/50"
+            >
+              {props.t('chat.history') || '历史'}
+              <ChevronDown size={12} />
+            </button>
+            {showSessions && (
+              <div className="absolute right-0 top-full z-50 mt-1 w-52 rounded-lg border border-border bg-background shadow-lg" onMouseLeave={() => setShowSessions(false)}>
+                {props.sessionList.slice(0, 8).map(s => (
+                  <button
+                    key={s.id}
+                    onClick={() => { props.onSwitchSession(s.id); setShowSessions(false) }}
+                    className={`w-full truncate px-3 py-1.5 text-left text-xs hover:bg-muted/50 ${s.id === props.sessionId ? 'bg-muted/30 font-medium' : ''}`}
+                  >
+                    {s.title}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        <button
+          onClick={props.onNewChat}
+          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-muted/50"
+        >
+          <RotateCcw size={14} />
+          {props.t('chat.newChat')}
+        </button>
+      </div>
     </div>
   )
 }
@@ -238,11 +328,6 @@ function ChatEmptyState(props: {
             {q}
           </button>
         ))}
-      </div>
-      <div className="mt-8 rounded-lg border border-dashed border-border/60 px-4 py-2.5 text-center">
-        <p className="text-[11px] text-muted-foreground/70">
-          {props.t('chat.fullVersionPrefix')} · {props.t('chat.unlockFull')}
-        </p>
       </div>
     </div>
   )
@@ -301,6 +386,8 @@ function ChatMessageList(props: {
 export function ChatPage() {
   const user = useAuthStore((s) => s.user)
   const { t } = usePreferences()
+  const [sessionId, setSessionId] = useState<string>('')
+  const [sessionList, setSessionList] = useState<ChatSessionMeta[]>([])
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -317,11 +404,26 @@ export function ChatPage() {
   const reasoningCacheRef = useRef(createReasoningCache())
   const pickerRef = useRef<HTMLDivElement>(null)
   const scrollRafRef = useRef(0)
+  const currentSessionIdRef = useRef('')
 
+  // Init: load sessions and most recent chat
   useEffect(() => {
     if (user) {
       loadLLMConfig(user.id).then(setLlmConfig)
       loadAllModels(user.id).then(setModels)
+    }
+    const sessions = loadSessionList()
+    setSessionList(sessions)
+    if (sessions.length > 0) {
+      const latest = sessions[0]!
+      setSessionId(latest.id)
+      currentSessionIdRef.current = latest.id
+      const msgs = loadSessionMessages(latest.id)
+      if (msgs.length > 0) setMessages(msgs)
+    } else {
+      const newId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+      setSessionId(newId)
+      currentSessionIdRef.current = newId
     }
   }, [user])
 
@@ -397,8 +499,29 @@ export function ChatPage() {
           cancelAnimationFrame(streamFlushRef.current)
           streamFlushRef.current = 0
           streamBufRef.current = ''
+          let updatedMessages: Message[] = []
           if (finalText) {
-            setMessages((prev) => [...prev, { id: ++msgIdCounter, role: 'assistant', content: finalText, steps }])
+            updatedMessages = [...nextMessages, { id: ++msgIdCounter, role: 'assistant', content: finalText, steps }]
+            setMessages(updatedMessages)
+          } else {
+            updatedMessages = nextMessages
+          }
+          // Save chat history to localStorage
+          if (currentSessionIdRef.current && updatedMessages.length > 0) {
+            saveSessionMessages(currentSessionIdRef.current, updatedMessages)
+            const title = makeSessionTitle(updatedMessages)
+            const now = new Date().toISOString()
+            const list = loadSessionList()
+            const idx = list.findIndex(s => s.id === currentSessionIdRef.current)
+            const meta: ChatSessionMeta = { id: currentSessionIdRef.current, title, updatedAt: now }
+            if (idx >= 0) {
+              list.splice(idx, 1)
+              list.unshift(meta)
+            } else {
+              list.unshift(meta)
+            }
+            saveSessionList(list)
+            setSessionList(list)
           }
           setStreamingText('')
           setLiveSteps([])
@@ -422,7 +545,27 @@ export function ChatPage() {
     )
   }, [input, loading, llmConfig, messages, t, user, scrollToBottom])
 
-  function handleNewChat() {
+  const handleNewChat = useCallback(() => {
+    // Save current session before creating new one
+    if (currentSessionIdRef.current && messages.length > 0) {
+      saveSessionMessages(currentSessionIdRef.current, messages)
+      const title = makeSessionTitle(messages)
+      const now = new Date().toISOString()
+      const list = loadSessionList()
+      const idx = list.findIndex(s => s.id === currentSessionIdRef.current)
+      const meta: ChatSessionMeta = { id: currentSessionIdRef.current, title, updatedAt: now }
+      if (idx >= 0) {
+        list.splice(idx, 1)
+        list.unshift(meta)
+      } else {
+        list.unshift(meta)
+      }
+      saveSessionList(list)
+      setSessionList(list)
+    }
+    const newId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+    setSessionId(newId)
+    currentSessionIdRef.current = newId
     abortRef.current?.abort()
     abortRef.current = null
     reasoningCacheRef.current = createReasoningCache()
@@ -431,7 +574,37 @@ export function ChatPage() {
     setStreamingText('')
     setError('')
     setLoading(false)
-  }
+  }, [messages])
+
+  const handleSwitchSession = useCallback((sId: string) => {
+    if (currentSessionIdRef.current && messages.length > 0) {
+      saveSessionMessages(currentSessionIdRef.current, messages)
+      const title = makeSessionTitle(messages)
+      const now = new Date().toISOString()
+      const list = loadSessionList()
+      const idx = list.findIndex(s => s.id === currentSessionIdRef.current)
+      const meta: ChatSessionMeta = { id: currentSessionIdRef.current, title, updatedAt: now }
+      if (idx >= 0) {
+        list.splice(idx, 1)
+        list.unshift(meta)
+      } else {
+        list.unshift(meta)
+      }
+      saveSessionList(list)
+      setSessionList(list)
+    }
+    abortRef.current?.abort()
+    abortRef.current = null
+    reasoningCacheRef.current = createReasoningCache()
+    setSessionId(sId)
+    currentSessionIdRef.current = sId
+    const msgs = loadSessionMessages(sId)
+    setMessages(msgs)
+    setLiveSteps([])
+    setStreamingText('')
+    setError('')
+    setLoading(false)
+  }, [messages])
 
   return (
     <div className="flex h-full flex-col">
@@ -447,6 +620,9 @@ export function ChatPage() {
           setShowModelPicker(false)
         }}
         onNewChat={handleNewChat}
+        sessionId={sessionId}
+        sessionList={sessionList}
+        onSwitchSession={handleSwitchSession}
         t={t}
       />
 

@@ -13,7 +13,7 @@ import {
   execManageAlerts, execPortfolioRisk, execTuneParameters,
   execWalkForwardOptimize, execMonteCarloSimulate,
   execBenchmarkExitStrategies, execAnalyzeExitQuality,
-  execDataSourceHealth,
+  execDataSourceHealth, execTriggerFunnel,
  } from './chat-tools'
 
 const SYSTEM_PROMPT = `# 角色设定
@@ -34,6 +34,7 @@ const SYSTEM_PROMPT = `# 角色设定
 11. **确认执行** — execute_portfolio_update：用户确认后执行调仓方案
 7. **个股诊断** — analyze_stock：对单只股票做威科夫深度诊断（K线+量价+阶段+价值面校准，A股6位/美股AAPL.US/港股00700.HK；价值面当前优先支持A股）
 8. **漏斗选股** — screen_stocks：查看最新一期漏斗选股结果
+17. **发起漏斗** — trigger_funnel_screening：启动全市场五层漏斗筛选，结果通过 screen_stocks 查看
 9. **AI 研报** — generate_ai_report：为指定股票生成威科夫深度研报
 10. **策略建议** — generate_strategy_decision：基于持仓+大盘给出操作建议
 13. **盘中分析** — intraday_analysis：获取分钟线多周期数据（1m/5m/15m），返回VWAP位置、趋势、动量、综合强度评分
@@ -51,6 +52,7 @@ const SYSTEM_PROMPT = `# 角色设定
 - "复盘记录" → query_recommendations
 - "尾盘买了啥" → query_tail_buy
 - "帮我选股" / "今天有什么好票" → screen_stocks
+- "启动漏斗" / "发起选股" / "开始漏斗筛选" → trigger_funnel_screening
 - "帮我出个研报" → generate_ai_report
 - "我该怎么操作" / "给个建议" → generate_strategy_decision
 - "盘中怎么样" / "现在能买吗" / "今天走势如何" → intraday_analysis
@@ -606,6 +608,12 @@ function buildTools(userId: string, config: LLMConfig, reasoningCache: string[])
       description: '查看最新一期漏斗选股结果：AI入选的候选股票列表及其评分。',
       inputSchema: z.object({}),
       execute: () => execScreenStocks(deps),
+    }),
+
+    trigger_funnel_screening: tool({
+      description: '发起一次全市场漏斗选股。将请求加入后台队列，系统完成筛选后结果可通过 screen_stocks 查看。通常需要1-2分钟。',
+      inputSchema: z.object({}),
+      execute: () => execTriggerFunnel(deps, userId),
     }),
 
     generate_ai_report: tool({

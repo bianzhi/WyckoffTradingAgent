@@ -532,6 +532,29 @@ dataRoutes.get('/signal-quality', async (c) => {
   }
 })
 
+// ── GET /api/data/signal-quality-stats ─────────────────────
+
+dataRoutes.get('/signal-quality-stats', async (c) => {
+  try {
+    const { spawnSync } = await import('node:child_process')
+    const proc = spawnSync('python3', [
+      '-c',
+      'from tools.signal_quality import get_signal_quality_json; import json; print(json.dumps(get_signal_quality_json(), ensure_ascii=False))',
+    ], {
+      timeout: 15_000,
+      encoding: 'utf-8',
+      env: { ...process.env, PYTHONPATH: process.env.PYTHONPATH || process.cwd() },
+      cwd: process.cwd(),
+    })
+    if (proc.error) {
+      return c.json({ error: `signal_quality_stats: ${proc.error.message}` })
+    }
+    return c.json(JSON.parse(proc.stdout?.trim() || '{}'))
+  } catch (err: any) {
+    return c.json({ error: `signal_quality_stats: ${err.message}` })
+  }
+})
+
 // ── 预警规则 API ───────────────────────────────────────────
 
 dataRoutes.get('/alerts', async (c) => {

@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { createChart, HistogramSeries, type HistogramData, type Time } from 'lightweight-charts'
-import { fetchFunnelSummary, fetchFunnelDates, type FunnelSummary, type SectorStat, type TriggerStat } from '@/lib/funnel-data'
+import { fetchFunnelSummary, fetchFunnelDates, fetchSignalQualityStats, type FunnelSummary, type SectorStat, type TriggerStat, type SignalQualityStats } from '@/lib/funnel-data'
 import { WyckoffLoading } from '@/components/loading'
 import { usePreferences } from '@/lib/preferences'
 
@@ -87,6 +87,9 @@ export function FunnelPage() {
           <TriggerDistribution triggers={summary.triggers} />
         </section>
       </div>
+
+      {/* Phase 2.4: 信号质量面板 */}
+      <SignalQualitySection isZh={isZh} />
     </div>
   )
 }
@@ -238,6 +241,81 @@ function TriggerDistribution({ triggers }: { triggers: TriggerStat[] }) {
         <p className="py-6 text-center text-xs text-muted-foreground">暂无数据</p>
       )}
     </div>
+  )
+}
+
+// ── Phase 2.4: 信号质量面板 ──────────────────────────────────────────────────
+
+const HEALTH_ICON: Record<string, string> = {
+  HEALTHY: '✅', WATCH: '⚠️', DECAYED: '❌', INSUFFICIENT: '📊',
+}
+
+function SignalQualitySection({ isZh }: { isZh: boolean }) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['signal-quality-stats'],
+    queryFn: fetchSignalQualityStats,
+    staleTime: 300_000,
+    retry: 1,
+  })
+
+  if (isLoading) return null
+  if (error || !data || data.registry.length === 0) return null
+
+  const sorted = [...data.registry].sort((a, b) => b.sample_count - a.sample_count)
+
+  return (
+    <section className="rounded-xl border border-border bg-card/50 p-4">
+      <h2 className="mb-3 text-sm font-semibold">{isZh ? '信号质量' : 'Signal Quality'}</h2>
+      <div className="mb-3 flex gap-3 text-xs">
+        <span className="rounded-full bg-muted px-2 py-0.5">
+          {data.summary.total_signals} 种信号
+        </span>
+        <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-600">
+          ✅ {data.summary.healthy} 健康
+        </span>
+        {data.summary.decayed > 0 && (
+          <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-red-600">
+            ❌ {data.summary.decayed} 衰减
+          </span>
+        )}
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-border text-muted-foreground">
+              <th className="px-2 py-1.5 text-left">信号</th>
+              <th className="px-2 py-1.5 text-center">赛道</th>
+              <th className="px-2 py-1.5 text-right">样本</th>
+              <th className="px-2 py-1.5 text-right">胜率</th>
+              <th className="px-2 py-1.5 text-right">均收益</th>
+              <th className="px-2 py-1.5 text-center">状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map(r => (
+              <tr key={r.signal_type} className="border-b border-border/50 hover:bg-muted/20">
+                <td className="px-2 py-1.5 font-medium">{r.signal_type}</td>
+                <td className="px-2 py-1.5 text-center text-muted-foreground">{r.track}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums">{r.sample_count}</td>
+                <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${
+                  (r.win_rate_pct ?? 0) >= 50 ? 'text-up' : 'text-down'
+                }`}>
+                  {r.win_rate_pct != null ? `${r.win_rate_pct.toFixed(1)}%` : '-'}
+                </td>
+                <td className={`px-2 py-1.5 text-right tabular-nums ${
+                  (r.avg_return_pct ?? 0) >= 0 ? 'text-up' : 'text-down'
+                }`}>
+                  {r.avg_return_pct != null ? `${r.avg_return_pct >= 0 ? '+' : ''}${r.avg_return_pct.toFixed(2)}%` : '-'}
+                </td>
+                <td className="px-2 py-1.5 text-center">
+                  {r.health_state ? HEALTH_ICON[r.health_state] ?? '·' : '·'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   )
 }
 

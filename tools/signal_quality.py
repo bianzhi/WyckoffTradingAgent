@@ -134,10 +134,67 @@ def _track_breakdown(outcomes: list[dict[str, Any]]) -> str:
 
 
 def generate_signal_quality_report() -> str:
-    """生成信号质量评分报告。"""
-    registry = _load_registry()
-    health = _load_health_snapshot(limit=500)
-    outcomes = _load_recent_outcomes(days=90)
+    """生成信号质量评分报告（Markdown 文本）。"""
+    data = _collect_signal_data()
+    return _format_report(data)
+
+
+def get_signal_quality_json() -> dict[str, Any]:
+    """返回信号质量的 structured JSON，供 Web 端渲染。"""
+    data = _collect_signal_data()
+    return {
+        "registry": [
+            {
+                "signal_type": r.get("signal_type", "?"),
+                "track": r.get("track", "?"),
+                "status": r.get("status", "?"),
+                "health_state": r.get("health_state"),
+                "sample_count": r.get("sample_count", 0),
+                "win_rate_pct": r.get("win_rate_pct"),
+                "avg_return_pct": r.get("avg_return_pct"),
+                "weight_multiplier": r.get("weight_multiplier", 1.0),
+            }
+            for r in data["registry"]
+        ],
+        "track_breakdown": _track_stats(data["outcomes"]),
+        "summary": {
+            "total_signals": len(data["registry"]),
+            "healthy": sum(1 for r in data["registry"] if r.get("status") == "ACTIVE" and r.get("health_state") not in {None, "DECAYED"}),
+            "decayed": sum(1 for r in data["registry"] if r.get("health_state") == "DECAYED"),
+        },
+    }
+
+
+def _collect_signal_data() -> dict[str, Any]:
+    return {
+        "registry": _load_registry(),
+        "health": _load_health_snapshot(limit=500),
+        "outcomes": _load_recent_outcomes(days=90),
+    }
+
+
+def _track_stats(outcomes: list[dict[str, Any]]) -> dict[str, dict]:
+    done = [r for r in outcomes if r.get("status") == "done" and r.get("return_pct") is not None]
+    from collections import defaultdict
+
+    groups: dict[str, list[float]] = defaultdict(list)
+    for r in done:
+        track = str(r.get("track") or "Trend")
+        groups[track].append(_safe_float(r.get("return_pct")))
+    return {
+        track: {
+            "count": len(rets),
+            "win_rate_pct": round(sum(1 for r in rets if r > 0) / len(rets) * 100, 1) if rets else 0,
+            "avg_return_pct": round(mean(rets), 2) if rets else 0,
+        }
+        for track, rets in sorted(groups.items())
+    }
+
+
+def _format_report(data: dict[str, Any]) -> str:
+    registry = data["registry"]
+    health = data["health"]
+    outcomes = data["outcomes"]
 
     signal_types = {r.get("signal_type", "") for r in registry if r.get("signal_type")}
     signal_types |= {r.get("signal_type", "") for r in health if r.get("signal_type")}

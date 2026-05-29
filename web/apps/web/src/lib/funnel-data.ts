@@ -199,6 +199,41 @@ export async function fetchFunnelDates(): Promise<string[]> {
   return dates
 }
 
+// ── Phase 2.4: 信号质量 stats ──────────────────────────────────────────────
+
+export interface SignalQualityEntry {
+  signal_type: string
+  track: string
+  status: string
+  health_state: string | null
+  sample_count: number
+  win_rate_pct: number | null
+  avg_return_pct: number | null
+  weight_multiplier: number
+}
+
+export interface TrackBreakdown {
+  count: number
+  win_rate_pct: number
+  avg_return_pct: number
+}
+
+export interface SignalQualityStats {
+  registry: SignalQualityEntry[]
+  track_breakdown: Record<string, TrackBreakdown>
+  summary: {
+    total_signals: number
+    healthy: number
+    decayed: number
+  }
+}
+
+export async function fetchSignalQualityStats(): Promise<SignalQualityStats> {
+  const resp = await fetch('/api/data/signal-quality-stats')
+  if (!resp.ok) throw new Error(`signal-quality-stats: ${resp.status}`)
+  return resp.json()
+}
+
 function safePct(count: number, total: number): number {
   return total > 0 ? Math.round((count / total) * 1000) / 10 : 0
 }

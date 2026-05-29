@@ -1537,7 +1537,7 @@ def record_source_failure(name: str, error: str) -> None:
         m = _SOURCE_METRICS[name]
         m["failure"] += 1
         m["last_failure_ts"] = time.monotonic()
-        m["last_error"] = error[:200]
+        m["last_error"] = str(error)[:200]
 
 
 def get_data_source_health() -> dict[str, Any]:

@@ -5,7 +5,7 @@
  * 自动重连（指数退避），WebSocket 不可用时降级到 Supabase 轮询。
  */
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { supabase } from './supabase'
 
 export interface QuoteData {
@@ -36,25 +36,30 @@ const RECONNECT_BASE_MS = 2_000
 const RECONNECT_MAX_MS = 60_000
 const POLL_INTERVAL_MS = 120_000
 
-export function useRealtimeQuotes({ symbols, wsUrl = DEFAULT_WS_URL, enabled = true }: UseRealtimeQuotesOptions) {
+// ─── useWebSocket ────────────────────────────────────────────────────────────
+
+type WsStatus = 'connecting' | 'connected' | 'reconnecting' | 'closed'
+
+function useWebSocket(
+  wsUrl: string,
+  enabled: boolean,
+  symbolsRef: React.MutableRefObject<string[]>,
+): { quotes: Map<string, QuoteData>; status: WsStatus; failed: boolean } {
   const [quotes, setQuotes] = useState<Map<string, QuoteData>>(new Map())
-  const [status, setStatus] = useState<ConnectionStatus>('closed')
+  const [status, setStatus] = useState<WsStatus>('closed')
+  const [failed, setFailed] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectAttemptRef = useRef(0)
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const symbolsRef = useRef(symbols)
-  symbolsRef.current = symbols
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const clearTimers = useCallback(() => {
-    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null }
   }, [])
 
-  // WebSocket connection
-  const connect = useCallback(() => {
+  const connectWs = useCallback(() => {
     if (!wsUrl || !enabled) return
     setStatus('connecting')
-
     try {
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
@@ -62,7 +67,6 @@ export function useRealtimeQuotes({ symbols, wsUrl = DEFAULT_WS_URL, enabled = t
       ws.onopen = () => {
         setStatus('connected')
         reconnectAttemptRef.current = 0
-        // Send current watchlist
         ws.send(JSON.stringify({ type: 'watchlist', symbols: symbolsRef.current }))
       }
 
@@ -78,9 +82,7 @@ export function useRealtimeQuotes({ symbols, wsUrl = DEFAULT_WS_URL, enabled = t
               return next
             })
           }
-        } catch {
-          // ignore
-        }
+        } catch { /* ignore */ }
       }
 
       ws.onclose = () => {
@@ -90,88 +92,122 @@ export function useRealtimeQuotes({ symbols, wsUrl = DEFAULT_WS_URL, enabled = t
         }
       }
 
-      ws.onerror = () => {
-        ws.close()
-      }
+      ws.onerror = () => ws.close()
     } catch {
-      // WebSocket not available, fall back to polling
-      startPolling()
+      setFailed(true)
     }
-  }, [wsUrl, enabled])
+  }, [wsUrl, enabled]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const reconnect = useCallback(() => {
     const attempt = reconnectAttemptRef.current + 1
     reconnectAttemptRef.current = attempt
     setStatus('reconnecting')
-
     const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, attempt - 1), RECONNECT_MAX_MS)
-    timerRef.current = setTimeout(() => {
-      connect()
-    }, delay)
-  }, [connect])
+    timerRef.current = setTimeout(() => connectWs(), delay)
+  }, [connectWs])
 
-  const startPolling = useCallback(() => {
-    setStatus('polling')
-    const poll = async () => {
-      try {
-        const syms = symbolsRef.current
-        if (syms.length === 0) return
-
-        const { data } = await supabase
-          .from('market_signal_daily')
-          .select('*')
-          .order('trade_date', { ascending: false })
-          .limit(1)
-
-        if (data?.[0]) {
-          const row = data[0]
-          // Only update if we have meaningful data
-          const mainClose = Number(row.main_index_close || 0)
-          if (mainClose > 0) {
-            setQuotes((prev) => {
-              const next = new Map(prev)
-              next.set('000001.SH', {
-                symbol: '000001.SH',
-                price: mainClose,
-                changePct: Number(row.main_index_today_pct || 0),
-                volume: 0,
-                timestamp: String(row.trade_date || ''),
-              })
-              return next
-            })
-          }
-        }
-      } catch {
-        // polling failed silently
-      }
+  const updateWatchlist = useCallback(() => {
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'watchlist', symbols: symbolsRef.current }))
     }
-
-    poll()
-    timerRef.current = setInterval(poll, POLL_INTERVAL_MS)
   }, [])
 
-  // Main effect
+  // Connect / disconnect
   useEffect(() => {
     if (!enabled) {
       clearTimers()
       setStatus('closed')
       return
     }
+    connectWs()
+    return () => clearTimers()
+  }, [enabled, connectWs, clearTimers])
 
-    connect()
-
-    return () => {
-      clearTimers()
-    }
-  }, [enabled, connect, clearTimers])
-
-  // Update watchlist on websocket
+  // Update watchlist when symbols change
   useEffect(() => {
-    const ws = wsRef.current
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'watchlist', symbols }))
+    updateWatchlist()
+  }, [symbolsRef.current, updateWatchlist])
+
+  return { quotes, status, failed }
+}
+
+// ─── useFallbackPoll ─────────────────────────────────────────────────────────
+
+function useFallbackPoll(enabled: boolean): {
+  quotes: Map<string, QuoteData>
+  status: 'polling'
+} {
+  const [quotes, setQuotes] = useState<Map<string, QuoteData>>(new Map())
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const poll = useCallback(async () => {
+    try {
+      const { data } = await supabase
+        .from('market_signal_daily')
+        .select('*')
+        .order('trade_date', { ascending: false })
+        .limit(1)
+
+      if (data?.[0]) {
+        const row = data[0]
+        const mainClose = Number(row.main_index_close || 0)
+        if (mainClose > 0) {
+          setQuotes((prev) => {
+            const next = new Map(prev)
+            next.set('000001.SH', {
+              symbol: '000001.SH',
+              price: mainClose,
+              changePct: Number(row.main_index_today_pct || 0),
+              volume: 0,
+              timestamp: String(row.trade_date || ''),
+            })
+            return next
+          })
+        }
+      }
+    } catch { /* polling failed silently */ }
+  }, [])
+
+  useEffect(() => {
+    if (!enabled) {
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+      return
     }
-  }, [symbols])
+    poll()
+    timerRef.current = setInterval(poll, POLL_INTERVAL_MS)
+    return () => {
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+    }
+  }, [enabled, poll])
+
+  return { quotes, status: 'polling' }
+}
+
+// ─── useRealtimeQuotes (public API) ─────────────────────────────────────────
+
+export function useRealtimeQuotes({ symbols, wsUrl = DEFAULT_WS_URL, enabled = true }: UseRealtimeQuotesOptions) {
+  const symbolsRef = useRef(symbols)
+  symbolsRef.current = symbols
+
+  const ws = useWebSocket(wsUrl, enabled, symbolsRef)
+  const poll = useFallbackPoll(enabled && ws.failed)
+
+  // Merge quotes: WebSocket data overrides polling data
+  const quotes = useMemo(() => {
+    const merged = new Map(poll.quotes)
+    for (const [k, v] of ws.quotes) {
+      merged.set(k, v)
+    }
+    return merged
+  }, [ws.quotes, poll.quotes])
+
+  // Determine combined connection status
+  const status: ConnectionStatus = useMemo(() => {
+    if (!enabled) return 'closed'
+    if (ws.failed) return 'polling'
+    return ws.status === 'closed' ? 'connecting' : ws.status
+  }, [enabled, ws.failed, ws.status])
 
   return { quotes, status }
 }

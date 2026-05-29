@@ -73,87 +73,99 @@ export function BacktestPage() {
       <PasteInputArea input={input} error={error} isZh={isZh} onPaste={(text) => { setInput(text); if (text.trim()) handlePaste(text) }} />
 
       {result && result.dates.length > 0 && (
-        <>
-          {/* Metrics panel */}
-          {result.metrics && (
-            <section className="grid grid-cols-3 gap-3 sm:grid-cols-5">
-              {Object.entries(result.metrics).map(([key, value]) => (
-                <div key={key} className="rounded-lg border border-border bg-card/50 px-3 py-2 text-center">
-                  <div className="text-[11px] text-muted-foreground">{METRIC_LABELS_ZH[key] || key}</div>
-                  <div className="mt-0.5 text-sm font-semibold">{String(value)}</div>
-                </div>
-              ))}
-            </section>
-          )}
-
-          {/* Equity curve */}
-          <section className="rounded-xl border border-border bg-card/50 p-4">
-            <h2 className="mb-3 text-sm font-semibold">{isZh ? '资金曲线' : 'Equity Curve'}</h2>
-            <EquityCurveChart result={result} />
-          </section>
-
-          {/* Monthly returns heatmap */}
-          {monthlyReturns.length > 0 && (
-            <section className="rounded-xl border border-border bg-card/50 p-4">
-              <h2 className="mb-3 text-sm font-semibold">{isZh ? '月度收益' : 'Monthly Returns'}</h2>
-              <MonthlyReturnsHeatmap returns={monthlyReturns} />
-            </section>
-          )}
-        </>
+        <BacktestResults result={result} monthlyReturns={monthlyReturns} isZh={isZh} />
       )}
     </div>
   )
 }
 
+function BacktestResults({ result, monthlyReturns, isZh }: {
+  result: BacktestResult; monthlyReturns: MonthlyReturn[]; isZh: boolean
+}) {
+  return (
+    <>
+      {/* Metrics panel */}
+      {result.metrics && (
+        <section className="grid grid-cols-3 gap-3 sm:grid-cols-5">
+          {Object.entries(result.metrics).map(([key, value]) => (
+            <div key={key} className="rounded-lg border border-border bg-card/50 px-3 py-2 text-center">
+              <div className="text-[11px] text-muted-foreground">{METRIC_LABELS_ZH[key] || key}</div>
+              <div className="mt-0.5 text-sm font-semibold">{String(value)}</div>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {/* Equity curve */}
+      <section className="rounded-xl border border-border bg-card/50 p-4">
+        <h2 className="mb-3 text-sm font-semibold">{isZh ? '资金曲线' : 'Equity Curve'}</h2>
+        <EquityCurveChart result={result} />
+      </section>
+
+      {/* Monthly returns heatmap */}
+      {monthlyReturns.length > 0 && (
+        <section className="rounded-xl border border-border bg-card/50 p-4">
+          <h2 className="mb-3 text-sm font-semibold">{isZh ? '月度收益' : 'Monthly Returns'}</h2>
+          <MonthlyReturnsHeatmap returns={monthlyReturns} />
+        </section>
+      )}
+    </>
+  )
+}
+
+function initEquityChart(container: HTMLDivElement, result: BacktestResult) {
+  const theme = readTheme()
+  const chart = createChart(container, {
+    height: 360,
+    layout: { background: { color: theme.background }, textColor: theme.mutedText, fontSize: 11 },
+    grid: { vertLines: { color: theme.grid }, horzLines: { color: theme.grid } },
+    rightPriceScale: { borderColor: theme.border },
+    timeScale: { borderColor: theme.border, timeVisible: false },
+    crosshair: { mode: 0 },
+  })
+
+  // Equity line
+  const navSeries = chart.addSeries(LineSeries, {
+    color: '#2563eb', lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: 'Strategy',
+  })
+  const navData: LineData<Time>[] = result.dates.map((d, i) => ({
+    time: d as Time, value: result.nav[i] ?? 1,
+  }))
+  navSeries.setData(navData)
+
+  // Benchmark line
+  if (result.benchmark_nav && result.benchmark_nav.length === result.dates.length) {
+    const benchSeries = chart.addSeries(LineSeries, {
+      color: '#94a3b8', lineWidth: 1, lineStyle: LineStyle.Dashed,
+      priceLineVisible: false, lastValueVisible: true, title: 'Benchmark',
+    })
+    const benchData: LineData<Time>[] = result.dates.map((d, i) => ({
+      time: d as Time, value: result.benchmark_nav![i] ?? 1,
+    }))
+    benchSeries.setData(benchData)
+  }
+
+  // Drawdown as histogram on separate pane (simplified: compute from nav)
+  const dd: number[] = computeDrawdownSeries(result.nav)
+  const ddPane = chart.addSeries(HistogramSeries, {
+    priceFormat: { type: 'custom', formatter: (v: number) => `${(v * 100).toFixed(1)}%` },
+    priceScaleId: 'drawdown',
+  })
+  chart.priceScale('drawdown').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } })
+  const ddData: HistogramData<Time>[] = result.dates.map((d, i) => ({
+    time: d as Time, value: dd[i] ?? 0,
+    color: (dd[i] ?? 0) < -0.05 ? '#ef4444' : (dd[i] ?? 0) < -0.02 ? '#f97316' : '#94a3b8',
+  }))
+  ddPane.setData(ddData)
+
+  chart.timeScale().fitContent()
+  return chart
+}
+
 function useEquityChart(containerRef: React.RefObject<HTMLDivElement | null>, result: BacktestResult): void {
   useEffect(() => {
     if (!containerRef.current || result.dates.length === 0) return
-
-    const theme = readTheme()
-    const chart = createChart(containerRef.current, {
-      height: 360,
-      layout: { background: { color: theme.background }, textColor: theme.mutedText, fontSize: 11 },
-      grid: { vertLines: { color: theme.grid }, horzLines: { color: theme.grid } },
-      rightPriceScale: { borderColor: theme.border },
-      timeScale: { borderColor: theme.border, timeVisible: false },
-      crosshair: { mode: 0 },
-    })
-
-    // Equity line
-    const navSeries = chart.addSeries(LineSeries, {
-      color: '#2563eb', lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: 'Strategy',
-    })
-    const navData: LineData<Time>[] = result.dates.map((d, i) => ({
-      time: d as Time, value: result.nav[i] ?? 1,
-    }))
-    navSeries.setData(navData)
-
-    // Benchmark line
-    if (result.benchmark_nav && result.benchmark_nav.length === result.dates.length) {
-      const benchSeries = chart.addSeries(LineSeries, {
-        color: '#94a3b8', lineWidth: 1, lineStyle: LineStyle.Dashed,
-        priceLineVisible: false, lastValueVisible: true, title: 'Benchmark',
-      })
-      const benchData: LineData<Time>[] = result.dates.map((d, i) => ({
-        time: d as Time, value: result.benchmark_nav![i] ?? 1,
-      }))
-      benchSeries.setData(benchData)
-    }
-
-    // Drawdown as histogram on separate pane (simplified: compute from nav)
-    const dd: number[] = computeDrawdownSeries(result.nav)
-    const ddPane = chart.addSeries(HistogramSeries, {
-      priceFormat: { type: 'custom', formatter: (v: number) => `${(v * 100).toFixed(1)}%` },
-      priceScaleId: 'drawdown',
-    })
-    chart.priceScale('drawdown').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } })
-    const ddData: HistogramData<Time>[] = result.dates.map((d, i) => ({
-      time: d as Time, value: dd[i] ?? 0,
-      color: (dd[i] ?? 0) < -0.05 ? '#ef4444' : (dd[i] ?? 0) < -0.02 ? '#f97316' : '#94a3b8',
-    }))
-    ddPane.setData(ddData)
-
-    chart.timeScale().fitContent()
+    const chart = initEquityChart(containerRef.current, result)
     const resize = () => { if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth }) }
     window.addEventListener('resize', resize)
     resize()

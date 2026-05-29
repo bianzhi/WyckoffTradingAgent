@@ -128,6 +128,22 @@ export async function fetchFunnelSummary(date?: string): Promise<FunnelSummary |
     { layer: 'L4', label: 'AI 精选', count: layerBreakdown.L4, total, passRate: safePct(layerBreakdown.L4, total) },
   ]
 
+  const { sectors, triggers } = computeSectorsAndTriggers(aiSelected)
+
+  return {
+    date: latestDate,
+    layers,
+    sectors,
+    triggers,
+    totalScanned: total,
+    aiCount: aiSelected.length,
+  }
+}
+
+function computeSectorsAndTriggers(aiSelected: Array<{ name: string; recommend_reason: string | null }>): {
+  sectors: SectorStat[]
+  triggers: TriggerStat[]
+} {
   // Sector stats
   const sectorCounts = new Map<string, number>()
   for (const r of aiSelected) {
@@ -163,14 +179,7 @@ export async function fetchFunnelSummary(date?: string): Promise<FunnelSummary |
     .map(([trigger, count]) => ({ trigger, label: triggerLabels[trigger] || trigger, count, pct: safePct(count, aiSelected.length) }))
     .sort((a, b) => b.count - a.count)
 
-  return {
-    date: latestDate,
-    layers,
-    sectors,
-    triggers,
-    totalScanned: total,
-    aiCount: aiSelected.length,
-  }
+  return { sectors, triggers }
 }
 
 export async function fetchFunnelDates(): Promise<string[]> {

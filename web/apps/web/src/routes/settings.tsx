@@ -5,6 +5,12 @@ import { PROVIDERS, PROVIDER_LABELS } from '@wyckoff/shared'
 
 type UserRole = 'admin' | 'member'
 
+interface AdminSectionProps {
+  loading: boolean
+  settings: Record<string, string>
+  onChange: (key: string, value: string) => void
+}
+
 // ── simple Input component ──────────────────────────────────
 function Input(p: { label: string; type?: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
@@ -21,12 +27,152 @@ function Input(p: { label: string; type?: string; value: string; onChange: (v: s
   )
 }
 
+// ── AccountSection ──────────────────────────────────────────
+function AccountSection({ user, role }: { user: { email?: string } | null; role: UserRole | null }) {
+  if (!user) return null
+  return (
+    <section className="mb-8">
+      <h2 className="mb-3 text-sm font-medium text-muted-foreground">账户</h2>
+      <div className="space-y-2 rounded-lg border border-border px-4 py-3 text-sm">
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Email</span>
+          <span>{user.email}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">角色</span>
+          <span className={role === 'admin' ? 'font-medium text-indigo-600 dark:text-indigo-400' : ''}>
+            {role === 'admin' ? '管理员' : '普通用户'}
+          </span>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+// ── AdminLLMSection ─────────────────────────────────────────
+function AdminLLMSection({ loading, settings, onChange }: AdminSectionProps) {
+  return (
+    <section className="mb-8">
+      <h2 className="mb-3 text-sm font-medium text-muted-foreground">大模型配置</h2>
+      {loading ? (
+        <div className="text-sm text-muted-foreground">加载中…</div>
+      ) : (
+        <div className="space-y-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">默认 Provider</label>
+            <select
+              value={settings.llm_provider || ''}
+              onChange={(e) => onChange('llm_provider', e.target.value)}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+            >
+              <option value="">未设置</option>
+              {PROVIDERS.map((p) => (
+                <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
+              ))}
+            </select>
+          </div>
+          <Input
+            label="API Key"
+            type="password"
+            value={settings.llm_api_key || ''}
+            onChange={(v) => onChange('llm_api_key', v)}
+            placeholder="sk-..."
+          />
+          <Input
+            label="默认模型"
+            value={settings.llm_model || ''}
+            onChange={(v) => onChange('llm_model', v)}
+            placeholder="deepseek-chat"
+          />
+          <Input
+            label="Base URL"
+            value={settings.llm_base_url || ''}
+            onChange={(v) => onChange('llm_base_url', v)}
+            placeholder="https://api.deepseek.com/v1"
+          />
+        </div>
+      )}
+    </section>
+  )
+}
+
+// ── AdminDataSection ────────────────────────────────────────
+function AdminDataSection({ loading, settings, onChange }: AdminSectionProps) {
+  return (
+    <section className="mb-8">
+      <h2 className="mb-3 text-sm font-medium text-muted-foreground">数据源</h2>
+      {loading ? (
+        <div className="text-sm text-muted-foreground">加载中…</div>
+      ) : (
+        <div className="space-y-3">
+          <Input
+            label="TickFlow API Key"
+            type="password"
+            value={settings.tickflow_api_key || ''}
+            onChange={(v) => onChange('tickflow_api_key', v)}
+            placeholder="tf-..."
+          />
+          <Input
+            label="Tushare Token"
+            type="password"
+            value={settings.tushare_token || ''}
+            onChange={(v) => onChange('tushare_token', v)}
+            placeholder="token..."
+          />
+        </div>
+      )}
+    </section>
+  )
+}
+
+// ── AdminNotifySection ──────────────────────────────────────
+function AdminNotifySection({ loading, settings, onChange }: AdminSectionProps) {
+  return (
+    <section className="mb-8">
+      <h2 className="mb-3 text-sm font-medium text-muted-foreground">通知 (预留)</h2>
+      {loading ? (
+        <div className="text-sm text-muted-foreground">加载中…</div>
+      ) : (
+        <div className="space-y-3">
+          <Input
+            label="飞书 Webhook"
+            type="password"
+            value={settings.feishu_webhook || ''}
+            onChange={(v) => onChange('feishu_webhook', v)}
+          />
+          <Input
+            label="企业微信 Webhook"
+            type="password"
+            value={settings.wecom_webhook || ''}
+            onChange={(v) => onChange('wecom_webhook', v)}
+          />
+          <Input
+            label="钉钉 Webhook"
+            type="password"
+            value={settings.dingtalk_webhook || ''}
+            onChange={(v) => onChange('dingtalk_webhook', v)}
+          />
+        </div>
+      )}
+    </section>
+  )
+}
+
+// ── MemberNotice ────────────────────────────────────────────
+function MemberNotice() {
+  return (
+    <section className="mb-8">
+      <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200">
+        系统资源（大模型、数据源、通知渠道）已由管理员集中配置，您无需额外设置即可直接使用。
+      </div>
+    </section>
+  )
+}
+
 export function SettingsPage() {
   const user = useAuthStore((s) => s.user)
   const [role, setRole] = useState<UserRole | null>(null)
   const [roleLoading, setRoleLoading] = useState(true)
-
-  // ── admin state (system_settings) ─────────────────────────
   const [systemSettings, setSystemSettings] = useState<Record<string, string>>({})
   const [systemLoading, setSystemLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -34,12 +180,9 @@ export function SettingsPage() {
   const [toastKind, setToastKind] = useState<'success' | 'error'>('success')
   const toastTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
-  useEffect(() => {
-    if (!user) return
-    loadRole()
-  }, [user])
-
+  useEffect(() => { if (!user) return; loadRole() }, [user])
   useEffect(() => () => clearTimeout(toastTimerRef.current), [])
+  useEffect(() => { if (role === 'admin') loadSystemSettings() }, [role])
 
   async function loadRole() {
     setRoleLoading(true)
@@ -48,21 +191,10 @@ export function SettingsPage() {
       const headers: Record<string, string> = {}
       if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
       const res = await fetch('/api/settings/role', { headers })
-      if (res.ok) {
-        const json = await res.json()
-        setRole(json.role || 'member')
-      } else {
-        setRole('member')
-      }
-    } catch {
-      setRole('member')
-    }
+      setRole(res.ok ? ((await res.json()).role || 'member') : 'member')
+    } catch { setRole('member') }
     setRoleLoading(false)
   }
-
-  useEffect(() => {
-    if (role === 'admin') loadSystemSettings()
-  }, [role])
 
   async function loadSystemSettings() {
     setSystemLoading(true)
@@ -71,10 +203,7 @@ export function SettingsPage() {
       const headers: Record<string, string> = {}
       if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
       const res = await fetch('/api/settings/admin', { headers })
-      if (res.ok) {
-        const json = await res.json()
-        setSystemSettings(json as Record<string, string>)
-      }
+      if (res.ok) setSystemSettings(await res.json() as Record<string, string>)
     } catch { /* keep defaults */ }
     setSystemLoading(false)
   }
@@ -90,15 +219,8 @@ export function SettingsPage() {
       const { data: { session } } = await supabase.auth.getSession()
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
       if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
-      const res = await fetch('/api/settings/admin', {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify(systemSettings),
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error || 'Failed')
-      }
+      const res = await fetch('/api/settings/admin', { method: 'PUT', headers, body: JSON.stringify(systemSettings) })
+      if (!res.ok) throw new Error(((await res.json()).error) || 'Failed')
       setToastKind('success')
       setToast('系统配置已保存')
     } catch (e: any) {
@@ -118,129 +240,19 @@ export function SettingsPage() {
   return (
     <div className="h-full overflow-auto p-6">
       <div className="mx-auto max-w-2xl">
-
         {toast && (
           <div className={`mb-4 rounded-lg px-4 py-2 text-sm ${toastKind === 'error' ? 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-200' : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-200'}`}>
             {toast}
           </div>
         )}
 
-        {/* ── 账户信息 (所有角色可见) ───────────────────── */}
-        {user && (
-          <section className="mb-8">
-            <h2 className="mb-3 text-sm font-medium text-muted-foreground">账户</h2>
-            <div className="space-y-2 rounded-lg border border-border px-4 py-3 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Email</span>
-                <span>{user.email}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">角色</span>
-                <span className={role === 'admin' ? 'font-medium text-indigo-600 dark:text-indigo-400' : ''}>
-                  {role === 'admin' ? '管理员' : '普通用户'}
-                </span>
-              </div>
-            </div>
-          </section>
-        )}
+        <AccountSection user={user} role={role} />
 
-        {/* ── 管理员面板 ──────────────────────────────────── */}
         {role === 'admin' && (
           <>
-            <section className="mb-8">
-              <h2 className="mb-3 text-sm font-medium text-muted-foreground">大模型配置</h2>
-              {systemLoading ? (
-                <div className="text-sm text-muted-foreground">加载中…</div>
-              ) : (
-                <div className="space-y-3">
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">默认 Provider</label>
-                    <select
-                      value={systemSettings.llm_provider || ''}
-                      onChange={(e) => updateSystemSetting('llm_provider', e.target.value)}
-                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                    >
-                      <option value="">未设置</option>
-                      {PROVIDERS.map((p) => (
-                        <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <Input
-                    label="API Key"
-                    type="password"
-                    value={systemSettings.llm_api_key || ''}
-                    onChange={(v) => updateSystemSetting('llm_api_key', v)}
-                    placeholder="sk-..."
-                  />
-                  <Input
-                    label="默认模型"
-                    value={systemSettings.llm_model || ''}
-                    onChange={(v) => updateSystemSetting('llm_model', v)}
-                    placeholder="deepseek-chat"
-                  />
-                  <Input
-                    label="Base URL"
-                    value={systemSettings.llm_base_url || ''}
-                    onChange={(v) => updateSystemSetting('llm_base_url', v)}
-                    placeholder="https://api.deepseek.com/v1"
-                  />
-                </div>
-              )}
-            </section>
-
-            <section className="mb-8">
-              <h2 className="mb-3 text-sm font-medium text-muted-foreground">数据源</h2>
-              {systemLoading ? (
-                <div className="text-sm text-muted-foreground">加载中…</div>
-              ) : (
-                <div className="space-y-3">
-                  <Input
-                    label="TickFlow API Key"
-                    type="password"
-                    value={systemSettings.tickflow_api_key || ''}
-                    onChange={(v) => updateSystemSetting('tickflow_api_key', v)}
-                    placeholder="tf-..."
-                  />
-                  <Input
-                    label="Tushare Token"
-                    type="password"
-                    value={systemSettings.tushare_token || ''}
-                    onChange={(v) => updateSystemSetting('tushare_token', v)}
-                    placeholder="token..."
-                  />
-                </div>
-              )}
-            </section>
-
-            <section className="mb-8">
-              <h2 className="mb-3 text-sm font-medium text-muted-foreground">通知 (预留)</h2>
-              {systemLoading ? (
-                <div className="text-sm text-muted-foreground">加载中…</div>
-              ) : (
-                <div className="space-y-3">
-                  <Input
-                    label="飞书 Webhook"
-                    type="password"
-                    value={systemSettings.feishu_webhook || ''}
-                    onChange={(v) => updateSystemSetting('feishu_webhook', v)}
-                  />
-                  <Input
-                    label="企业微信 Webhook"
-                    type="password"
-                    value={systemSettings.wecom_webhook || ''}
-                    onChange={(v) => updateSystemSetting('wecom_webhook', v)}
-                  />
-                  <Input
-                    label="钉钉 Webhook"
-                    type="password"
-                    value={systemSettings.dingtalk_webhook || ''}
-                    onChange={(v) => updateSystemSetting('dingtalk_webhook', v)}
-                  />
-                </div>
-              )}
-            </section>
-
+            <AdminLLMSection loading={systemLoading} settings={systemSettings} onChange={updateSystemSetting} />
+            <AdminDataSection loading={systemLoading} settings={systemSettings} onChange={updateSystemSetting} />
+            <AdminNotifySection loading={systemLoading} settings={systemSettings} onChange={updateSystemSetting} />
             <button
               onClick={handleAdminSave}
               disabled={saving || systemLoading}
@@ -251,15 +263,7 @@ export function SettingsPage() {
           </>
         )}
 
-        {/* ── 普通用户提示 ────────────────────────────────── */}
-        {role === 'member' && (
-          <section className="mb-8">
-            <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200">
-              系统资源（大模型、数据源、通知渠道）已由管理员集中配置，您无需额外设置即可直接使用。
-            </div>
-          </section>
-        )}
-
+        {role === 'member' && <MemberNotice />}
       </div>
     </div>
   )

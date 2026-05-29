@@ -133,6 +133,171 @@ function ChatComposer(props: {
   )
 }
 
+function ModelPicker(props: {
+  llmConfig: LLMConfig
+  models: ModelOption[]
+  show: boolean
+  pickerRef: React.RefObject<HTMLDivElement | null>
+  onToggle: () => void
+  onSelect: (m: ModelOption) => void
+}) {
+  return (
+    <div className="relative" ref={props.pickerRef}>
+      <button
+        onClick={props.onToggle}
+        className="flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-0.5 text-[11px] text-indigo-700 transition-colors hover:bg-indigo-100 dark:bg-indigo-500/10 dark:text-indigo-200 dark:hover:bg-indigo-500/20"
+      >
+        {props.llmConfig.model}
+        <ChevronDown size={10} />
+      </button>
+      {props.show && props.models.length > 0 && (
+        <div className="absolute left-0 top-full z-50 mt-1 w-56 rounded-lg border border-border bg-background shadow-lg">
+          {props.models.map((m) => (
+            <button
+              key={`${m.provider}-${m.model}`}
+              onClick={() => props.onSelect(m)}
+              className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs hover:bg-muted/50 ${
+                m.model === props.llmConfig.model ? 'bg-muted/30 font-medium' : ''
+              }`}
+            >
+              <span>{m.model}</span>
+              <span className="text-muted-foreground">{m.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ChatHeader(props: {
+  llmConfig: LLMConfig | null
+  models: ModelOption[]
+  user: ReturnType<typeof useAuthStore.getState>['user']
+  showModelPicker: boolean
+  pickerRef: React.RefObject<HTMLDivElement | null>
+  onToggleModelPicker: () => void
+  onSelectModel: (m: ModelOption) => void
+  onNewChat: () => void
+  t: (key: TranslationKey) => string
+}) {
+  return (
+    <div className="flex items-center justify-between border-b border-border px-6 py-3">
+      <div className="flex items-center gap-3">
+        <h1 className="text-lg font-semibold">{props.t('chat.title')}</h1>
+        {props.llmConfig && (
+          <ModelPicker
+            llmConfig={props.llmConfig}
+            models={props.models}
+            show={props.showModelPicker}
+            pickerRef={props.pickerRef}
+            onToggle={props.onToggleModelPicker}
+            onSelect={props.onSelectModel}
+          />
+        )}
+        {!props.llmConfig && props.user && (
+          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700 dark:bg-amber-500/10 dark:text-amber-200">
+            {props.t('chat.noApiKey')}
+          </span>
+        )}
+      </div>
+      <button
+        onClick={props.onNewChat}
+        className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-muted/50"
+      >
+        <RotateCcw size={14} />
+        {props.t('chat.newChat')}
+      </button>
+    </div>
+  )
+}
+
+function ChatEmptyState(props: {
+  onSelectPrompt: (q: string) => void
+  t: (key: TranslationKey) => string
+}) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center text-muted-foreground">
+      <div className="mb-4 text-4xl">📈</div>
+      <p className="text-sm font-medium">{props.t('chat.emptyTitle')}</p>
+      <p className="mt-2 text-xs text-muted-foreground">{props.t('chat.tryAsk')}</p>
+      <div className="mt-3 flex flex-wrap justify-center gap-2">
+        {[
+          props.t('chat.prompt.portfolio'),
+          props.t('chat.prompt.market'),
+          props.t('chat.prompt.recent'),
+          props.t('chat.prompt.search'),
+          props.t('chat.prompt.screen'),
+          props.t('chat.prompt.strategy'),
+        ].map((q) => (
+          <button
+            key={q}
+            onClick={() => props.onSelectPrompt(q)}
+            className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-muted/50"
+          >
+            {q}
+          </button>
+        ))}
+      </div>
+      <div className="mt-8 rounded-lg border border-dashed border-border/60 px-4 py-2.5 text-center">
+        <p className="text-[11px] text-muted-foreground/70">
+          {props.t('chat.fullVersionPrefix')} · {props.t('chat.unlockFull')}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function ChatMessageList(props: {
+  messages: Message[]
+  loading: boolean
+  liveSteps: StepInfo[]
+  streamingText: string
+  t: (key: TranslationKey) => string
+}) {
+  return (
+    <div className="space-y-4">
+      {props.messages.map((msg) => (
+        <MessageBubble key={msg.id} msg={msg} />
+      ))}
+
+      {props.loading && (
+        <div className="flex justify-start">
+          <div className="max-w-[80%] rounded-2xl bg-muted px-4 py-2.5 text-sm text-foreground">
+            {props.liveSteps.length > 0 && (
+              <div className="mb-2 space-y-1">
+                {props.liveSteps.map((step, i) => (
+                  <div key={i} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    {step.type === 'tool_call' ? (
+                      <>
+                        <Wrench size={10} className="text-amber-500" />
+                        <span>✓ {formatToolName(step.toolName, props.t)}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Brain size={10} className="text-blue-500" />
+                        <span className="line-clamp-1">{step.text?.slice(0, 60)}…</span>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {props.streamingText ? (
+              <MarkdownContent content={props.streamingText} />
+            ) : (
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
+                <span>{props.liveSteps.length > 0 ? props.t('chat.generating') : props.t('chat.thinking')}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function ChatPage() {
   const user = useAuthStore((s) => s.user)
   const { t } = usePreferences()
@@ -270,124 +435,26 @@ export function ChatPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-border px-6 py-3">
-        <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold">{t('chat.title')}</h1>
-          {llmConfig && (
-            <div className="relative" ref={pickerRef}>
-              <button
-                onClick={() => setShowModelPicker(!showModelPicker)}
-                className="flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-0.5 text-[11px] text-indigo-700 transition-colors hover:bg-indigo-100 dark:bg-indigo-500/10 dark:text-indigo-200 dark:hover:bg-indigo-500/20"
-              >
-                {llmConfig.model}
-                <ChevronDown size={10} />
-              </button>
-              {showModelPicker && models.length > 0 && (
-                <div className="absolute left-0 top-full z-50 mt-1 w-56 rounded-lg border border-border bg-background shadow-lg">
-                  {models.map((m) => (
-                    <button
-                      key={`${m.provider}-${m.model}`}
-                      onClick={() => {
-                        setLlmConfig({ api_key: m.api_key, model: m.model, base_url: m.base_url, protocol: m.protocol })
-                        setShowModelPicker(false)
-                      }}
-                      className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs hover:bg-muted/50 ${
-                        m.model === llmConfig.model ? 'bg-muted/30 font-medium' : ''
-                      }`}
-                    >
-                      <span>{m.model}</span>
-                      <span className="text-muted-foreground">{m.label}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-          {!llmConfig && user && (
-            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700 dark:bg-amber-500/10 dark:text-amber-200">
-              {t('chat.noApiKey')}
-            </span>
-          )}
-        </div>
-        <button
-          onClick={handleNewChat}
-          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-muted/50"
-        >
-          <RotateCcw size={14} />
-          {t('chat.newChat')}
-        </button>
-      </div>
+      <ChatHeader
+        llmConfig={llmConfig}
+        models={models}
+        user={user}
+        showModelPicker={showModelPicker}
+        pickerRef={pickerRef}
+        onToggleModelPicker={() => setShowModelPicker(!showModelPicker)}
+        onSelectModel={(m) => {
+          setLlmConfig({ api_key: m.api_key, model: m.model, base_url: m.base_url, protocol: m.protocol })
+          setShowModelPicker(false)
+        }}
+        onNewChat={handleNewChat}
+        t={t}
+      />
 
       <div ref={scrollRef} className="flex-1 overflow-auto px-6 py-4">
         {messages.length === 0 && !loading ? (
-          <div className="flex h-full flex-col items-center justify-center text-muted-foreground">
-            <div className="mb-4 text-4xl">📈</div>
-            <p className="text-sm font-medium">{t('chat.emptyTitle')}</p>
-            <p className="mt-2 text-xs text-muted-foreground">{t('chat.tryAsk')}</p>
-            <div className="mt-3 flex flex-wrap justify-center gap-2">
-              {[
-                t('chat.prompt.portfolio'),
-                t('chat.prompt.market'),
-                t('chat.prompt.recent'),
-                t('chat.prompt.search'),
-                t('chat.prompt.screen'),
-                t('chat.prompt.strategy'),
-              ].map((q) => (
-                <button
-                  key={q}
-                  onClick={() => setInput(q)}
-                  className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-muted/50"
-                >
-                  {q}
-                </button>
-              ))}
-            </div>
-            <div className="mt-8 rounded-lg border border-dashed border-border/60 px-4 py-2.5 text-center">
-              <p className="text-[11px] text-muted-foreground/70">
-                {t('chat.fullVersionPrefix')} · {t('chat.unlockFull')}
-              </p>
-            </div>
-          </div>
+          <ChatEmptyState onSelectPrompt={setInput} t={t} />
         ) : (
-          <div className="space-y-4">
-            {messages.map((msg) => (
-              <MessageBubble key={msg.id} msg={msg} />
-            ))}
-
-            {loading && (
-              <div className="flex justify-start">
-                <div className="max-w-[80%] rounded-2xl bg-muted px-4 py-2.5 text-sm text-foreground">
-                  {liveSteps.length > 0 && (
-                    <div className="mb-2 space-y-1">
-                      {liveSteps.map((step, i) => (
-                        <div key={i} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                          {step.type === 'tool_call' ? (
-                            <>
-                              <Wrench size={10} className="text-amber-500" />
-                              <span>✓ {formatToolName(step.toolName, t)}</span>
-                            </>
-                          ) : (
-                            <>
-                              <Brain size={10} className="text-blue-500" />
-                              <span className="line-clamp-1">{step.text?.slice(0, 60)}…</span>
-                            </>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {streamingText ? (
-                    <MarkdownContent content={streamingText} />
-                  ) : (
-                    <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                      <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
-                      <span>{liveSteps.length > 0 ? t('chat.generating') : t('chat.thinking')}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+          <ChatMessageList messages={messages} loading={loading} liveSteps={liveSteps} streamingText={streamingText} t={t} />
         )}
       </div>
 

@@ -133,7 +133,7 @@ usage() {
   start     启动服务 (docker compose up -d)
   stop      停止服务
   restart   重启服务
-  logs      查看日志 (可选: logs api | logs nginx)
+  logs      查看日志 (可选: logs api | logs agent | logs nginx)
   status    查看服务状态
   clean     清理全部容器/镜像/数据卷 (需确认)
   all       构建 + 启动 (首次部署)
@@ -145,8 +145,8 @@ usage() {
   # 更新代码后重新部署
   git pull && $0 build && $0 restart
 
-  # 查看 API 日志
-  $0 logs api
+  # 查看 Agent 日志
+  $0 logs agent
 
   # 配置 HTTPS 后:
   # 1. 将 SSL 证书放入 deploy/ssl/

@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { createChart, HistogramSeries, type IChartApi, type HistogramData, type Time } from 'lightweight-charts'
+import { createChart, HistogramSeries, type HistogramData, type Time } from 'lightweight-charts'
 import { fetchFunnelSummary, fetchFunnelDates, type FunnelSummary, type SectorStat, type TriggerStat } from '@/lib/funnel-data'
 import { WyckoffLoading } from '@/components/loading'
 import { usePreferences } from '@/lib/preferences'
@@ -61,26 +61,13 @@ export function FunnelPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-lg font-bold">{isZh ? '威科夫漏斗' : 'Wyckoff Funnel'}</h1>
-          <p className="text-xs text-muted-foreground">
-            {isZh ? `日期: ${summary.date} · 扫描 ${summary.totalScanned} 只 · AI 精选 ${summary.aiCount} 只` : `Date: ${summary.date} · Scanned ${summary.totalScanned} · AI picked ${summary.aiCount}`}
-          </p>
-        </div>
-        {dates && dates.length > 0 && (
-          <select
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="rounded-md border border-border bg-background px-3 py-1.5 text-xs"
-          >
-            {dates.map((d) => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
-        )}
-      </div>
+      <FunnelHeader
+        isZh={isZh}
+        summary={summary}
+        dates={dates}
+        selectedDate={selectedDate}
+        onDateChange={setSelectedDate}
+      />
 
       {/* Layer pass rate chart */}
       <section className="rounded-xl border border-border bg-card/50 p-4">
@@ -104,10 +91,48 @@ export function FunnelPage() {
   )
 }
 
-function FunnelLayersChart({ layers }: { layers: FunnelSummary['layers'] }) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<IChartApi | null>(null)
+function FunnelHeader({
+  isZh,
+  summary,
+  dates,
+  selectedDate,
+  onDateChange,
+}: {
+  isZh: boolean
+  summary: FunnelSummary
+  dates: string[] | undefined
+  selectedDate: string
+  onDateChange: (date: string) => void
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div>
+        <h1 className="text-lg font-bold">{isZh ? '威科夫漏斗' : 'Wyckoff Funnel'}</h1>
+        <p className="text-xs text-muted-foreground">
+          {isZh
+            ? `日期: ${summary.date} · 扫描 ${summary.totalScanned} 只 · AI 精选 ${summary.aiCount} 只`
+            : `Date: ${summary.date} · Scanned ${summary.totalScanned} · AI picked ${summary.aiCount}`}
+        </p>
+      </div>
+      {dates && dates.length > 0 && (
+        <select
+          value={selectedDate}
+          onChange={(e) => onDateChange(e.target.value)}
+          className="rounded-md border border-border bg-background px-3 py-1.5 text-xs"
+        >
+          {dates.map((d) => (
+            <option key={d} value={d}>{d}</option>
+          ))}
+        </select>
+      )}
+    </div>
+  )
+}
 
+function useFunnelLayersChart(
+  containerRef: React.RefObject<HTMLDivElement | null>,
+  layers: FunnelSummary['layers'],
+) {
   useEffect(() => {
     if (!containerRef.current || layers.length === 0) return
 
@@ -142,9 +167,13 @@ function FunnelLayersChart({ layers }: { layers: FunnelSummary['layers'] }) {
     window.addEventListener('resize', resize)
     resize()
 
-    chartRef.current = chart
     return () => { window.removeEventListener('resize', resize); chart.remove() }
   }, [layers])
+}
+
+function FunnelLayersChart({ layers }: { layers: FunnelSummary['layers'] }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  useFunnelLayersChart(containerRef, layers)
 
   return (
     <div>

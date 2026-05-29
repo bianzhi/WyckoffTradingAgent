@@ -78,7 +78,55 @@ EXPOSE 8787
 ENV NODE_ENV=production
 CMD ["node", "dist/server.js"]
 
-# ── Stage 4: Nginx + Frontend ──────────────────
+# ── Stage 4: Python Agent Builder ──────────────
+# build context = web/ ; root context = project root (..)
+FROM python:3.11-slim AS python-base
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# Install system deps needed by some Python packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Python project files (from project root via additional_contexts)
+COPY --from=root pyproject.toml ./
+COPY --from=root requirements.txt ./
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install the wyckoff package itself (editable not needed in prod)
+COPY --from=root cli/ cli/
+COPY --from=root agents/ agents/
+COPY --from=root core/ core/
+COPY --from=root integrations/ integrations/
+COPY --from=root tools/ tools/
+COPY --from=root utils/ utils/
+COPY --from=root scripts/ scripts/
+COPY --from=root data/ data/
+COPY --from=root mcp_server.py ./
+COPY --from=root AGENTS.md ./
+
+RUN pip install --no-cache-dir -e . --no-deps
+
+# ── Stage 5: Python Agent Runtime ──────────────
+FROM python-base AS agent
+
+RUN addgroup --system wyckoff && adduser --system --no-create-home --group wyckoff
+
+USER wyckoff
+WORKDIR /app
+
+# Default: run scheduler loop (configurable via CMD override)
+CMD ["python", "-m", "cli", "dash", "--port", "8080"]
+
+
+# ── Stage 6: Nginx + Frontend ──────────────────
 FROM nginx:1.27-alpine AS web
 
 COPY --from=deploy nginx.conf /etc/nginx/nginx.conf

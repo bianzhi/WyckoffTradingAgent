@@ -13,7 +13,7 @@ import { detectWyckoffAnnotations } from '@/lib/wyckoff-detect'
 import { TICKFLOW_PURCHASE, fetchKline, fetchValueSnapshot, getUserDataKeys, checkWhitelist, isCnSymbol, isSupportedKlineCode, type KlineData, type ValueSnapshot } from '@/lib/kline'
 import { avg } from '@/lib/math'
 import { marketLabel, resolveStockQuery, searchStocks, type StockSearchResult } from '@/lib/market-search'
-import { buildValuePrompt, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, sourceLabel, valueScoreClass, valueUnavailableText, type ValueView } from '@/lib/value-analysis'
+import { buildValuePrompt, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, sourceLabel, valueScoreClass, valueUnavailableText, type ValueTone, type ValueView } from '@/lib/value-analysis'
 import { saveAnalysisHistory } from '@/lib/local-history'
 
 interface AnalysisResult {
@@ -418,36 +418,17 @@ function KlineSection({ klineData, compact = false }: { klineData: KlineData[]; 
 }
 
 function ValueSection({ snapshot, compact = false }: { snapshot: ValueSnapshot; compact?: boolean }) {
-  const { t } = usePreferences()
-  const [view, setView] = useState<ValueView>('quality')
   const metrics = snapshot.metrics
-  const signals = useMemo(() => metrics ? buildValueScore(metrics, t) : null, [metrics, t])
 
   if (!metrics) {
-    return (
-      <section className={`rounded-lg border border-border bg-background ${compact ? 'p-4' : 'p-5'}`}>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-base font-semibold">{t('analysis.valueTitle')}</h2>
-            <p className="mt-1 text-xs text-muted-foreground">{t('analysis.valueSubtitle')}</p>
-          </div>
-          <span className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground">{t('analysis.valueNoSource')}</span>
-        </div>
-        <p className="mt-4 text-sm text-muted-foreground">{valueUnavailableText(snapshot.reason, t)}</p>
-      </section>
-    )
+    return <ValueEmptyState snapshot={snapshot} compact={compact} />
   }
 
-  const shownSignals = view === 'quality' ? signals?.strengths ?? [] : signals?.risks ?? []
-  const metricItems = [
-    { label: t('analysis.valueRoe'), value: formatValuePercent(metrics.roe), tone: numberTone(metrics.roe, 10, 0) },
-    { label: t('analysis.valueProfitYoy'), value: formatValuePercent(metrics.net_income_yoy), tone: numberTone(metrics.net_income_yoy, 0, -10) },
-    { label: t('analysis.valueRevenueYoy'), value: formatValuePercent(metrics.revenue_yoy), tone: numberTone(metrics.revenue_yoy, 0, -10) },
-    { label: t('analysis.valueGrossMargin'), value: formatValuePercent(metrics.gross_margin), tone: numberTone(metrics.gross_margin, 30, 15) },
-    { label: t('analysis.valueDebtRatio'), value: formatValuePercent(metrics.debt_to_asset_ratio), tone: reverseNumberTone(metrics.debt_to_asset_ratio, 55, 70) },
-    { label: t('analysis.valueCashRevenue'), value: formatValuePercent(metrics.operating_cash_to_revenue), tone: numberTone(metrics.operating_cash_to_revenue, 5, 0) },
-  ]
+  return <ValueContent metrics={metrics} snapshot={snapshot} compact={compact} />
+}
 
+function ValueEmptyState({ snapshot, compact }: { snapshot: ValueSnapshot; compact: boolean }) {
+  const { t } = usePreferences()
   return (
     <section className={`rounded-lg border border-border bg-background ${compact ? 'p-4' : 'p-5'}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -455,47 +436,93 @@ function ValueSection({ snapshot, compact = false }: { snapshot: ValueSnapshot; 
           <h2 className="text-base font-semibold">{t('analysis.valueTitle')}</h2>
           <p className="mt-1 text-xs text-muted-foreground">{t('analysis.valueSubtitle')}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${valueScoreClass(signals?.tone ?? 'neutral')}`}>{signals?.label}</span>
-          <span className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground">{sourceLabel(snapshot)}</span>
-        </div>
+        <span className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground">{t('analysis.valueNoSource')}</span>
       </div>
+      <p className="mt-4 text-sm text-muted-foreground">{valueUnavailableText(snapshot.reason, t)}</p>
+    </section>
+  )
+}
 
-      <div className="mt-4 grid gap-x-4 gap-y-3 border-y border-border/70 py-4 sm:grid-cols-2 lg:grid-cols-3">
-        {metricItems.map((item) => (
-          <div key={item.label} className="min-w-0">
-            <div className="truncate text-xs text-muted-foreground">{item.label}</div>
-            <div className={`mt-1 text-lg font-semibold ${metricToneClass(item.tone)}`}>{item.value}</div>
-          </div>
+function ValueContent({ metrics, snapshot, compact }: { metrics: NonNullable<ValueSnapshot['metrics']>; snapshot: ValueSnapshot; compact: boolean }) {
+  const { t } = usePreferences()
+  const [view, setView] = useState<ValueView>('quality')
+  const signals = useMemo(() => buildValueScore(metrics, t), [metrics, t])
+  const shownSignals = view === 'quality' ? signals.strengths : signals.risks
+
+  return (
+    <section className={`rounded-lg border border-border bg-background ${compact ? 'p-4' : 'p-5'}`}>
+      <ValueHeader t={t} signals={signals} snapshot={snapshot} />
+      <ValueMetricsGrid metrics={metrics} t={t} />
+      <ValueTabPanel view={view} setView={setView} periodEnd={metrics.period_end} announceDate={metrics.announce_date} t={t} />
+      <ValueSignalList signals={shownSignals} t={t} />
+    </section>
+  )
+}
+
+function ValueHeader({ t, signals, snapshot }: { t: any; signals: ReturnType<typeof buildValueScore>; snapshot: ValueSnapshot }) {
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 className="text-base font-semibold">{t('analysis.valueTitle')}</h2>
+        <p className="mt-1 text-xs text-muted-foreground">{t('analysis.valueSubtitle')}</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${valueScoreClass(signals.tone)}`}>{signals.label}</span>
+        <span className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground">{sourceLabel(snapshot)}</span>
+      </div>
+    </div>
+  )
+}
+
+function ValueMetricsGrid({ metrics, t }: { metrics: NonNullable<ValueSnapshot['metrics']>; t: any }) {
+  const items = [
+    { label: t('analysis.valueRoe'), value: formatValuePercent(metrics.roe), tone: numberTone(metrics.roe, 10, 0) },
+    { label: t('analysis.valueProfitYoy'), value: formatValuePercent(metrics.net_income_yoy), tone: numberTone(metrics.net_income_yoy, 0, -10) },
+    { label: t('analysis.valueRevenueYoy'), value: formatValuePercent(metrics.revenue_yoy), tone: numberTone(metrics.revenue_yoy, 0, -10) },
+    { label: t('analysis.valueGrossMargin'), value: formatValuePercent(metrics.gross_margin), tone: numberTone(metrics.gross_margin, 30, 15) },
+    { label: t('analysis.valueDebtRatio'), value: formatValuePercent(metrics.debt_to_asset_ratio), tone: reverseNumberTone(metrics.debt_to_asset_ratio, 55, 70) },
+    { label: t('analysis.valueCashRevenue'), value: formatValuePercent(metrics.operating_cash_to_revenue), tone: numberTone(metrics.operating_cash_to_revenue, 5, 0) },
+  ]
+  return (
+    <div className="mt-4 grid gap-x-4 gap-y-3 border-y border-border/70 py-4 sm:grid-cols-2 lg:grid-cols-3">
+      {items.map((item) => (
+        <div key={item.label} className="min-w-0">
+          <div className="truncate text-xs text-muted-foreground">{item.label}</div>
+          <div className={`mt-1 text-lg font-semibold ${metricToneClass(item.tone)}`}>{item.value}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ValueTabPanel({ view, setView, periodEnd, announceDate, t }: {
+  view: ValueView; setView: (v: ValueView) => void; periodEnd?: string; announceDate?: string; t: any
+}) {
+  return (
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="inline-flex rounded-lg border border-border bg-muted/40 p-1" role="tablist" aria-label={t('analysis.valueTitle')}>
+        {(['quality', 'risk'] as const).map((mode) => (
+          <button key={mode} type="button" onClick={() => setView(mode)}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${view === mode ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+            role="tab" aria-selected={view === mode}>
+            {mode === 'quality' ? t('analysis.valueQuality') : t('analysis.valueRisk')}
+          </button>
         ))}
       </div>
+      {(periodEnd || announceDate) && <span className="text-xs text-muted-foreground">{t('analysis.valuePeriod')}: {periodEnd || announceDate}</span>}
+    </div>
+  )
+}
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex rounded-lg border border-border bg-muted/40 p-1" role="tablist" aria-label={t('analysis.valueTitle')}>
-          {(['quality', 'risk'] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => setView(mode)}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${view === mode ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-              role="tab"
-              aria-selected={view === mode}
-            >
-              {mode === 'quality' ? t('analysis.valueQuality') : t('analysis.valueRisk')}
-            </button>
-          ))}
-        </div>
-        {(metrics.period_end || metrics.announce_date) && <span className="text-xs text-muted-foreground">{t('analysis.valuePeriod')}: {metrics.period_end || metrics.announce_date}</span>}
-      </div>
-
-      <div className="mt-3 grid gap-2 sm:grid-cols-2">
-        {shownSignals.length > 0 ? shownSignals.map((signal) => (
-          <div key={signal.label} className={`rounded-md border px-3 py-2 text-sm ${signalClass(signal.tone)}`}>{signal.label}</div>
-        )) : (
-          <div className="rounded-md border border-border px-3 py-2 text-sm text-muted-foreground">{t('analysis.valueNoSignals')}</div>
-        )}
-      </div>
-    </section>
+function ValueSignalList({ signals, t }: { signals: { label: string; tone?: string }[]; t: any }) {
+  return (
+    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+      {signals.length > 0 ? signals.map((signal) => (
+        <div key={signal.label} className={`rounded-md border px-3 py-2 text-sm ${signalClass((signal.tone ?? 'neutral') as ValueTone)}`}>{signal.label}</div>
+      )) : (
+        <div className="rounded-md border border-border px-3 py-2 text-sm text-muted-foreground">{t('analysis.valueNoSignals')}</div>
+      )}
+    </div>
   )
 }
 

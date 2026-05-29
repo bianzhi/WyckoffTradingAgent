@@ -134,77 +134,32 @@ export function ExportPage() {
     <div className="flex h-full flex-col p-6">
       <h1 className="mb-5 text-xl font-semibold">{t('export.title')}</h1>
 
-      <section className="mb-5 rounded-lg border border-border p-4">
-        <div className="mb-4 flex flex-wrap gap-2">
-          <ModeButton active={mode === 'single'} onClick={() => setMode('single')}>{t('export.singleMode')}</ModeButton>
-          <ModeButton active={mode === 'batch'} onClick={() => setMode('batch')}>{t('export.batchMode')}</ModeButton>
-        </div>
-
-        <div className="grid gap-3 lg:grid-cols-[minmax(240px,1fr)_120px_120px_150px_auto] lg:items-end">
-          {mode === 'single' ? (
-            <TextField label={t('common.stockCode')} value={symbol} onChange={setSymbol} placeholder={t('export.symbolPlaceholder')} onEnter={handleExport} />
-          ) : (
-            <TextArea label={t('export.batchSymbols')} value={batchText} onChange={setBatchText} placeholder="601318; 000001; 510300; AAPL.US; 00700.HK" />
-          )}
-          <NumberField label={t('export.days')} value={days} min={10} max={700} onChange={setDays} />
-          <NumberField label={t('export.endOffset')} value={endOffset} min={0} max={30} onChange={setEndOffset} />
-          <div>
-            <label className="mb-1.5 block text-sm font-medium">{t('export.adjust')}</label>
-            <select value={adjust} onChange={(e) => setAdjust(e.target.value as ExportAdjust)} className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm">
-              <option value="qfq">{t('export.qfq')}</option>
-              <option value="hfq">{t('export.hfq')}</option>
-              <option value="">{t('export.noneAdjust')}</option>
-            </select>
-          </div>
-          <button onClick={handleExport} disabled={loading || (mode === 'single' ? !symbol.trim() : !batchText.trim())} className="flex h-10 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50">
-            {loading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-            {loading ? t('export.fetching') : t('export.fetch')}
-          </button>
-        </div>
-        <p className="mt-3 text-xs text-muted-foreground">{t('export.batchHint')}</p>
-      </section>
+      <ExportControls
+        mode={mode} onModeChange={setMode}
+        symbol={symbol} onSymbolChange={setSymbol}
+        batchText={batchText} onBatchTextChange={setBatchText}
+        days={days} onDaysChange={setDays}
+        endOffset={endOffset} onEndOffsetChange={setEndOffset}
+        adjust={adjust} onAdjustChange={setAdjust}
+        loading={loading} onExport={handleExport}
+        t={t}
+      />
 
       {error && <div className="mb-4 rounded-lg bg-red-50 px-4 py-2.5 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-200">{error}</div>}
 
       {batchResults.length > 0 && <BatchStatus rows={batchResults} okText={t('export.ok')} failedText={t('export.failedStatus')} rowsText={t('common.rows')} />}
 
       {activeDataset ? (
-        <section className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <DatasetSelect datasets={datasets} activeIndex={activeIndex} onChange={setActiveIndex} label={t('export.dataset')} />
-              <ModeButton active={previewMode === 'enhanced'} onClick={() => setPreviewMode('enhanced')}>{t('export.enhancedView')}</ModeButton>
-              <ModeButton active={previewMode === 'raw'} onClick={() => setPreviewMode('raw')}>{t('export.rawView')}</ModeButton>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <DownloadButton onClick={() => downloadCurrent('enhanced')} icon={<FileSpreadsheet size={15} />}>{t('export.enhancedCsv')}</DownloadButton>
-              <DownloadButton onClick={() => downloadCurrent('raw')} icon={<FileSpreadsheet size={15} />}>{t('export.rawCsv')}</DownloadButton>
-              <DownloadButton onClick={downloadSelected} icon={<Download size={15} />}>{t('export.selectedCsv')}</DownloadButton>
-              <DownloadButton onClick={downloadZip} icon={<Package size={15} />}>{t('export.zip')}</DownloadButton>
-            </div>
-          </div>
-
-          <div className="border-b border-border p-3">
-            <div className="mb-2 flex flex-wrap items-center gap-3">
-              <input value={columnFilter} onChange={(e) => setColumnFilter(e.target.value)} placeholder={t('export.columnFilter')} className="h-9 w-56 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring/20" />
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={visibleColumns.every((c) => columnSet.has(c))} onChange={(e) => setSelectedColumns(toggleColumns(columnSet, columns, visibleColumns, e.target.checked))} />
-                {t('export.selectAll')}
-              </label>
-              <span className="text-xs text-muted-foreground">{t('export.selectedCount', { count: columnSet.size })}</span>
-            </div>
-            <div className="flex max-h-20 flex-wrap gap-2 overflow-auto">
-              {visibleColumns.map((column) => (
-                <label key={column} className="flex items-center gap-1.5 rounded border border-border px-2 py-1 text-xs">
-                  <input type="checkbox" checked={columnSet.has(column)} onChange={(e) => setSelectedColumns(toggleColumns(columnSet, columns, [column], e.target.checked))} />
-                  {column}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <PreviewTable rows={previewRows} />
-        </section>
+        <ExportDataSection
+          datasets={datasets} activeIndex={activeIndex} onActiveIndexChange={setActiveIndex}
+          previewMode={previewMode} onPreviewModeChange={setPreviewMode}
+          columnFilter={columnFilter} onColumnFilterChange={setColumnFilter}
+          columns={columns} columnSet={columnSet} visibleColumns={visibleColumns}
+          onSelectedColumnsChange={setSelectedColumns}
+          previewRows={previewRows}
+          onDownloadCurrent={downloadCurrent} onDownloadSelected={downloadSelected} onDownloadZip={downloadZip}
+          t={t}
+        />
       ) : (
         !loading && <EmptyState title={t('export.emptyTitle')} subtitle={t('export.emptySubtitle')} />
       )}
@@ -266,11 +221,189 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+function ExportControls({
+  mode, onModeChange,
+  symbol, onSymbolChange,
+  batchText, onBatchTextChange,
+  days, onDaysChange,
+  endOffset, onEndOffsetChange,
+  adjust, onAdjustChange,
+  loading, onExport,
+  t,
+}: {
+  mode: ExportMode
+  onModeChange: (mode: ExportMode) => void
+  symbol: string
+  onSymbolChange: (val: string) => void
+  batchText: string
+  onBatchTextChange: (val: string) => void
+  days: number
+  onDaysChange: (val: number) => void
+  endOffset: number
+  onEndOffsetChange: (val: number) => void
+  adjust: ExportAdjust
+  onAdjustChange: (val: ExportAdjust) => void
+  loading: boolean
+  onExport: () => void
+  t: (key: any, params?: any) => string
+}) {
+  return (
+    <section className="mb-5 rounded-lg border border-border p-4">
+      <div className="mb-4 flex flex-wrap gap-2">
+        <ModeButton active={mode === 'single'} onClick={() => onModeChange('single')}>{t('export.singleMode')}</ModeButton>
+        <ModeButton active={mode === 'batch'} onClick={() => onModeChange('batch')}>{t('export.batchMode')}</ModeButton>
+      </div>
+      <ExportFields mode={mode} symbol={symbol} onSymbolChange={onSymbolChange} batchText={batchText} onBatchTextChange={onBatchTextChange} days={days} onDaysChange={onDaysChange} endOffset={endOffset} onEndOffsetChange={onEndOffsetChange} adjust={adjust} onAdjustChange={onAdjustChange} loading={loading} onExport={onExport} t={t} />
+      <p className="mt-3 text-xs text-muted-foreground">{t('export.batchHint')}</p>
+    </section>
+  )
+}
+
+function ExportFields({
+  mode, symbol, onSymbolChange, batchText, onBatchTextChange,
+  days, onDaysChange, endOffset, onEndOffsetChange,
+  adjust, onAdjustChange, loading, onExport, t,
+}: {
+  mode: ExportMode; symbol: string; onSymbolChange: (val: string) => void
+  batchText: string; onBatchTextChange: (val: string) => void
+  days: number; onDaysChange: (val: number) => void
+  endOffset: number; onEndOffsetChange: (val: number) => void
+  adjust: ExportAdjust; onAdjustChange: (val: ExportAdjust) => void
+  loading: boolean; onExport: () => void
+  t: (key: any, params?: any) => string
+}) {
+  return (
+    <div className="grid gap-3 lg:grid-cols-[minmax(240px,1fr)_120px_120px_150px_auto] lg:items-end">
+      {mode === 'single' ? (
+        <TextField label={t('common.stockCode')} value={symbol} onChange={onSymbolChange} placeholder={t('export.symbolPlaceholder')} onEnter={onExport} />
+      ) : (
+        <TextArea label={t('export.batchSymbols')} value={batchText} onChange={onBatchTextChange} placeholder="601318; 000001; 510300; AAPL.US; 00700.HK" />
+      )}
+      <NumberField label={t('export.days')} value={days} min={10} max={700} onChange={onDaysChange} />
+      <NumberField label={t('export.endOffset')} value={endOffset} min={0} max={30} onChange={onEndOffsetChange} />
+      <div>
+        <label className="mb-1.5 block text-sm font-medium">{t('export.adjust')}</label>
+        <select value={adjust} onChange={(e) => onAdjustChange(e.target.value as ExportAdjust)} className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm">
+          <option value="qfq">{t('export.qfq')}</option>
+          <option value="hfq">{t('export.hfq')}</option>
+          <option value="">{t('export.noneAdjust')}</option>
+        </select>
+      </div>
+      <button onClick={onExport} disabled={loading || (mode === 'single' ? !symbol.trim() : !batchText.trim())} className="flex h-10 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50">
+        {loading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+        {loading ? t('export.fetching') : t('export.fetch')}
+      </button>
+    </div>
+  )
+}
+
+function ExportDataSection({
+  datasets, activeIndex, onActiveIndexChange,
+  previewMode, onPreviewModeChange,
+  columnFilter, onColumnFilterChange,
+  columns, columnSet, visibleColumns,
+  onSelectedColumnsChange,
+  previewRows,
+  onDownloadCurrent, onDownloadSelected, onDownloadZip,
+  t,
+}: {
+  datasets: ExportDataset[]
+  activeIndex: number
+  onActiveIndexChange: (index: number) => void
+  previewMode: PreviewMode
+  onPreviewModeChange: (mode: PreviewMode) => void
+  columnFilter: string
+  onColumnFilterChange: (val: string) => void
+  columns: string[]
+  columnSet: Set<string>
+  visibleColumns: string[]
+  onSelectedColumnsChange: (cols: string[]) => void
+  previewRows: ExportRow[]
+  onDownloadCurrent: (kind: PreviewMode) => void
+  onDownloadSelected: () => void
+  onDownloadZip: () => void
+  t: (key: any, params?: any) => string
+}) {
+  return (
+    <section className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <DatasetSelect datasets={datasets} activeIndex={activeIndex} onChange={onActiveIndexChange} label={t('export.dataset')} />
+          <ModeButton active={previewMode === 'enhanced'} onClick={() => onPreviewModeChange('enhanced')}>{t('export.enhancedView')}</ModeButton>
+          <ModeButton active={previewMode === 'raw'} onClick={() => onPreviewModeChange('raw')}>{t('export.rawView')}</ModeButton>
+        </div>
+        <DownloadButtons onDownloadCurrent={onDownloadCurrent} onDownloadSelected={onDownloadSelected} onDownloadZip={onDownloadZip} t={t} />
+      </div>
+
+      <div className="border-b border-border p-3">
+        <ColumnFilter
+          columnFilter={columnFilter} onColumnFilterChange={onColumnFilterChange}
+          columns={columns} columnSet={columnSet} visibleColumns={visibleColumns}
+          onSelectedColumnsChange={onSelectedColumnsChange} t={t}
+        />
+      </div>
+
+      <PreviewTable rows={previewRows} />
+    </section>
+  )
+}
+
 function ModeButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) {
   return (
     <button type="button" onClick={onClick} className={`rounded-lg border px-3 py-1.5 text-sm ${active ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted'}`}>
       {children}
     </button>
+  )
+}
+
+function DownloadButtons({ onDownloadCurrent, onDownloadSelected, onDownloadZip, t }: {
+  onDownloadCurrent: (kind: PreviewMode) => void
+  onDownloadSelected: () => void
+  onDownloadZip: () => void
+  t: (key: any, params?: any) => string
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      <DownloadButton onClick={() => onDownloadCurrent('enhanced')} icon={<FileSpreadsheet size={15} />}>{t('export.enhancedCsv')}</DownloadButton>
+      <DownloadButton onClick={() => onDownloadCurrent('raw')} icon={<FileSpreadsheet size={15} />}>{t('export.rawCsv')}</DownloadButton>
+      <DownloadButton onClick={onDownloadSelected} icon={<Download size={15} />}>{t('export.selectedCsv')}</DownloadButton>
+      <DownloadButton onClick={onDownloadZip} icon={<Package size={15} />}>{t('export.zip')}</DownloadButton>
+    </div>
+  )
+}
+
+function ColumnFilter({
+  columnFilter, onColumnFilterChange,
+  columns, columnSet, visibleColumns,
+  onSelectedColumnsChange, t,
+}: {
+  columnFilter: string
+  onColumnFilterChange: (val: string) => void
+  columns: string[]
+  columnSet: Set<string>
+  visibleColumns: string[]
+  onSelectedColumnsChange: (cols: string[]) => void
+  t: (key: any, params?: any) => string
+}) {
+  return (
+    <>
+      <div className="mb-2 flex flex-wrap items-center gap-3">
+        <input value={columnFilter} onChange={(e) => onColumnFilterChange(e.target.value)} placeholder={t('export.columnFilter')} className="h-9 w-56 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring/20" />
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={visibleColumns.every((c) => columnSet.has(c))} onChange={(e) => onSelectedColumnsChange(toggleColumns(columnSet, columns, visibleColumns, e.target.checked))} />
+          {t('export.selectAll')}
+        </label>
+        <span className="text-xs text-muted-foreground">{t('export.selectedCount', { count: columnSet.size })}</span>
+      </div>
+      <div className="flex max-h-20 flex-wrap gap-2 overflow-auto">
+        {visibleColumns.map((column) => (
+          <label key={column} className="flex items-center gap-1.5 rounded border border-border px-2 py-1 text-xs">
+            <input type="checkbox" checked={columnSet.has(column)} onChange={(e) => onSelectedColumnsChange(toggleColumns(columnSet, columns, [column], e.target.checked))} />
+            {column}
+          </label>
+        ))}
+      </div>
+    </>
   )
 }
 

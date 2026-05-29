@@ -30,6 +30,35 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  agent:
+    build:
+      context: ../web
+      dockerfile: ../deploy/Dockerfile
+      target: agent
+      additional_contexts:
+        root: ..
+    container_name: wyckoff-agent
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8080:8080"
+    volumes:
+      - wyckoff_data:/app/data
+      - wyckoff_logs:/app/logs
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - wyckoff
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   nginx:
     build:
       context: ../web
@@ -59,3 +88,9 @@ services:
 networks:
   wyckoff:
     driver: bridge
+
+volumes:
+  wyckoff_data:
+    driver: local
+  wyckoff_logs:
+    driver: local

@@ -92,6 +92,41 @@ function TailBuyRecordRow({ record }: { record: TailBuyRecord }) {
   )
 }
 
+function TailBuyTable({ data }: { data: TailBuyRecord[] }) {
+  const { t } = usePreferences()
+
+  return (
+    <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border">
+      <div className="h-full overflow-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+            <tr>
+              <th className="px-3 py-2.5 text-left font-medium">{t('common.code')}</th>
+              <th className="px-3 py-2.5 text-left font-medium">{t('common.name')}</th>
+              <th className="px-3 py-2.5 text-right font-medium">{t('common.date')}</th>
+              <th className="px-3 py-2.5 text-center font-medium">{t('tailBuy.signal')}</th>
+              <th className="px-3 py-2.5 text-center font-medium">决策</th>
+              <th className="px-3 py-2.5 text-right font-medium">入库价</th>
+              <th className="px-3 py-2.5 text-right font-medium">现价</th>
+              <th className="px-3 py-2.5 text-right font-medium">涨跌</th>
+              <th className="px-3 py-2.5 text-right font-medium">VWAP</th>
+              <th className="px-3 py-2.5 text-right font-medium">距VWAP</th>
+              <th className="px-3 py-2.5 text-right font-medium">30m</th>
+              <th className="px-3 py-2.5 text-right font-medium">{t('tailBuy.ruleScore')}</th>
+              <th className="px-3 py-2.5 text-right font-medium">{t('tailBuy.priorityScore')}</th>
+              <th className="px-3 py-2.5 text-center font-medium">{t('tailBuy.llmDecision')}</th>
+              <th className="px-3 py-2.5 text-left font-medium">{t('tailBuy.reason')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((record) => <TailBuyRecordRow key={`${record.code}-${record.run_date}`} record={record} />)}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 export function TailBuyPage() {
   const { t } = usePreferences()
   const { data = [], isLoading } = useQuery({
@@ -119,34 +154,7 @@ export function TailBuyPage() {
           </div>
         </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border">
-          <div className="h-full overflow-auto">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-muted/80 backdrop-blur">
-                <tr>
-                  <th className="px-3 py-2.5 text-left font-medium">{t('common.code')}</th>
-                  <th className="px-3 py-2.5 text-left font-medium">{t('common.name')}</th>
-                  <th className="px-3 py-2.5 text-right font-medium">{t('common.date')}</th>
-                  <th className="px-3 py-2.5 text-center font-medium">{t('tailBuy.signal')}</th>
-                  <th className="px-3 py-2.5 text-center font-medium">决策</th>
-                  <th className="px-3 py-2.5 text-right font-medium">入库价</th>
-                  <th className="px-3 py-2.5 text-right font-medium">现价</th>
-                  <th className="px-3 py-2.5 text-right font-medium">涨跌</th>
-                  <th className="px-3 py-2.5 text-right font-medium">VWAP</th>
-                  <th className="px-3 py-2.5 text-right font-medium">距VWAP</th>
-                  <th className="px-3 py-2.5 text-right font-medium">30m</th>
-                  <th className="px-3 py-2.5 text-right font-medium">{t('tailBuy.ruleScore')}</th>
-                  <th className="px-3 py-2.5 text-right font-medium">{t('tailBuy.priorityScore')}</th>
-                  <th className="px-3 py-2.5 text-center font-medium">{t('tailBuy.llmDecision')}</th>
-                  <th className="px-3 py-2.5 text-left font-medium">{t('tailBuy.reason')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.map((record) => <TailBuyRecordRow key={`${record.code}-${record.run_date}`} record={record} />)}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <TailBuyTable data={data} />
       )}
     </div>
   )

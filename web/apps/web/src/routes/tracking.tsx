@@ -107,24 +107,7 @@ function hasLoadedRetentionWindow(rows: Recommendation[]): boolean {
   )
 }
 
-export function TrackingPage() {
-  const [market, setMarket] = useState<MarketTab>('cn')
-  const [search, setSearch] = useState('')
-  const [onlyAI, setOnlyAI] = useState(false)
-  const [sortBy, setSortBy] = useState<SortBy>('date')
-  const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
-  const [selectedWindow, setSelectedWindow] = useState<RecommendationWindow>(30)
-
-  const user = useAuthStore((s) => s.user)
-  const whitelist = useQuery({
-    queryKey: ['whitelist', user?.id],
-    queryFn: () => checkWhitelist(user!.id),
-    enabled: !!user?.id && market !== 'cn',
-  })
-
-  const needsGate = market !== 'cn'
-  const isWhitelisted = !needsGate || whitelist.data === true
-
+function useTrackingData(market: MarketTab, isWhitelisted: boolean, needsGate: boolean, selectedWindow: RecommendationWindow, search: string, onlyAI: boolean, sortBy: SortBy, sortOrder: SortOrder) {
   const { data = [], isLoading: loading, error: fetchError } = useQuery({
     queryKey: ['tracking', market],
     queryFn: () => fetchTracking(market),
@@ -158,6 +141,29 @@ export function TrackingPage() {
   const latestDate = latestDates[0] ?? null
   const oldestDate = latestDates.at(-1) ?? null
   const activeOldestDate = activeDates.at(-1) ?? null
+  return { data, loading, fetchError, latestDates, activeDates, windowRows, visibleData, filtered, stats, latestDate, oldestDate, activeOldestDate }
+}
+
+export function TrackingPage() {
+  const [market, setMarket] = useState<MarketTab>('cn')
+  const [search, setSearch] = useState('')
+  const [onlyAI, setOnlyAI] = useState(false)
+  const [sortBy, setSortBy] = useState<SortBy>('date')
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
+  const [selectedWindow, setSelectedWindow] = useState<RecommendationWindow>(30)
+
+  const user = useAuthStore((s) => s.user)
+  const whitelist = useQuery({
+    queryKey: ['whitelist', user?.id],
+    queryFn: () => checkWhitelist(user!.id),
+    enabled: !!user?.id && market !== 'cn',
+  })
+
+  const needsGate = market !== 'cn'
+  const isWhitelisted = !needsGate || whitelist.data === true
+
+  const { filtered, stats, latestDate, oldestDate, activeDates, activeOldestDate, visibleData, windowRows, loading, fetchError } = useTrackingData(market, isWhitelisted, needsGate, selectedWindow, search, onlyAI, sortBy, sortOrder)
+
   if (needsGate && whitelist.isLoading) return <WyckoffLoading />
 
   return (
@@ -346,6 +352,33 @@ function SummaryCards({ selectedWindow, stats }: { selectedWindow: Recommendatio
   )
 }
 
+function SearchInput({ search, onlyAI, onSearchChange, onOnlyAIChange }: {
+  search: string; onlyAI: boolean
+  onSearchChange: (value: string) => void; onOnlyAIChange: (value: boolean) => void
+}) {
+  const { t } = usePreferences()
+  return (
+    <>
+      <input
+        type="text"
+        value={search}
+        onChange={(event) => onSearchChange(event.target.value)}
+        placeholder={t('tracking.searchPlaceholder')}
+        className="rounded-lg border border-border px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring/20"
+      />
+      <label className="flex items-center gap-1.5 text-sm">
+        <input
+          type="checkbox"
+          checked={onlyAI}
+          onChange={(event) => onOnlyAIChange(event.target.checked)}
+          className="rounded"
+        />
+        {t('tracking.onlyAI')}
+      </label>
+    </>
+  )
+}
+
 function TrackingFilters({
   filteredCount,
   market,
@@ -375,22 +408,7 @@ function TrackingFilters({
 
   return (
     <div className="mb-4 flex items-center gap-3">
-      <input
-        type="text"
-        value={search}
-        onChange={(event) => onSearchChange(event.target.value)}
-        placeholder={t('tracking.searchPlaceholder')}
-        className="rounded-lg border border-border px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring/20"
-      />
-      <label className="flex items-center gap-1.5 text-sm">
-        <input
-          type="checkbox"
-          checked={onlyAI}
-          onChange={(event) => onOnlyAIChange(event.target.checked)}
-          className="rounded"
-        />
-        {t('tracking.onlyAI')}
-      </label>
+      <SearchInput search={search} onlyAI={onlyAI} onSearchChange={onSearchChange} onOnlyAIChange={onOnlyAIChange} />
       <TrackingSortControls
         market={market}
         sortBy={sortBy}

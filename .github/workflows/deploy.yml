@@ -19,7 +19,7 @@ jobs:
           username: ${{ secrets.ECS_USER }}
           password: ${{ secrets.ECS_PASSWORD }}
           port: ${{ secrets.ECS_PORT || 22 }}
-          source: "web,deploy"
+          source: "web,deploy,cli,agents,core,integrations,tools,utils,scripts,data,mcp_server.py,AGENTS.md,pyproject.toml,requirements.txt"
           target: /tmp/wyckoff-deploy/
           strip_components: 0
           rm: true
@@ -37,10 +37,21 @@ jobs:
             # 备份 .env.production（不在 git 里，清理目录会删掉）
             cp /root/WyckoffTradingAgent/deploy/.env.production /tmp/.env.production.bak 2>/dev/null || true
 
-            # 同步代码（cp 替代 rsync，ECS 没装 rsync）
-            rm -rf /root/WyckoffTradingAgent/web/ /root/WyckoffTradingAgent/deploy/
+            # 同步代码：先删旧目录，再从 SCP 传输目录复制
+            rm -rf /root/WyckoffTradingAgent/
+            mkdir -p /root/WyckoffTradingAgent/
+
+            # Node.js 部分
             cp -a /tmp/wyckoff-deploy/web/ /root/WyckoffTradingAgent/web/
             cp -a /tmp/wyckoff-deploy/deploy/ /root/WyckoffTradingAgent/deploy/
+
+            # Python 部分
+            for dir in cli agents core integrations tools utils scripts data; do
+              cp -a /tmp/wyckoff-deploy/$dir/ /root/WyckoffTradingAgent/$dir/
+            done
+            for f in mcp_server.py AGENTS.md pyproject.toml requirements.txt; do
+              cp -a /tmp/wyckoff-deploy/$f /root/WyckoffTradingAgent/$f
+            done
 
             # 恢复 .env.production
             cp /tmp/.env.production.bak /root/WyckoffTradingAgent/deploy/.env.production 2>/dev/null || true

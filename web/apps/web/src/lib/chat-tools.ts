@@ -520,6 +520,52 @@ export async function execGetSignalQuality(): Promise<string> {
   return report
 }
 
+// ── alert management ──────────────────────────────────────────
+
+export async function execManageAlerts(
+  _deps: ToolDeps,
+  action: string,
+  ruleId: string | null,
+  ruleSpec: Record<string, unknown> | null,
+): Promise<string> {
+  if (action === 'list') {
+    const { rules, error } = await dataSkill.fetchAlerts()
+    if (error) return `预警规则获取失败：${error}`
+    if (!rules || rules.length === 0) return '暂无预警规则。\n\n可以用"添加预警"来创建新规则，例如：价格突破、放量异动、指数波动等。'
+    const lines = rules.map((r: Record<string, unknown>) => {
+      const status = r.enabled ? '🟢' : '⚫'
+      const conds = (r.conditions as Array<Record<string, unknown>>) || []
+      const condStr = conds.map((c: Record<string, unknown>) =>
+        `${c.type}: ${c.symbol || c.index_code || c.regime_value || ''} ${c.threshold || c.multiplier || ''}`
+      ).join(', ')
+      return `${status} **[${r.id}]** ${r.name}\n   └─ ${condStr}\n   冷却: ${r.cooldown_minutes}分钟`
+    })
+    return `## 预警规则 (${rules.length} 条)\n\n${lines.join('\n')}`
+  }
+
+  if (action === 'add') {
+    if (!ruleSpec || !ruleSpec.id) return '⛔ 添加规则失败：缺少规则 id 字段。'
+    const result = await dataSkill.saveAlert(ruleSpec)
+    return result.ok ? `✅ ${result.message}` : `⛔ ${result.message}`
+  }
+
+  if (action === 'delete') {
+    if (!ruleId) return '⛔ 删除规则失败：缺少规则 ID。'
+    const result = await dataSkill.deleteAlert(ruleId)
+    return result.ok ? `✅ ${result.message}` : `⛔ ${result.message}`
+  }
+
+  if (action === 'run') {
+    const result = await dataSkill.runAlerts(false)
+    const triggered = (result.triggered as number) || 0
+    const total = (result.total as number) || 0
+    if (triggered > 0) return `✅ 预警引擎已触发 ${triggered}/${total} 条规则。`
+    return `· ${total} 条规则均未触发当前条件。`
+  }
+
+  return `未知操作：${action}。支持的操作：list, add, delete, run`
+}
+
 // ── intraday helpers (no data fetching) ────────────────────
 
 interface IntradayProfileWeb {

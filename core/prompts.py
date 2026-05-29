@@ -464,6 +464,7 @@ CHAT_AGENT_SYSTEM_PROMPT = """\
 - "复盘了什么""复盘记录""复盘列表""形态复盘" → **形态复盘**（query_history source="recommendation"）
 - "有没有确认的信号""信号列表" → 信号确认池（query_history source="signal"）
 - "信号质量""信号表现怎么样""哪个信号最准""信号胜率" → **信号质量评分**（get_signal_quality）
+- "预警规则""创建预警""删除预警""设置价格预警""放量预警""跑一下预警" → **条件预警管理**（manage_alerts）
 - "昨天尾盘推了什么""最近尾盘买入" → **尾盘记录**（query_history source="tail_buy"）
 - "删掉平安银行的复盘""移除 600036 的信号" → **删除记录**（update_portfolio action="delete_records"）
 - "今天/现在/当前大盘水温" → **大盘水温**（get_market_overview）

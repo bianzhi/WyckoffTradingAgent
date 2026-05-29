@@ -531,3 +531,91 @@ dataRoutes.get('/signal-quality', async (c) => {
     return c.json({ error: `signal_quality: ${err.message}`, report: '' })
   }
 })
+
+// ── 预警规则 API ───────────────────────────────────────────
+
+dataRoutes.get('/alerts', async (c) => {
+  try {
+    const { spawnSync } = await import('node:child_process')
+    const proc = spawnSync('python3', [
+      '-c',
+      'from tools.alert_engine import list_rules; import json; print(json.dumps(list_rules(), ensure_ascii=False))',
+    ], {
+      timeout: 10_000, encoding: 'utf-8',
+      env: { ...process.env, PYTHONPATH: process.env.PYTHONPATH || process.cwd() },
+      cwd: process.cwd(),
+    })
+    if (proc.error) return c.json({ error: `alerts: ${proc.error.message}`, rules: [] })
+    let rules: unknown[] = []
+    try { rules = JSON.parse(proc.stdout?.trim() || '[]') } catch { /* empty */ }
+    return c.json({ rules, error: proc.stderr?.trim() || undefined })
+  } catch (err: any) {
+    return c.json({ error: `alerts: ${err.message}`, rules: [] })
+  }
+})
+
+dataRoutes.post('/alerts/save', async (c) => {
+  try {
+    const body = await c.req.json<{ rule: Record<string, unknown> }>()
+    const { spawnSync } = await import('node:child_process')
+    const proc = spawnSync('python3', [
+      '-c',
+      `from tools.alert_engine import add_rule; import json; print(json.dumps(add_rule(${JSON.stringify(body.rule)})))`,
+    ], {
+      timeout: 10_000, encoding: 'utf-8',
+      env: { ...process.env, PYTHONPATH: process.env.PYTHONPATH || process.cwd() },
+      cwd: process.cwd(),
+    })
+    if (proc.error) return c.json({ ok: false, message: proc.error.message }, 500)
+    try { return c.json(JSON.parse(proc.stdout?.trim() || '{}')) } catch {
+      return c.json({ ok: false, message: 'parse error' }, 500)
+    }
+  } catch (err: any) {
+    return c.json({ ok: false, message: err.message }, 500)
+  }
+})
+
+dataRoutes.delete('/alerts/:id', async (c) => {
+  try {
+    const id = c.req.param('id')
+    const { spawnSync } = await import('node:child_process')
+    const proc = spawnSync('python3', [
+      '-c',
+      `from tools.alert_engine import delete_rule; import json; print(json.dumps(delete_rule("${id.replace(/"/g, '\\"')}")))`,
+    ], {
+      timeout: 10_000, encoding: 'utf-8',
+      env: { ...process.env, PYTHONPATH: process.env.PYTHONPATH || process.cwd() },
+      cwd: process.cwd(),
+    })
+    if (proc.error) return c.json({ ok: false, message: proc.error.message }, 500)
+    try { return c.json(JSON.parse(proc.stdout?.trim() || '{}')) } catch {
+      return c.json({ ok: false, message: 'parse error' }, 500)
+    }
+  } catch (err: any) {
+    return c.json({ ok: false, message: err.message }, 500)
+  }
+})
+
+dataRoutes.post('/alerts/run', async (c) => {
+  try {
+    const body = await c.req.json<{ dry_run?: boolean }>()
+    const dryRun = body.dry_run === true
+    const { spawnSync } = await import('node:child_process')
+    const proc = spawnSync('python3', [
+      '-c',
+      `from tools.alert_engine import run_engine; import json; print(json.dumps(run_engine(dry_run=${dryRun ? 'True' : 'False'})))`,
+    ], {
+      timeout: 30_000, encoding: 'utf-8',
+      env: { ...process.env, PYTHONPATH: process.env.PYTHONPATH || process.cwd() },
+      cwd: process.cwd(),
+    })
+    if (proc.error) return c.json({ ok: false, message: proc.error.message }, 500)
+    try { return c.json(JSON.parse(proc.stdout?.trim() || '{}')) } catch {
+      return c.json({ ok: false, message: 'parse error' }, 500)
+    }
+  } catch (err: any) {
+    return c.json({ ok: false, message: err.message }, 500)
+  }
+})
+
+export { dataRoutes }

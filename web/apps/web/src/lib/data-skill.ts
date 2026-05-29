@@ -126,10 +126,48 @@ export const dataSkill = {
 
   /** 信号质量评分报告 */
   async fetchSignalQuality(): Promise<{ report: string; error?: string }> {
-    const res = await authFetch('/api/data/signal-quality')
+    const res = (await authFetch('/api/data/signal-quality')) as unknown as Record<string, unknown>
     return {
       report: String(res.report || ''),
       error: res.error as string | undefined,
     }
+  },
+
+  /** 预警规则列表 */
+  async fetchAlerts(): Promise<{ rules: Array<Record<string, unknown>>; error?: string }> {
+    const res = (await authFetch('/api/data/alerts')) as unknown as Record<string, unknown>
+    return { rules: (res.rules as Array<Record<string, unknown>>) || [], error: res.error as string | undefined }
+  },
+
+  /** 保存预警规则 */
+  async saveAlert(rule: Record<string, unknown>): Promise<{ ok: boolean; message: string }> {
+    const { supabase } = await import('./supabase')
+    const { data: { session } } = await supabase.auth.getSession()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+    const resp = await fetch('/api/data/alerts/save', { method: 'POST', headers, body: JSON.stringify({ rule }) })
+    const json = await resp.json()
+    return { ok: Boolean(json.ok), message: String(json.message || '') }
+  },
+
+  /** 删除预警规则 */
+  async deleteAlert(id: string): Promise<{ ok: boolean; message: string }> {
+    const { supabase } = await import('./supabase')
+    const { data: { session } } = await supabase.auth.getSession()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+    const resp = await fetch(`/api/data/alerts/${encodeURIComponent(id)}`, { method: 'DELETE', headers })
+    const json = await resp.json()
+    return { ok: Boolean(json.ok), message: String(json.message || '') }
+  },
+
+  /** 运行预警引擎 */
+  async runAlerts(dryRun: boolean): Promise<Record<string, unknown>> {
+    const { supabase } = await import('./supabase')
+    const { data: { session } } = await supabase.auth.getSession()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+    const resp = await fetch('/api/data/alerts/run', { method: 'POST', headers, body: JSON.stringify({ dry_run: dryRun }) })
+    return resp.json()
   },
 }

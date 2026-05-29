@@ -10,6 +10,7 @@ import {
   execQueryRecommendations, execQueryTailBuy, execExecutePortfolioUpdate,
   execAnalyzeStock, execScreenStocks, execGenerateAiReport, execStrategyDecision,
   execMarketHistory, execIntradayAnalysis, execGetSignalQuality,
+  execManageAlerts,
 } from './chat-tools'
 
 const SYSTEM_PROMPT = `# 角色设定
@@ -33,6 +34,8 @@ const SYSTEM_PROMPT = `# 角色设定
 9. **AI 研报** — generate_ai_report：为指定股票生成威科夫深度研报
 10. **策略建议** — generate_strategy_decision：基于持仓+大盘给出操作建议
 13. **盘中分析** — intraday_analysis：获取分钟线多周期数据（1m/5m/15m），返回VWAP位置、趋势、动量、综合强度评分
+14. **信号质量** — get_signal_quality：查询信号注册表健康状态、胜率、均收益
+15. **条件预警** — manage_alerts：管理价格预警/放量异动/指数波动等条件规则，支持增删查和立即评估
 
 # 工具路由原则
 
@@ -47,6 +50,8 @@ const SYSTEM_PROMPT = `# 角色设定
 - "帮我出个研报" → generate_ai_report
 - "我该怎么操作" / "给个建议" → generate_strategy_decision
 - "盘中怎么样" / "现在能买吗" / "今天走势如何" → intraday_analysis
+- "信号质量""信号表现怎么样""哪个信号最准""信号胜率" → get_signal_quality
+- "预警规则""创建预警""删除预警""设置价格预警""放量预警""跑一下预警" → manage_alerts
 
 # 行为铁律
 
@@ -615,6 +620,17 @@ function buildTools(userId: string, config: LLMConfig, reasoningCache: string[])
       description: '信号质量评分报告：查询当前所有信号类型（sos/spring/lps/evr/compression/trend_pullback）的健康状态、胜率、平均收益、样本量等统计指标。用于评估威科夫信号在当前市场环境下的有效性。',
       inputSchema: z.object({}),
       execute: () => execGetSignalQuality(),
+    }),
+
+    manage_alerts: tool({
+      description: '预警规则管理：CRUD 条件预警规则。action 支持 list（列出所有规则）、add（新增/更新规则，需传 ruleSpec JSON）、delete（删除规则，需传 ruleId）、run（立即评估所有规则并推送触发的告警）。条件类型：price_above/below（价格阈值）、pct_change（涨跌幅）、volume_spike（放量异动）、index_pct（指数波动）、regime（市场水温匹配）。',
+      inputSchema: z.object({
+        action: z.enum(['list', 'add', 'delete', 'run']).describe('操作类型'),
+        ruleId: z.string().nullable().optional().describe('delete 时必填：规则 ID'),
+        ruleSpec: z.record(z.unknown()).nullable().optional().describe('add 时必填：规则 JSON，包含 id/name/enabled/conditions/notify/cooldown_minutes'),
+      }),
+      execute: ({ action, ruleId, ruleSpec }) =>
+        execManageAlerts(deps, action, ruleId ?? null, ruleSpec ?? null),
     }),
   }
 }

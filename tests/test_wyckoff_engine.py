@@ -110,6 +110,7 @@ class TestIsHolidayGrace:
 class TestComputeStopLoss:
     def test_markup_trailing_stop(self):
         cfg = FunnelConfig()
+        cfg.exit_enable_atr_trailing = False
         n = 250
         closes = pd.Series([10.0 + i * 0.05 for i in range(n)])
         lows = closes * 0.99
@@ -120,6 +121,7 @@ class TestComputeStopLoss:
 
     def test_accum_bottom_stop(self):
         cfg = FunnelConfig()
+        cfg.exit_time_stop_days = 0
         n = 250
         closes = pd.Series([10.0] * n)
         lows = pd.Series([9.5] * n)

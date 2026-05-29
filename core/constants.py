@@ -1,4 +1,3 @@
-import os
 
 # ── 数据列名映射（中→英）────────────────────────────────────────────────────
 # 用于 normalize_hist_from_fetch() 等适配层
@@ -13,10 +12,10 @@ COL_MAP: dict[str, str] = {
     "涨跌幅": "pct_chg",
 }
 
-# Supabase 内置 anon 凭据（需要替换为你自己的 Supabase 项目凭据）
+# Supabase 内置 anon 凭据（在 integrations/supabase_base.py 中通过环境变量注入）
 # 前往 https://supabase.com/dashboard 创建项目，在 Settings → API 中获取
-SUPABASE_ANON_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_ANON_KEY = os.environ.get("SUPABASE_KEY", "")
+SUPABASE_ANON_URL = ""
+SUPABASE_ANON_KEY = ""
 
 # Database Table Names
 TABLE_USER_SETTINGS = "user_settings"

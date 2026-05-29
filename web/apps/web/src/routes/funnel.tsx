@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { createChart, HistogramSeries, type HistogramData, type Time } from 'lightweight-charts'
-import { fetchFunnelSummary, fetchFunnelDates, fetchSignalQualityStats, type FunnelSummary, type SectorStat, type TriggerStat, type SignalQualityStats } from '@/lib/funnel-data'
+import { fetchFunnelSummary, fetchFunnelDates, fetchSignalQualityStats, type FunnelSummary, type SectorStat, type TriggerStat } from '@/lib/funnel-data'
 import { WyckoffLoading } from '@/components/loading'
 import { usePreferences } from '@/lib/preferences'
 

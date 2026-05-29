@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -12,8 +13,8 @@ logger = logging.getLogger(__name__)
 SESSION_DIR = Path.home() / ".wyckoff"
 SESSION_FILE = SESSION_DIR / "session.json"
 
-from core.constants import SUPABASE_ANON_KEY as _SUPABASE_KEY
-from core.constants import SUPABASE_ANON_URL as _SUPABASE_URL
+_SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+_SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
 # ---------------------------------------------------------------------------
 # Session 文件读写

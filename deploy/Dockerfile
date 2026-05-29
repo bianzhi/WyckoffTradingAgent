@@ -115,7 +115,7 @@ COPY --from=root data/ data/
 COPY --from=root mcp_server.py ./
 COPY --from=root AGENTS.md ./
 
-RUN pip install --no-cache-dir -e . --no-deps
+RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ -e . --no-deps
 
 # ── Stage 5: Python Agent Runtime ──────────────
 FROM python-base AS agent

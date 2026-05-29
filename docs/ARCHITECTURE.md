@@ -1,755 +1,295 @@
-# 系统架构
+# WyckoffTradingAgent 架构文档
 
-[← 返回 README](../README.md)
+> 版本 1.0 · 2025-07-21 · 基于 `main` 分支深度代码审计
 
-> 本文是当前架构、数据表、Actions 与缓存口径的事实文档。策略逻辑详见 [`../README_STRATEGY.md`](../README_STRATEGY.md)。
+---
 
-## 系统全景
-
-```
-     ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-     │ React Web    │  │  CLI (TUI)   │  │  MCP Server  │  │  GitHub      │
-     │ (CF Pages)   │  │  Terminal    │  │  (stdio)     │  │  Actions     │
-     └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
-            │                 │                 │                 │
-            ▼                 ▼                 ▼                 ▼
-     ┌─────────────────────────────────────────────────────────────────────────────────┐
-     │                              Agent Brain                                        │
-     │              React: Vercel AI SDK · CLI: AgentRuntime · MCP                     │
-     │                                                                                 │
-     │  10 专业工具 + 5 通用能力 — LLM 自主编排                                          │
-     │  自动 Plan Mode — 复杂任务拆步骤执行                                              │
-     └──────────────────────────────┬──────────────────────────────────────────────────┘
-                                    │
-          ┌─────────────────────────┼──────────────────────────────┐
-          ▼                         ▼                              ▼
-   ┌─────────────┐         ┌──────────────┐              ┌──────────────┐
-   │ Core Engine │         │ LLM          │              │ Storage      │
-   │             │         │              │              │              │
-   │ Funnel      │         │ Gemini  ★    │              │ Supabase     │
-   │ Diagnostic  │         │ Claude       │              │ SQLite 本地  │
-   │ Strategy    │         │ OpenAI       │              │  (离线缓存)  │
-   │ Signal      │         │ DeepSeek     │              │ CF Pages     │
-   │ Sector      │         │ Qwen/兼容端点│              │  (边缘代理)  │
-   │ Tail-Buy    │         │ 智谱/火山    │              └──────────────┘
-   └──────┬──────┘         │ Minimax      │
-          │                │ 1Route       │
-          ▼                └──────────────┘
-   ┌─────────────┐
-   │ Data Sources│
-   │             │
-   │ tickflow ★  │
-   │ tushare     │
-   │ akshare     │
-   │ baostock    │
-   │ efinance    │
-   └─────────────┘
-```
-
-## React Web App（Cloudflare Pages）
-
-### 架构概览
+## 一、顶层鸟瞰
 
 ```
-浏览器 (React SPA)
-  │
-  ├─→ Supabase (Auth + DB)     ← 直连，无 CORS 问题（Supabase 自带 CORS 头）
-  │
-  ├─→ /api/llm-proxy/*         ← CF Pages Functions 边缘代理
-  │       │
-  │       └─→ X-Target-URL 头指定目标 → DeepSeek / OpenAI / 1Route / ...
-  │
-  └─→ 静态资源 (CF Pages CDN)
+┌─────────────────────────────────────────────────────────────────────┐
+│                        接入层 (3 通道)                                │
+│  ┌──────────────┐  ┌──────────────────┐  ┌───────────────────────┐  │
+│  │  CLI (TUI)   │  │  Web (React+SaaS)│  │  MCP Server (Stdio)   │  │
+│  │  Textual UI  │  │  CF Pages/API    │  │  Cursor/Claude 集成    │  │
+│  └──────┬───────┘  └────────┬─────────┘  └───────────┬───────────┘  │
+└─────────┼───────────────────┼────────────────────────┼──────────────┘
+          │                   │                        │
+          ▼                   ▼                        ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                         Agent 编排层                                  │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │  Orchestrator (AgentRuntime / run_stream)                     │   │
+│  │  · 多轮 LLM 循环 · 并发/串行工具执行 · 死循环检测              │   │
+│  │  · 自动压缩 · 工具结果裁剪 · Token 统计                       │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                      │
+│  ┌──────────┐  ┌────────────────┐  ┌─────────────────────────────┐  │
+│  │  Skills  │  │  Sub-Agents    │  │  Prompt Templates            │  │
+│  │  (5 内置)│  │  (3 角色)      │  │  (5 内置 + 用户自定义)       │  │
+│  │  工作流   │  │  工具权限隔离  │  │  可复用研究模板              │  │
+│  └──────────┘  └────────────────┘  └─────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────┘
+          │
+          ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                         工具层 (17 工具)                              │
+│  ┌──────────────┬───────────────┬──────────────┬──────────────────┐ │
+│  │ 市场数据 (5)  │ 分析诊断 (3)  │ 决策交易 (4) │ 委派 & 通用 (6)  │ │
+│  │ search_stock  │ analyze_stock │ portfolio    │ delegate_*   (3) │ │
+│  │ market_overv  │ ai_report     │ strategy     │ exec_command     │ │
+│  │ market_hist   │ screen_stocks │ update_port  │ read_file        │ │
+│  │ query_history │               │ backtest     │ write_file       │ │
+│  │               │               │              │ web_fetch        │ │
+│  └──────────────┴───────────────┴──────────────┴──────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
+          │
+          ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                        核心引擎层 (core/)                             │
+│  ┌──────────────────┐  ┌───────────────┐  ┌──────────────────────┐ │
+│  │ Funnel Pipeline   │  │ Backtester    │  │ Holding Diagnostic   │ │
+│  │ (5 层漏斗筛选)    │  │ (历史回测)    │  │ (持仓健康诊断)       │ │
+│  │ L1→L2→L2.5→L3→L4 │  │               │  │                      │ │
+│  │ →L5(退出信号)     │  │               │  │                      │ │
+│  └──────────────────┘  └───────────────┘  └──────────────────────┘ │
+│  ┌──────────────────┐  ┌───────────────┐  ┌──────────────────────┐ │
+│  │ Market Regime     │  │ Sector Rotat. │  │ Signal Feedback      │ │
+│  │ (大盘水温)        │  │ (板块轮动)    │  │ (信号质量追踪)       │ │
+│  └──────────────────┘  └───────────────┘  └──────────────────────┘ │
+│  ┌──────────────────┐  ┌───────────────┐  ┌──────────────────────┐ │
+│  │ Theme Radar       │  │ Intraday       │  │ Wyckoff Events       │ │
+│  │ (主线检测)        │  │ (盘中分析)     │  │ (结构触发/事件分类)  │ │
+│  └──────────────────┘  └───────────────┘  └──────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
+          │
+          ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                        数据层 (integrations/)                        │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │  统一入口: stock_hist_repository.get_stock_hist()               │ │
+│  │                    ↓                                            │ │
+│  │  data_source.fetch_stock_hist()   (7 源级联回退)                │ │
+│  │  ┌──────┬──────┬──────┬──────┬──────┬──────┬────────────────┐ │ │
+│  │  │TickFl│Tushar│AKShar│BaoSto│EFina.│EastMo│THS (概念热度)  │ │ │
+│  │  │ow(付)│e(付) │e(免) │ck(免)│(免)  │ney(免│               │ │ │
+│  │  └──────┴──────┴──────┴──────┴──────┴──────┴────────────────┘ │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │  持久化: SQLite (本地) + Supabase (云端)                       │ │
+│  │  · 持仓 → Supabase + 本地双写                                  │ │
+│  │  · 信号/推荐/尾盘 → 本地优先, Supabase 兜底                    │ │
+│  │  · 用户凭据 → Supabase → wyckoff.json → 环境变量 (3 级)       │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-**为什么需要边缘代理？**
+---
 
-浏览器直接请求 LLM API 会被 CORS 拦截（这些 API 不返回 `Access-Control-Allow-Origin`），而 Supabase 本身配置了 CORS 所以可直连。CF Pages Functions 在边缘节点代理请求，绕过浏览器同源限制。
+## 二、Skill 详细清单
 
-### 技术栈
+### 2.1 内置 Skills（`cli/skills.py`）
 
-| 层 | 技术 |
-|---|---|
-| 框架 | React 19 + React Router 7 + TypeScript |
-| AI SDK | Vercel AI SDK（`@ai-sdk/openai`，`compatibility: 'compatible'`） |
-| 样式 | Tailwind CSS 4 + shadcn/ui 组件 |
-| 构建 | Vite 6 → CF Pages 部署 |
-| 边缘代理 | CF Pages Functions（`web/functions/api/llm-proxy/[[path]].ts`） |
-| 状态管理 | Zustand（auth store） |
-| 数据 | Supabase JS SDK 直连 |
+Skills 是**领域特定的高层工作流**，用户通过 `/skill名` 在 CLI 中触发，或作为 Agent 自动选择的默认执行路径。
 
-### 页面结构
+| Skill | 描述 | 触发场景 | 核心工具调用链 |
+|-------|------|---------|-------------|
+| **screen** | 全市场漏斗筛选 | 「帮我看今天有什么机会」「跑一下漏斗」 | screen_stocks → analyze_stock → 排序输出 Top 5 |
+| **checkup** | 持仓全面体检 | 「帮我体检一下持仓」 | portfolio(diagnose) + market_overview → 综合建议 |
+| **report** | AI 深度研报 | 「出个研报」「深度分析这几只」 | generate_ai_report → 三阵营分类展示 |
+| **strategy** | 攻防决策 | 「该怎么操作」「给个策略」 | generate_strategy_decision → 去留指令 |
+| **backtest** | 策略回测 | 「回测一下」「看看历史表现」 | run_backtest → 指标展示 + 评价 |
 
-| 路由 | 页面 | 功能 |
+**可扩展性**: 用户可在 `~/.wyckoff/skills/<name>.md` 创建自定义 Skill（YAML front matter + Markdown 正文），与内置 Skill 同名时覆盖内置。
+
+### 2.2 Sub-Agents（`cli/sub_agents.py`）
+
+Sub-Agent 是**角色化的迷你 Agent**，每个拥有受限的工具集和专用的 system prompt，通过 `delegate_to_*` 工具由主 Orchestrator 委派任务。
+
+| Sub-Agent | 角色 | 工具数 | 可用工具 |
+|-----------|------|--------|---------|
+| **research** | 研究员（数据收集） | 8 | search_stock, analyze_stock, market_overview, market_history, query_history, screen_stocks, run_backtest, check_bg_tasks |
+| **analysis** | 首席分析师（深度诊断） | 5 | analyze_stock, portfolio, market_overview, market_history, generate_ai_report |
+| **trading** | 交易决策官（去留指令） | 6 | portfolio, update_portfolio, generate_strategy_decision, analyze_stock, market_overview, market_history |
+
+**设计意图**:
+- `research` 负责数据采集，不提供投资建议
+- `analysis` 深度使用 Wyckoff 框架拷问个股，返回结构化诊断
+- `trading` 以综合人视角下达冷血指令，附 entry_zone + stop_loss + tape_condition
+
+### 2.3 Prompt Templates（`cli/prompt_templates.py`）
+
+Prompt Templates 是**可复用的研究对话模板**，用户通过 `/模板名 [参数]` 触发。
+
+| Template | 描述 | 场景 |
+|----------|------|------|
+| **daily** | 每日盘面复盘 | 收盘后快速了解市场状态 |
+| **review-l4** | L4 信号复核 | 解释漏斗输出与 AI 入选差异 |
+| **holding-risk** | 持仓风险体检 | 需要操作建议时 |
+| **theme-scan** | 主线扫描 | 板块轮动分析 |
+| **signal-feedback** | 信号质量反馈 | 复盘信号准确率 |
+
+**与 Skill 的区别**: Templates 侧重**对话格式的引导**，Skills 侧重**工具调用序列的编排**。两者可组合使用。
+
+---
+
+## 三、工具层详表
+
+| # | 工具名 | 类型 | 数据依赖 | 认证要求 | CLI | Web |
+|---|--------|------|---------|---------|-----|-----|
+| 1 | `search_stock_by_name` | 查询 | AKShare(名称) + Spot(行情) | 无 | ✓ | ✓ |
+| 2 | `analyze_stock` | 分析 | stock_hist_repository → data_source | Tushare(可选) | ✓ | ✓ |
+| 3 | `portfolio` | 数据 | Supabase / SQLite | Supabase(云端) | ✓ | ✓ |
+| 4 | `get_market_overview` | 查询 | Tushare → AKShare fallback | Tushare(可选) | ✓ | ✓ |
+| 5 | `get_market_history` | 查询 | data_source.fetch_index_hist | Tushare(可选) | ✓ | ✓ |
+| 6 | `screen_stocks` | 计算 | 全量 stock_hist + funnel_pipeline | Tushare(推荐) | ✓ | ✓ |
+| 7 | `generate_ai_report` | LLM | 市场数据 + LLM API | LLM API Key | ✓ | ✓ |
+| 8 | `generate_strategy_decision` | LLM | 持仓 + 市场 + LLM API | LLM API Key | ✓ | ✓ |
+| 9 | `query_history` | 查询 | SQLite / Supabase | 无 | ✓ | ✓ |
+| 10 | `update_portfolio` | 写入 | Supabase + SQLite 双写 | Supabase(云端) | ✓ | ✓ |
+| 11 | `run_backtest` | 计算 | stock_hist(批量) + backtester | Tushare(推荐) | ✓ | ✓ |
+| 12 | `delegate_to_research` | 委派 | 透传至 Sub-Agent | — | ✓ | ✓ |
+| 13 | `delegate_to_analysis` | 委派 | 透传至 Sub-Agent | — | ✓ | ✓ |
+| 14 | `delegate_to_trading` | 委派 | 透传至 Sub-Agent | — | ✓ | ✓ |
+| 15 | `exec_command` | 系统 | 本地 shell | 无 | ✓ | ✗ |
+| 16 | `read_file` | 系统 | 本地文件系统 | 无 | ✓ | ✗ |
+| 17 | `write_file` | 系统 | 本地文件系统 | 无 | ✓ | ✗ |
+| 18 | `web_fetch` | 网络 | HTTP GET | 无 | ✓ | ✗ |
+
+---
+
+## 四、数据源架构与审计
+
+### 4.1 当前数据流
+
+```
+调用方 (chat_tools / MCP / scripts)
+    │
+    ▼
+integrations/stock_hist_repository.get_stock_hist()
+    │  ← 统一入口，但仅做格式标准化 + 日期切片
+    ▼
+integrations/data_source.fetch_stock_hist()
+    │  ← 7 源级联回退逻辑在此
+    ├── 1. TickFlow    (付费，优先)
+    ├── 2. Tushare     (付费，次优先)
+    ├── 3. AKShare     (免费，回退1)
+    ├── 4. BaoStock    (免费，回退2)
+    ├── 5. EFinance    (免费，回退3)
+    ├── 6. EastMoney   (板块/概念/市值)
+    └── 7. THS         (概念热度)
+```
+
+### 4.2 审计发现：数据源的 4 个问题
+
+#### 问题 1：数据源选择逻辑分散在调用方而非数据层
+
+当前每个 `chat_tools.py` 中的工具函数自行决定「要不要调 `_ensure_tushare_token()`」，而不是数据层透明处理。例如 `analyze_stock` 和 `get_market_overview` 都在进入数据源前手动注入了 Tushare Token。
+
+**建议**: Token 注入前置到 `stock_hist_repository.get_stock_hist()`，调用方无需关心。
+
+#### 问题 2：大盘指数和个股日线使用不同的接口和回退链
+
+- 个股日线: `fetch_stock_hist()` → TickFlow → Tushare → AKShare → BaoStock → EFinance
+- 大盘指数: `fetch_index_hist()` → Tushare → AKShare（没有 TickFlow 优先）
+
+两个函数签名相似但回退链不同，且大盘指数不支持 TickFlow。
+
+**建议**: 统一为 `fetch_market_data(type="stock"|"index", ...)`。
+
+#### 问题 3：实时行情（snapshot）独立于历史数据
+
+`fetch_stock_spot_snapshot()` 从 AKShare 获取实时快照，与历史日线数据走完全不同的路径。结果是被缓存在内存中（无持久化），且与历史数据的 source 标记不一致。
+
+#### 问题 4：缺少数据源健康监控
+
+虽然有 `_baostock_circuit_state()` 这样的熔断机制，但没有统一的数据源质量指标（延迟、成功率、回退频率）。`_debug_source_fail()` 只打日志不做聚合。
+
+### 4.3 推荐：统一股票数据 Agent/Skill
+
+```
+┌─────────────────────────────────────────────┐
+│         StockDataSkill / StockDataAgent      │
+│                                              │
+│  统一入口:                                    │
+│  · get_stock_hist(code, start, end)          │
+│  · get_index_hist(code, start, end)          │
+│  · get_spot_snapshot(code)                   │
+│  · get_market_cap_map()                      │
+│  · get_sector_map()                          │
+│                                              │
+│  内部:                                       │
+│  · 自动 Token 注入 (不依赖调用方)              │
+│  · 统一回退链 (个股 = 指数)                   │
+│  · 回退事件上报 (metrics)                     │
+│  · 本地缓存 + 过期策略                        │
+└─────────────────────────────────────────────┘
+```
+
+所有需要股票数据的工具（analyze_stock, screen_stocks, portfolio, market_overview, run_backtest）都应通过这个统一的 Skill/Agent 获取数据，而不是绕过它直接调 `data_source.py`。
+
+---
+
+## 五、领先性审计
+
+### 5.1 架构优点
+
+| 维度 | 评分 | 说明 |
 |------|------|------|
-| `/chat` | 读盘室 | Agent 多轮对话、漏斗筛选、研报生成、模型快速切换 |
-| `/analysis` | 单股分析 | 输入代码 → K 线图 + LLM 诊断 |
-| `/portfolio` | 持仓 | 持仓明细 + 收益率 |
-| `/tracking` | 跟踪 | 形态复盘 + 涨跌幅 |
-| `/tail-buy` | 尾盘记录 | 尾盘策略执行历史 |
-| `/export` | 数据导出 | CSV 导出 |
-| `/guide` | 功能说明 | Web 端功能入口和日常工作流说明 |
-| `/settings` | 设置 | 模型 / API Key / 数据源配置 |
-
-### DeepSeek R1 兼容
-
-DeepSeek 推理模型要求多轮对话中 assistant 消息必须携带 `reasoning_content` 字段。Web 端通过 `createReasoningFetch()` 自定义 fetch 包装器实现：
-
-1. 响应时缓存每轮 assistant 的 `reasoning_content`
-2. 下次请求时自动注入到历史 assistant 消息中
-
-### 与 CLI 的能力差异
-
-网页版 Agent 缺失会话历史、跨会话记忆、后台任务、上下文压缩等能力。完整能力体验请移步 CLI。
-
----
-
-## Agent 架构
-
-### 三通道复用
-
-React Web、CLI、MCP 共享同一套工具函数（`agents/chat_tools.py`）+ 同一份 System Prompt（`core/prompts.py`），通过不同运行时驱动：
-
-| | React Web (CF Pages) | CLI（TUI） | MCP Server |
-|---|---|---|---|
-| 运行时 | Vercel AI SDK `streamText` | `AgentRuntime`（`cli/runtime.py`） | FastMCP（stdio） |
-| UI | React SPA | Textual 全屏 TUI | 无（被 Claude Code 等调用） |
-| 入口 | `web/apps/web/` | `wyckoff`（无子命令） | `wyckoff-mcp` |
-| 工具数 | 10（独立实现） | 18（+5 本地 +3 委派） | 10（三层权限） |
-| 部署 | CF Pages + Functions | 本地 pip 安装 | 本地进程 |
-| 对话能力 | ✓ maxSteps 多轮 | ✓ Agent Loop 多轮 | ✗ 单次工具调用 |
-| 后台任务 | ✗ | ✓ 长任务非阻塞 | ✗ |
-| 消息排队 | ✗ | ✓ Agent 忙时自动排队 | N/A |
-| Thinking | ✗ | ✓ 推理模型 reasoning 展示 | N/A |
-| Agent 记忆 | ✗ | ✓ 跨会话记忆（SQLite） | ✗ |
-| 上下文压缩 | ✓ 最近对话压缩 | ✓ 动态阈值（25% context window）自动压缩 | N/A |
-| 可视化面板 | ✗ | ✓ `wyckoff dashboard` | ✗ |
-| Plan Mode | ✗ | ✓ prompt 驱动 | N/A |
-
-Streamlit 框架在 MVP 阶段支撑了产品验证，但主分支已全面下线 Streamlit：运行代码、依赖和 CI 路径均不再维护。历史代码保留在 `release/streamlit` 分支，MVP 产品架构和效果图归档在 [`STREAMLIT_MVP_ARCHITECTURE.md`](STREAMLIT_MVP_ARCHITECTURE.md)。
-
-当前主力 agent loop 收敛在 `cli/runtime.py::AgentRuntime`：它负责 provider 调用、工具执行、并发分批、上下文压缩、retry、doom-loop、scratchpad 和大结果落盘。TUI/CLI 只消费 runtime event；React Web 则以 CF Pages + Vercel AI SDK 承载在线读盘室。
-
-**CLI 专属工具**（Web / MCP 不可用）：`exec_command`、`read_file`、`write_file`、`web_fetch`、`check_background_tasks`、`delegate_to_research`、`delegate_to_analysis`、`delegate_to_trading`
-
-**MCP 三层权限**：
-- Tier 1（无需凭证）：历史查询（`query_history`）— 纯本地 SQLite 读写
-- Tier 2（需 TUSHARE_TOKEN 等 env）：搜索、分析（`analyze_stock`）、大盘、扫描、回测
-- Tier 3（需 Supabase 用户认证或本地降级）：持仓管理（`portfolio`/`plan_portfolio_update`/`execute_portfolio_update`）、AI 研报、攻防决策
-
-### ReAct 循环（Reasoning + Acting）
-
-Agent 采用 ReAct 范式：每一轮 LLM 先推理（Reason），再决定是否行动（Act），观察工具结果（Observe）后进入下一轮推理，直到能直接回答用户。
-
-```
-                        ┌──────────┐
-                        │  用户输入  │
-                        └────┬─────┘
-                             │
-                   ┌─────────▼──────────┐
-                   │  Reason            │
-                   │  LLM 推理 + 规划   │◄───────────┐
-                   │  (thinking/text)   │            │
-                   └─────────┬──────────┘            │
-                             │                       │
-                    ┌────────┴────────┐              │
-                    │  需要 Act?      │              │
-                    └───┬─────────┬───┘              │
-                     No │         │ Yes              │
-                        ▼         ▼                  │
-                  ┌──────────┐  ┌──────────────┐     │
-                  │ 输出回答  │  │  Act         │     │
-                  └──────────┘  │  执行工具     │     │
-                                │              │     │
-                                │ 后台工具?     │     │  Observe
-                                │  ├─Y→ submit │     │  工具结果
-                                │  └─N→ 同步   │     │  注入上下文
-                                └──────┬───────┘     │
-                                       └─────────────┘
-                                    (最多 15 轮)
-```
-
-### 工具清单（19 个）
-
-| # | 工具 | 说明 | 执行 | 可用通道 |
-|---|------|------|------|---------|
-| 1 | `search_stock_by_name` | 代码⇄名字双向模糊搜索（多源降级） | 同步 | 全部 |
-| 2 | `analyze_stock` | 单股 Wyckoff 诊断 / 近期 OHLCV 行情（mode 切换） | 同步 | 全部 |
-| 3 | `portfolio` | 持仓列表 / 批量持仓健康扫描（mode 切换） | 同步 | 全部 |
-| 4 | `plan_portfolio_update` | 生成调仓方案（不执行），展示给用户确认 | 同步 | 全部 |
-| 5 | `execute_portfolio_update` | 用户确认后执行调仓（必须在 plan 之后） | 同步 | 全部 |
-| 6 | `get_market_overview` | 主要指数涨跌幅 | 同步 | 全部 |
-| 7 | `screen_stocks` | 五层漏斗筛选 | ⚡后台 | 全部 |
-| 8 | `generate_ai_report` | 三阵营 AI 研报 | ⚡后台 | 全部 |
-| 9 | `generate_strategy_decision` | 扫描→研报→决策全流程 | ⚡后台 | 全部 |
-| 10 | `query_history` | 历史推荐 / 信号池 / 尾盘记录查询 | 同步 | 全部 |
-| 11 | `run_backtest` | 漏斗策略历史回测 | ⚡后台 | 全部 |
-| 12 | `check_background_tasks` | 后台任务进度查询 | 同步 | CLI |
-| 13 | `exec_command` | 执行本地 shell 命令 | 同步 | CLI |
-| 14 | `read_file` | 读取本地文件（CSV/Excel 自动解析） | 同步 | CLI |
-| 15 | `write_file` | 写入文件（导出报告/数据） | 同步 | CLI |
-| 16 | `web_fetch` | 抓取网页内容（财经新闻/公告） | 同步 | CLI |
-| 17 | `delegate_to_research` | 委派数据收集任务给 Research Sub-Agent | 同步 | CLI |
-| 18 | `delegate_to_analysis` | 委派深度分析任务给 Analysis Sub-Agent | 同步 | CLI |
-| 19 | `delegate_to_trading` | 委派交易决策任务给 Trading Sub-Agent | 同步 | CLI |
-
-标记 ⚡后台 的工具提交到 `BackgroundTaskManager`（daemon Thread），不阻塞对话。
-CLI 专属工具仅在 TUI 环境中可用，Web 和 MCP 不注册这些工具。
-
-**调仓确认机制差异**：
-- CLI：仍使用单一 `update_portfolio` 工具，确认通过 TUI 弹窗实现（用户在终端确认操作）
-- Web（CF Pages）：拆为 `plan_portfolio_update` → 用户在聊天中确认 → `execute_portfolio_update`，通过 LLM 行为约束实现
-
-**Tool Schema 策略差异**：
-- CLI：OpenAI SDK 默认不开 `strict`，工具参数可用 Python `Optional[T]`（字段不在 required 中）
-- Web（CF Pages）：`@ai-sdk/openai` 的 `compatibility: 'compatible'` 模式自动开启 `strict: true`，要求所有字段必须在 `required` 中。可选参数使用 Zod `.nullable()` 而非 `.optional()`，生成 `"type": ["string", "null"]` 使字段留在 required 中、模型不需要时传 null
-
-### 工具路由原则
-
-System Prompt 内建路由规则，LLM 自主判断调哪个工具：
-
-- "我有什么持仓" → `portfolio(mode="view")`（纯数据，秒回）
-- "持仓健康吗" → `portfolio(mode="diagnose")`（逐只诊断，较慢）
-- "帮我加/删持仓" → `search_stock_by_name` → `plan_portfolio_update`（出方案） → 用户确认 → `execute_portfolio_update`
-- "有什么机会" → `screen_stocks`（后台执行）
-
-**铁律：一个工具能回答的问题，绝不调两个。用户没要求分析，就不要分析。**
-
-### 自动 Plan Mode
-
-复杂任务（≥2 个工具）自动进入 Plan Mode：
-
-```
-用户: "帮我全面分析一下现在的市场"
-  │
-  ▼
-Agent 输出计划:
-  1. 查大盘水温 → get_market_overview
-  2. 全市场扫描 → screen_stocks（后台）
-  3. 诊断持仓 → diagnose_portfolio
-  4. 综合建议
-  │
-  ├─→ 逐步执行，每步汇报进度
-  ├─→ 步骤间可动态调整（如大盘极弱则跳过进攻）
-  │
-  ▼
-最终综合结论
-```
-
-### 后台任务架构
-
-`cli/background.py` — `BackgroundTaskManager`
-
-```
-Agent → tool_call: screen_stocks
-  │
-  ├─→ ToolRegistry 检测为 BACKGROUND_TOOLS
-  │   {"screen_stocks", "generate_ai_report", "generate_strategy_decision"}
-  │
-  ├─→ BackgroundTaskManager.submit() → daemon Thread 执行
-  ├─→ 立即返回 {"status": "background", "task_id": "bg_xxx"}
-  │
-  ▼
-Agent → "已提交后台，可继续提问"
-  │
-  │   （用户继续聊天...）
-  │
-  ▼   （后台线程完成）
-on_complete 回调 → TUI 显示通知 → 结果注入消息队列 → Agent 自动汇报
-```
-
-### 消息排队
-
-```
-用户输入 → Agent 忙? ─No→ 立即处理
-                      │
-                      Yes→ 入 deque 队列，显示 "⏳ 已排队 (N)"
-                              │
-                              ▼ （当前任务完成后）
-                         自动取队首消息 → 继续处理
-```
-
-`/new` 清对话时同步清空队列。
-
-### CLI Provider 层
-
-```
-LLMProvider (abstract)              cli/providers/base.py
-  │
-  ├── GeminiProvider                google-genai SDK
-  ├── ClaudeProvider                anthropic SDK
-  ├── OpenAIProvider                openai SDK + base_url + reasoning_content
-  └── FallbackProvider              多模型路由，按可用性自动切换
-```
-
-统一接口：`chat_stream(messages, tools, system_prompt) → Generator[chunk]`
-
-chunk 类型：`thinking_delta` | `text_delta` | `tool_calls` | `usage`
-
-OpenAI provider 兼容所有 OpenAI API 格式端点（DeepSeek / Qwen / Kimi / LongCat / Minimax 等），支持推理模型的 `reasoning_content` thinking 流，以及 `<tool_call>` XML 标签兜底解析。
-
-### MCP Server
-
-`mcp_server.py` — 通过 [Model Context Protocol](https://modelcontextprotocol.io) 将 Wyckoff 分析能力暴露给外部 AI Agent（Claude Code、Cursor 等）。
-
-```
-Claude Code / Cursor / 其他 MCP 客户端
-  │
-  ├─→ stdio 连接 → wyckoff-mcp 进程
-  │
-  ├─→ MCP 协议 → FastMCP 路由 → chat_tools.py 中的函数
-  │
-  └─→ 工具结果 JSON ← 返回
-```
-
-**与 CLI / Web 的关键区别**：MCP Server 不具备对话能力，它只是一个工具服务——LLM 的推理和多轮编排由外部客户端（如 Claude Code）负责，Wyckoff MCP 只响应单次工具调用。
-
-安装与注册：
-
-```bash
-pip install youngcan-wyckoff-analysis[mcp]
-claude mcp add wyckoff -- wyckoff-mcp
-```
-
-凭证通过环境变量注入（`TUSHARE_TOKEN`、`SUPABASE_*`），或由 `_get_credential` 自动从 `~/.wyckoff/wyckoff.json` 读取。
-
-### TUI 视觉层次
-
-```
-❯ 用户问题                           ← cyan 粗体
-
-  💭 推理摘要…  (1234 字)             ← thinking：一行，dim italic
-  ⚙ 搜索股票  keyword=宁德           ← tool 执行：黄色
-  ✓ 搜索股票  0.3s                   ← tool 完成：绿色
-  ✗ 调取行情  1.2s 超时              ← tool 失败：红色
-  ↗ 全市场扫描  已提交后台            ← 后台任务：cyan
-  ───                                ← 分隔线
-  最终 Markdown 输出...              ← Markdown 渲染
-
-  ↑1,234 ↓567 · 2.3s               ← token 统计：dim
-```
-
-## Agent 记忆系统
-
-`cli/memory.py` — 跨会话分层记忆，存储在 SQLite `agent_memory` 表。设计吸收 TencentDB-Agent-Memory 的两条核心原则：高层保留结构，低层保留证据；压缩可以折叠，但必须能下钻。
-
-### 写入时机
-
-三种触发路径：
-- **`/new`**：开启新会话时保存上一轮
-- **退出 TUI**（`/quit`、`/exit`、Ctrl+Q）：后台线程保存，5s 超时
-- **Ctrl+C**：同上
-
-满足以下条件自动提取：
-- 消息数 ≥ 4
-- 至少有 1 次工具调用
-
-LLM 从最近 40 条消息中提取 L1 原子记忆（≤300 字），每行必须是 `[股票]` / `[决策]` / `[市场]` / `[偏好]` 前缀。系统按前缀拆成独立记录：
-
-- `[股票]` → `stock_opinion`
-- `[决策]` → `decision`
-- `[市场]` → `market_view`
-- `[偏好]` → `preference`
-
-当本轮产生足够 L1 原子记忆后，系统会再提炼 L2 `scenario` 和 L3 `persona`，用于下一轮更高密度召回。
-
-### 分层与追溯
-
-| 层级 | 载体 | 作用 | 下钻方式 |
-|------|------|------|---------|
-| L0 | `chat_log` / scratchpad / tool result 文件 | 原始对话与工具证据 | `source_ref=chat_log:<session_id>` 或 `result_ref` |
-| L1 | `agent_memory` 原子记忆 | 股票结论、决策、市场观点、偏好 | `wyckoff memory trace <id>` |
-| L2 | `scenario` | 可复用交易/复盘场景 | 关联 L1 原子记忆和股票代码 |
-| L3 | `persona` | 用户画像、稳定风险边界 | 需要细节时回查 L1/L0 |
-
-`agent_memory` 新增 `memory_level`、`source_ref`、`confidence`、`metadata` 字段。TUI 在保存记忆时写入 `source_ref=chat_log:<session_id>`，CLI 可用 `wyckoff memory trace <id>` 查看来源会话片段。
-
-### 自动清理
-
-TUI 启动时自动执行 `prune_memories()`，清理 90 天前的普通记忆；`preference` 和 `persona` 保留。
-
-### 检索注入
-
-每次用户提问前，Hybrid Search 综合检索 + 画像/偏好置顶：
-
-1. **FTS5 全文检索**（权重 1.0）：SQLite FTS5 索引，BM25 排序，精准匹配用户问题中的关键词
-2. **股票代码匹配**（权重 0.85）：正则提取 6 位代码，LIKE 匹配
-3. **中文关键词 LIKE**（权重 0.6）：2-gram 分词 + 停用词过滤，补充召回
-4. **时间衰减加权**：30 天半衰期，近期记忆得分更高，`preference` / `persona` 不衰减
-5. 始终拉取 L3 `persona` 和近期 `preference`，置顶显示
-
-拼成两段注入 system prompt 尾部：
-
-```
-# 用户画像
-- 风险偏好中等，止损 -6%
-- 不要推荐 ST 股
-
-# 相关场景
-- #18 [2026-05-15] 000001 吸筹后等待放量确认
-
-# 历史原子记忆
-- #12 [2026-05-15] 000001 处于吸筹 Phase C，支撑位 12.50 | 源:chat_log:abc123
-```
-
-### 记忆类型
-
-| 类型 | 说明 | 自动清理 |
-|------|------|---------|
-| `stock_opinion` | 股票级结论 | 90 天 |
-| `decision` | 用户操作意图/决策 | 90 天 |
-| `market_view` | 市场或板块判断 | 90 天 |
-| `scenario` | L2 可复用场景 | 90 天 |
-| `fact` | 用户主动记录的事实 | 90 天 |
-| `preference` | 用户偏好 | 永不清理 |
-| `persona` | L3 用户画像 | 永不清理 |
-
-## 上下文压缩
-
-`cli/compaction.py` — TUI 和 headless agent loop 共用。
-
-### 动态阈值
-
-阈值 = 模型 context window × 25%。按模型前缀匹配：
-
-| 模型前缀 | Context Window | 压缩阈值 |
-|---------|---------------|---------|
-| deepseek | 64K | 16K |
-| gpt-4o | 128K | 32K |
-| gemini-2 | 1M | 250K |
-| claude | 200K | 50K |
-| 未知模型 | 64K（默认） | 16K |
-
-### 压缩策略
-
-1. **Memory Flush**：压缩前先用 LLM 从待压缩消息中提取用户偏好/重要事实，存入 `preference` 记忆（永不丢失）
-2. 保留最近 4 条消息（`TAIL_KEEP = 4`）原文
-3. 前面的消息用 LLM 总结为 ≤500 字中文摘要
-4. 工具结果做智能摘要而非粗暴截断：
-   - `analyze_stock` 诊断模式 → 保留 `code`、`phase`、`health`、`trigger_signals` 等关键字段
-   - `analyze_stock` 行情模式 → 保留最近 5 条数据
-   - `portfolio` 诊断模式 → 保留 `diagnostics`、`successful_count` 等
-   - `portfolio` 查看模式 → 保留 `positions`、`free_cash` 等
-   - 通用工具 → 保留 `error`、`message`、`status` 等顶层键
-5. 超大工具结果由 `cli/tool_results.py` 写入 `~/.wyckoff/tool-results/*.json`，上下文只保留 `node_id`、`result_ref`、Mermaid 节点和预览；`index.jsonl` 记录节点到原文文件的映射，便于按 `node_id` 下钻。
-
-```
-[对话摘要]
-用户查询了平安银行和贵州茅台的诊断...
----
-[最近 4 条原始消息]
-```
-
-### 工具确认机制
-
-高风险写操作工具需用户确认后才执行：
-
-| 工具 | 风险等级 |
-|------|---------|
-| `exec_command` | 高（执行任意命令） |
-| `write_file` | 高（写入文件） |
-| `execute_portfolio_update` | 中（修改持仓，需 plan 确认后才执行） |
-
-确认选项：允许一次 / 本次会话总是允许 / 修改后执行 / 不允许。
-
-### Doom Loop 防护
-
-滑动窗口检测（最近 6 次调用），两种触发条件：
-- **精确匹配**：同名工具 + 相同参数 hash ≥3 次 → 中止
-- **语义相似**：同名工具 + 参数 Jaccard 相似度 ≥0.8（字符 3-gram）≥3 次 → 中止（防止"换汤不换药"式死循环）
-
-### 并发工具执行
-
-只读工具（`search_stock_by_name`、`analyze_stock`、`portfolio`、`get_market_overview`、`query_history`）连续调用时自动并行执行（ThreadPoolExecutor，最多 5 线程），写工具保持串行。
-
-## 本地可视化面板
-
-`cli/dashboard.py` — `wyckoff dashboard [--port 8765]`
-
-纯 Python 内置 HTTP 服务器 + 嵌入式 SPA，无外部依赖。启动后自动打开浏览器。
-
-### 功能
-
-| 页面 | 数据源 | 说明 |
+| **多入口统一** | ⭐⭐⭐⭐⭐ | CLI/Web/MCP 三通道共享同一工具层和引擎层，代码复用率高 |
+| **数据源级联** | ⭐⭐⭐⭐ | 7 源自动回退 + 熔断，单点故障不影响整体可用性 |
+| **Sub-Agent 隔离** | ⭐⭐⭐⭐⭐ | 工具权限按角色最小化，不同 Agent 只能看到自己需要的工具 |
+| **Skill 可扩展** | ⭐⭐⭐⭐ | 用户可自定义 Skill（Markdown 文件），与内置同等地位 |
+| **多市场覆盖** | ⭐⭐⭐⭐ | A 股 / 港股 / 美股 / ETF，通过 market_universe 配置 |
+| **Wyckoff 深度** | ⭐⭐⭐⭐⭐ | 5 层漏斗 + 7 通道 + 6 类 L4 触发 + Phase A-E 阶段识别，业界领先 |
+
+### 5.2 待改进项
+
+| 问题 | 严重度 | 建议 |
 |------|--------|------|
-| 总览 | sync_meta | 各模块最后同步时间 + 行数 |
-| AI 推荐 | recommendation_tracking | 入选股票 + 当前价 + 收益率，支持逐条删除 |
-| 信号池 | signal_pending | L4 信号状态列表，支持逐条删除 |
-| 持仓 | portfolio + positions | 当前持仓明细 |
-| Agent 记忆 | agent_memory | 跨会话记忆列表，支持逐条删除 |
-| 配置 | wyckoff.json | 模型配置（API Key 脱敏） |
-| 对话日志 | chat_log | 按会话浏览历史对话 + token 统计，支持按会话删除 |
-| Agent 日志 | agent.log | 实时查看文件日志尾部 |
-| 同步状态 | sync_meta | 各表 TTL 和最后同步时间 |
+| 数据源未完全统一封装 | 中 | 建 StockDataSkill，所有股票数据经由此 Skill 代理 |
+| MCP Server 工具重复包装 | 低 | 不可避免（装饰器模式），但可加 `_auto_register_mcp_tools()` 自动生成 |
+| Skills / Sub-Agents / Templates 三层重叠 | 低 | 明确分工：Skill=工作流编排，Sub-Agent=角色隔离，Template=对话引导 |
+| `core/` vs `tools/` 边界模糊 | 低 | `tools/` 应只放纯函数工具，引擎逻辑归 `core/` |
+| 大盘指数数据源不一致 | 中 | 统一 `fetch_index_hist` 和 `fetch_stock_hist` 的回退链 |
+| 缺少数据源质量监控 | 中 | 增加回退频率/延迟指标，暴露为 Agent 可查询的工具 |
+| 实时行情孤岛 | 低 | spot_snapshot 应与 hist 数据走同一 Skill 入口 |
 
-### 特性
+### 5.3 与业界对比
 
-- **双主题**：暗色（Bloomberg 终端风格）/ 亮色，`localStorage` 持久化
-- **双语 i18n**：中文 / English，`localStorage` 持久化
-- **9 个 GET + 4 个 DELETE 端点**：GET `/api/config`、`/api/memory`、`/api/recommendations`、`/api/signals`、`/api/portfolio`、`/api/sync`、`/api/chat-sessions`、`/api/chat-log/<sid>`、`/api/agent-log`；DELETE `/api/memory/<id>`、`/api/recommendations/<code>`、`/api/signals/<code>`、`/api/chat-sessions/<sid>`
+| 能力 | WyckoffAgent | 传统量化平台 | GPT-based 投研 |
+|------|-------------|-------------|---------------|
+| Wyckoff 结构识别 | ✅ 完整 5 层 | ❌ 无 | ❌ 仅文字描述 |
+| 多 Agent 协作 | ✅ 3 Sub-Agent | ❌ | ⚠️ 单 Agent |
+| 数据源容错 | ✅ 7 源级联 | ⚠️ 通常单源 | ❌ 依赖训练数据 |
+| 用户自定义工作流 | ✅ Skill + Template | ⚠️ 有限 | ❌ |
+| 多市场统一 | ✅ A/港/美/ETF | ⚠️ 分市场 | ❌ |
+| 实时盘中分析 | ✅ TickFlow 分钟线 | ✅ | ❌ |
+| 信号闭环反馈 | ✅ Signal Feedback | ⚠️ 部分 | ❌ |
 
-## 对话日志
+**结论**: 在威科夫方法论的工程化落地深度上，本项目处于领先地位。数据源统一封装是当前最值得投入的架构改进。
 
-### 文件日志
+---
 
-`~/.wyckoff/agent.log` — Python `logging.FileHandler`，记录每次对话的 session_id、用户输入、耗时、token 用量。
+## 六、文件导航速查
 
-### SQLite chat_log 表
-
-```sql
-CREATE TABLE chat_log (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id  TEXT NOT NULL,
-    role        TEXT NOT NULL,       -- user / assistant / tool / error
-    content     TEXT DEFAULT '',
-    model       TEXT DEFAULT '',
-    provider    TEXT DEFAULT '',
-    tokens_in   INTEGER DEFAULT 0,
-    tokens_out  INTEGER DEFAULT 0,
-    elapsed_s   REAL DEFAULT 0,
-    error       TEXT DEFAULT '',
-    tool_calls  TEXT DEFAULT '',     -- JSON
-    metadata    TEXT DEFAULT '',     -- JSON（cache_read/cache_write/stop_reason/rounds/messages/system_prompt/tools）
-    created_at  TEXT DEFAULT (datetime('now'))
-);
-```
-
-`list_chat_sessions()` 按 session_id 聚合：起止时间、消息数、总 token、最后错误。
-
-## 本地持久化（~/.wyckoff/）
-
-| 文件 / 数据库 | 用途 |
-|-------------|------|
-| `wyckoff.json` | 模型配置（provider / api_key / model / base_url） |
-| `session.json` | Supabase 登录态（access_token / refresh_token） |
-| `agent.log` | Agent 文件日志 |
-| `wyckoff.db` | SQLite 数据库（下方详述） |
-
-### SQLite 表（wyckoff.db）
-
-| 表 | 用途 |
-|---|------|
-| `schema_version` | 迁移版本管理（当前 v7） |
-| `agent_memory_fts` | FTS5 全文检索索引（自动同步） |
-| `recommendation_tracking` | 形态复盘镜像 |
-| `signal_pending` | 信号池镜像 |
-| `market_signal_daily` | 大盘信号镜像 |
-| `portfolio` | 持仓元数据镜像 |
-| `portfolio_position` | 持仓明细镜像 |
-| `agent_memory` | 跨会话 Agent 记忆 |
-| `sync_meta` | 同步元数据（每表最后同步时间） |
-| `chat_log` | 对话日志（用户输入 + LLM 输出 + token + metadata） |
-| `tail_buy_history` | 尾盘策略执行历史 |
-| `background_task_result` | 后台任务结果缓存 |
-
-### Supabase → SQLite 同步
-
-`integrations/sync.py` — TUI 启动时自动后台同步（daemon thread）。
-
-| 表 | 同步策略 | TTL |
-|---|---------|-----|
-| `recommendation_tracking` | 最近 200 条 | 4 小时 |
-| `signal_pending` | 最近 200 条 | 4 小时 |
-| `market_signal_daily` | 最近 30 天 | 6 小时 |
-| `portfolio` + `positions` | 全量覆写 | 2 小时 |
-
-Supabase 不可达时静默跳过，使用本地陈旧数据。`wyckoff sync` 可手动触发。
-
-## 五层漏斗引擎
-
-`core/wyckoff_engine.py`，~60 可调参数（`FunnelConfig`）。
-
-| 层 | 名称 | 逻辑 |
-|----|------|------|
-| L1 | 剥离垃圾 | 剔除 ST / 北交 / 科创，市值 ≥ 35 亿，成交额 ≥ 5000 万 |
-| L2 | 六通道甄选 | 主升 / 点火 / 潜伏 / 吸筹 / 地量 / 护盘 |
-| L2.5 | Markup 识别 | MA50 上穿 MA200 + 角度验证 |
-| L3 | 板块共振 | L2 通过股票行业分布，保留 Top-N 行业 |
-| L4 | 微观狙击 | Spring / LPS / SOS / EVR / Compression 触发信号 |
-| L5 | 退出信号 | 初始止损 -6%、利润激活线 +15%、跟踪止损（高点回撤 -10% 或跌破 MA50）、派发警告（高位缩量 3 天） |
-
-## 信号确认状态机
-
-`core/signal_confirmation.py`，L4 信号经 1-3 天价格确认：
-
-```
-pending ──(价格确认)──→ confirmed（可操作）
-   └──(超时)──→ expired（失效）
-```
-
-TTL：SOS 2 天、Spring 3 天、LPS 3 天、EVR 2 天、Compression 3 天。
-
-## 信号反馈与动态策略闭环
-
-完整说明见 [`SIGNAL_FEEDBACK_LOOP.md`](SIGNAL_FEEDBACK_LOOP.md)。核心关系是：漏斗写观察样本，feedback 盘后验收，下一轮漏斗读取新的健康度和 registry。
-
-```mermaid
-flowchart LR
-  A["漏斗本轮运行<br/>Layer1-4 + AI + OMS"] --> B["signal_observations"]
-  B --> C["signal_feedback_job.py<br/>计算 outcomes"]
-  C --> D["signal_health_daily<br/>signal_registry"]
-  D --> E{"FUNNEL_DYNAMIC_POLICY"}
-  E -- "off" --> F["下一轮仍用静态配额"]
-  E -- "shadow" --> G["静态配额出结果<br/>动态配额写 shadow 差异"]
-  E -- "on" --> H["动态配额正式介入"]
-  F --> A
-  G --> A
-  H --> A
-```
-
-| 模式 | 行为 |
-|------|------|
-| `off` | 默认静态 Trend / Accum 配额，不读取反馈权重。 |
-| `shadow` | 主流程保持静态配额，同时把动态策略候选差异写入 `signal_policy_shadow_runs`。 |
-| `on` | 正式使用 `signal_health_daily` 权重和 `signal_registry` 启停状态。 |
-
-## 尾盘策略
-
-`core/tail_buy_strategy.py` + `scripts/tail_buy_intraday_job.py`
-
-盘中 14:00 执行，从前日 L4 信号中筛选尾盘买入标的。
-
-### 两阶段评估
-
-```
-signal_pending (pending/confirmed)
-  │
-  ├─→ 获取 1 分钟盘中数据（TickFlow）
-  │
-  ├─→ 第一阶段：规则打分（15+ 特征）
-  │   VWAP 位置、尾盘量比、日内回撤、突破形态...
-  │   BUY ≥ 72 · WATCH ≥ 52 · SKIP < 52
-  │
-  ├─→ 第二阶段：LLM 复判（Top N 候选）
-  │   输入：规则特征 + 5 分钟摘要 + 信号上下文
-  │   输出：{"decision":"BUY|WATCH|SKIP","reason":"...","confidence":0.8}
-  │
-  ├─→ 规则 × LLM 合并 → 最终排序
-  │
-  └─→ 推送飞书 / Telegram
-```
-
-### 持仓监控
-
-同一任务还扫描当前持仓，输出 HOLD / ADD / TRIM 建议。
-
-## Pipeline（定时任务）
-
-### GitHub Actions 主要工作流
-
-| 工作流 | 时间（北京） | 说明 |
-|-------|-------------|------|
-| **CI** (`ci.yml`) | push/PR | pytest + compile + dry-run |
-| **A 股漏斗筛选 + AI 研报 + 决策** (`wyckoff_funnel.yml`) | 周一-周五 18:25 | `daily_job.py` Step2→3→4，日频写入 `theme_radar_snapshot` |
-| **主线雷达周报** (`theme_radar.yml`) | 周五 21:10 | `theme_radar_job.py --with-news`，周频新闻增强复盘 |
-| **信号反馈闭环** (`signal_feedback.yml`) | 周一-周五 23:30 | `signal_feedback_job.py` 刷新 outcomes / health / registry |
-| **港股漏斗筛选** (`wyckoff_funnel_hk.yml`) | 周一-周五 16:35 | `market_funnel_job.py --market hk` |
-| **美股漏斗筛选** (`wyckoff_funnel_us.yml`) | 周二-周六 05:35 | `market_funnel_job.py --market us` |
-| **尾盘策略** (`tail_buy_1420.yml`) | 周一-周五 13:50 | `tail_buy_intraday_job.py` |
-| **盘前风控** (`premarket_risk.yml`) | 周一-周五 08:20 | A50 + VIX 预警 |
-| **板块连续性报告** (`sector_continuity.yml`) | 周一-周五盘后 | 计算概念 / 行业热度并持久化 |
-| **涨停复盘** (`review_list_replay.yml`) | 周一-周五 19:25 | 当日涨幅 ≥ 8% 回溯 |
-| **形态复盘重定价** (`recommendation_tracking_reprice.yml`) | 周日-周四 23:00 | 同步收盘价、计算收益 |
-| **数据库维护** (`db_maintenance.yml`) | 每天 23:05 | 清理过期行情、订单、信号、市场信号等滑动窗口数据 |
-| **回测网格** (`backtest_grid.yml`) | 每月 1 / 15 日 04:00 | 3 阶段：快照→18 并行格→聚合通知 |
-| **Web 后台任务** (`web_quant_jobs.yml`) | 手动触发 | Web 发起的漏斗/研报任务 |
-| **输入预览** (`wyckoff_input_preview.yml`) | 手动触发 | dry-run 模式查看漏斗输入 |
-
-## 数据源
-
-```
-tickflow(★) → tushare → akshare → baostock → efinance   （A 股日线 OHLCV，五级降级）
-tickflow                                        （港股 / 美股日线、实时行情、分钟 K 线）
-tushare → akshare + 本地 24h 缓存              （A 股股票列表，代码⇄名字映射）
-data/market_universes/*.json                    （A 股 / 港股 / 美股 / ETF universe 与名称检索）
-tickflow                                        （1 分钟盘中数据，尾盘策略专用）
-```
-
-日线行情通过统一仓库层 `integrations/stock_hist_repository.py` 直接从数据源拉取（TickFlow 优先，降级 tushare/akshare/baostock）。
-
-`integrations/rag_veto.py` — 新闻否决层：抓取东方财富个股新闻，命中负面关键词则拦截推荐。
-
-## 云端存储（Supabase）
-
-| 表 | 用途 |
-|----|------|
-| `portfolios` | 投资组合元数据 |
-| `portfolio_positions` | 持仓明细 |
-| `trade_orders` | AI 交易建议 |
-| `user_settings` | 用户配置（API Key / Webhook / provider base_url / custom_providers JSON） |
-| `recommendation_tracking` | 威科夫形态复盘 |
-| `signal_pending` | 信号确认池 |
-| `market_signal_daily` | 大盘信号 |
-| `daily_nav` | 每日净值 |
-| `concept_heat_history` | 板块连续性与概念热度历史 |
-| `signal_observations` | L4 信号观察样本 |
-| `signal_outcomes` | 信号后续收益 / 回撤结果 |
-| `signal_health_daily` | 按信号聚合的健康度快照 |
-| `signal_registry` | 信号生命周期与启停状态 |
-| `signal_policy_shadow_runs` | 动态策略 shadow run 差异记录 |
-
-数据隔离：Web JWT → RLS，CLI access_token → RLS，脚本 service_role_key → 绕过 RLS。
-
-`scripts/db_maintenance.py` 负责清理过期数据：形态复盘按表内最新 30 个入选日期保留，订单/信号/净值等短周期表保留 10-30 日区间，避免数据库行数无限增长。
-
-## CLI 命令
-
-```bash
-wyckoff                          # 启动 TUI 对话（默认）
-wyckoff update                   # 升级到最新版
-wyckoff auth <email> <password>  # 登录
-wyckoff auth logout              # 登出
-wyckoff auth status              # 查看登录状态
-wyckoff model list               # 列出模型配置
-wyckoff model add                # 交互式添加模型
-wyckoff model set <id> ...       # 非交互式设置模型
-wyckoff model rm <id>            # 删除模型
-wyckoff model default <id>       # 设置默认模型
-wyckoff config                   # 查看数据源配置
-wyckoff config tushare <token>   # 配置 Tushare
-wyckoff config tickflow <key>    # 配置 TickFlow
-wyckoff portfolio list           # 查看持仓（别名 pf）
-wyckoff portfolio add <code>     # 添加持仓
-wyckoff portfolio rm <code>      # 删除持仓
-wyckoff portfolio cash [--amount]# 查看/设置可用资金
-wyckoff signal [status]          # 查看信号池
-wyckoff recommend                # 查看复盘记录（别名 rec）
-wyckoff dashboard [--port N]     # 启动可视化面板（别名 dash）
-wyckoff sync [status]            # 手动同步 / 查看同步状态
-wyckoff cleanup [--days N]       # 清理过期本地数据（默认 30 天）
-wyckoff-mcp                      # 启动 MCP Server（供 Claude Code 等调用）
-```
-
-## 安装方式
-
-| 方式 | 命令 |
-|------|------|
-| 一键安装 | `curl -fsSL https://raw.githubusercontent.com/.../install.sh \| bash` |
-| Homebrew | `brew tap YoungCan-Wang/wyckoff && brew install wyckoff` |
-| pip | `uv pip install youngcan-wyckoff-analysis` |
-
-`install.sh`：检测 Python 3.11+ → 安装 uv → 创建 `~/.wyckoff/venv` → 安装 PyPI 包 → 符号链接到 `~/.local/bin/wyckoff`。
-
-## 目录结构
-
-```
-mcp_server.py    MCP Server 入口（FastMCP，10 个工具）
-agents/          Agent 工具函数（Web + AgentRuntime + MCP 共用）
-cli/             CLI 入口、TUI、AgentRuntime、Provider、Dashboard、Memory
-  providers/     LLM Provider 实现（Gemini / Claude / OpenAI / Fallback）
-core/            漏斗引擎、诊断、策略、信号确认、尾盘策略、常量
-integrations/    数据源集成、Supabase 模块、SQLite 本地层、同步引擎
-scripts/         定时任务脚本（GitHub Actions 调用）
-tools/           搜索、新闻否决等辅助工具
-utils/           通知推送（飞书/企微/钉钉/Telegram）、格式化
-tests/           测试用例
-data/            本地缓存（交易日历、股票列表、行业映射、跨市场 universe）
-Formula/         Homebrew formula
-web/             React Web App（CF Pages 部署）
-  apps/web/      前端 SPA（React + Vite + Tailwind）
-    src/routes/  页面组件（chat / analysis / portfolio / ...）
-    src/lib/     chat-agent（Vercel AI SDK）、supabase 客户端
-    src/stores/  Zustand 状态管理（auth）
-  functions/     CF Pages Functions（边缘代理）
-    api/llm-proxy/  LLM API 反向代理
-```
+| 关注点 | 关键文件 |
+|--------|---------|
+| 入口 (CLI) | `cli/__main__.py`, `cli/tui.py`, `cli/commands.py` |
+| 入口 (Web) | `web/apps/web/src/`, `web/apps/api/src/` |
+| 入口 (MCP) | `mcp_server.py` |
+| Agent 运行时 | `cli/runtime.py` (AgentRuntime), `cli/agent.py` (headless wrapper) |
+| Skills 定义 | `cli/skills.py` (5 内置), `~/.wyckoff/skills/*.md` (用户) |
+| Sub-Agent 定义 | `cli/sub_agents.py` (3), `cli/sub_agent_prompts.py` (system prompts) |
+| 工具实现 | `agents/chat_tools.py` (17 tools), `cli/tools.py` (ToolRegistry) |
+| 漏斗引擎 | `core/wyckoff_engine.py` (FunnelConfig + 5 层), `core/wyckoff_events.py`, `core/wyckoff_v2_structure.py` |
+| 持仓诊断 | `core/holding_diagnostic.py` (HoldingDiagnostic) |
+| 回测引擎 | `core/backtester.py` |
+| 市场水温 | `tools/market_regime.py` |
+| 板块轮动 | `core/sector_rotation.py`, `core/theme_radar.py` |
+| 信号反馈 | `core/signal_feedback.py`, `core/signal_lifecycle.py` |
+| 数据源 | `integrations/data_source.py` (7 源), `integrations/stock_hist_repository.py` (统一入口) |
+| 持久化 | `integrations/local_db.py` (SQLite), `integrations/supabase_*.py` (云端) |
+| 凭据 | `agents/chat_tools.py:_get_credential()` (3 级回退) |
+| 作业脚本 | `scripts/wyckoff_funnel.py`, `scripts/tail_buy_intraday_job.py`, `scripts/daily_job.py` |
+| CI/CD | `.github/workflows/*.yml` (20+ workflows) |

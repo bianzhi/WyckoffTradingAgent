@@ -8,10 +8,10 @@ from cli.skills import BUILTIN_SKILLS, _parse_skill_md, load_skills
 
 class TestBuiltinSkills:
     def test_five_builtins(self):
-        assert len(BUILTIN_SKILLS) == 5
+        assert len(BUILTIN_SKILLS) == 6
 
     def test_names(self):
-        assert set(BUILTIN_SKILLS.keys()) == {"screen", "checkup", "report", "strategy", "backtest"}
+        assert set(BUILTIN_SKILLS.keys()) == {"screen", "checkup", "report", "strategy", "backtest", "stock_data"}
 
     def test_all_have_description_and_prompt(self):
         for name, skill in BUILTIN_SKILLS.items():

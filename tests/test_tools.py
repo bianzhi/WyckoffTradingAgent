@@ -278,7 +278,7 @@ class TestSymbolPool:
 
         fake_pipeline.run = fake_run_funnel
         monkeypatch.setitem(sys.modules, "scripts.wyckoff_funnel", fake_pipeline)
-        monkeypatch.setattr(chat_tools, "_ensure_tushare_token", lambda tool_context: None)
+        monkeypatch.setattr(chat_tools, "_ensure_data_tokens", lambda tool_context: None)
         monkeypatch.setenv("FUNNEL_POOL_MODE", "manual")
         monkeypatch.setenv("FUNNEL_POOL_BOARD", "chinext")
         monkeypatch.setenv("FUNNEL_EXECUTOR_MODE", "process")

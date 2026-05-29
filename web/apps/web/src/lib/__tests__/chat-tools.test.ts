@@ -17,7 +17,7 @@ import {
 function createMockChain(resolvedData: unknown = null, error: unknown = null) {
   const chain: Record<string, unknown> = {}
   const terminal = () => Promise.resolve({ data: resolvedData, error })
-  for (const method of ['select', 'eq', 'ilike', 'order', 'limit', 'delete', 'update']) {
+  for (const method of ['select', 'eq', 'ilike', 'order', 'limit', 'delete', 'update', 'maybeSingle']) {
     chain[method] = vi.fn().mockReturnValue(chain)
   }
   chain['insert'] = vi.fn().mockImplementation(terminal)

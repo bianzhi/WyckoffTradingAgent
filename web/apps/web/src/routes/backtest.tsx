@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  createChart, LineSeries, HistogramSeries, type IChartApi,
+  createChart, LineSeries, HistogramSeries,
   type LineData, type HistogramData, type Time, LineStyle,
 } from 'lightweight-charts'
 import { usePreferences } from '@/lib/preferences'
@@ -70,19 +70,7 @@ export function BacktestPage() {
         </p>
       </div>
 
-      {/* Input area */}
-      <div className="rounded-xl border border-border bg-card/50 p-4">
-        <textarea
-          className="h-32 w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-mono text-xs"
-          placeholder={isZh
-            ? '粘贴 JSON: {"dates":["2024-01-02",...], "nav":[1.0,1.01,...], "benchmark_nav":[...], "metrics":{...}}'
-            : 'Paste JSON: {"dates":["2024-01-02",...], "nav":[1.0,1.01,...], "benchmark_nav":[...], "metrics":{...}}'
-          }
-          value={input}
-          onChange={(e) => { setInput(e.target.value); if (e.target.value.trim()) handlePaste(e.target.value) }}
-        />
-        {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
-      </div>
+      <PasteInputArea input={input} error={error} isZh={isZh} onPaste={(text) => { setInput(text); if (text.trim()) handlePaste(text) }} />
 
       {result && result.dates.length > 0 && (
         <>
@@ -117,10 +105,7 @@ export function BacktestPage() {
   )
 }
 
-function EquityCurveChart({ result }: { result: BacktestResult }) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<IChartApi | null>(null)
-
+function useEquityChart(containerRef: React.RefObject<HTMLDivElement | null>, result: BacktestResult): void {
   useEffect(() => {
     if (!containerRef.current || result.dates.length === 0) return
 
@@ -172,10 +157,13 @@ function EquityCurveChart({ result }: { result: BacktestResult }) {
     const resize = () => { if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth }) }
     window.addEventListener('resize', resize)
     resize()
-    chartRef.current = chart
     return () => { window.removeEventListener('resize', resize); chart.remove() }
   }, [result])
+}
 
+function EquityCurveChart({ result }: { result: BacktestResult }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  useEquityChart(containerRef, result)
   return <div ref={containerRef} className="h-[360px] w-full overflow-hidden rounded-lg border border-border bg-background" />
 }
 
@@ -201,27 +189,9 @@ function MonthlyReturnsHeatmap({ returns }: { returns: MonthlyReturn[] }) {
           </tr>
         </thead>
         <tbody>
-          {[...byYear.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([year, monthly]) => {
-            const yearMap = new Map(monthly.map(r => [r.month.slice(5, 7), r.returnPct]))
-            const yearTotal = monthly.reduce((sum, r) => sum + r.returnPct, 0)
-            return (
-              <tr key={year} className="border-t border-border">
-                <td className="px-2 py-1.5 font-medium">{year}</td>
-                {months.map(m => {
-                  const ret = yearMap.get(m)
-                  const colorClass = ret == null ? 'text-muted-foreground/30' : ret >= 5 ? 'bg-red-500/20 text-red-600 font-semibold' : ret >= 2 ? 'bg-red-400/15 text-red-500' : ret > -2 ? 'text-muted-foreground' : ret > -5 ? 'bg-emerald-400/15 text-emerald-500' : 'bg-emerald-500/20 text-emerald-600 font-semibold'
-                  return (
-                    <td key={m} className={`px-1 py-1.5 text-center tabular-nums ${colorClass}`}>
-                      {ret != null ? `${ret >= 0 ? '+' : ''}${ret.toFixed(1)}%` : '·'}
-                    </td>
-                  )
-                })}
-                <td className={`px-2 py-1.5 text-right font-semibold tabular-nums ${yearTotal >= 0 ? 'text-red-500' : 'text-emerald-500'}`}>
-                  {yearTotal >= 0 ? '+' : ''}{yearTotal.toFixed(1)}%
-                </td>
-              </tr>
-            )
-          })}
+          {[...byYear.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([year, monthly]) => (
+            <YearRow key={year} year={year} monthly={monthly} months={months} />
+          ))}
         </tbody>
       </table>
     </div>
@@ -263,4 +233,51 @@ function readTheme() {
     border: color('--color-border', '#e2e5f1'),
     grid: document.documentElement.classList.contains('dark') ? '#202938' : '#eef1f6',
   }
+}
+
+function PasteInputArea({ input, error, isZh, onPaste }: {
+  input: string; error: string; isZh: boolean
+  onPaste: (text: string) => void
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card/50 p-4">
+      <textarea
+        className="h-32 w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-mono text-xs"
+        placeholder={isZh
+          ? '粘贴 JSON: {"dates":["2024-01-02",...], "nav":[1.0,1.01,...], "benchmark_nav":[...], "metrics":{...}}'
+          : 'Paste JSON: {"dates":["2024-01-02",...], "nav":[1.0,1.01,...], "benchmark_nav":[...], "metrics":{...}}'
+        }
+        value={input}
+        onChange={(e) => onPaste(e.target.value)}
+      />
+      {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
+    </div>
+  )
+}
+
+function YearRow({ year, monthly, months }: { year: string; monthly: MonthlyReturn[]; months: string[] }) {
+  const yearMap = new Map(monthly.map(r => [r.month.slice(5, 7), r.returnPct]))
+  const yearTotal = monthly.reduce((sum, r) => sum + r.returnPct, 0)
+  return (
+    <tr className="border-t border-border">
+      <td className="px-2 py-1.5 font-medium">{year}</td>
+      {months.map(m => {
+        const ret = yearMap.get(m)
+        const colorClass = ret == null ? 'text-muted-foreground/30'
+          : ret >= 5 ? 'bg-red-500/20 text-red-600 font-semibold'
+          : ret >= 2 ? 'bg-red-400/15 text-red-500'
+          : ret > -2 ? 'text-muted-foreground'
+          : ret > -5 ? 'bg-emerald-400/15 text-emerald-500'
+          : 'bg-emerald-500/20 text-emerald-600 font-semibold'
+        return (
+          <td key={m} className={`px-1 py-1.5 text-center tabular-nums ${colorClass}`}>
+            {ret != null ? `${ret >= 0 ? '+' : ''}${ret.toFixed(1)}%` : '·'}
+          </td>
+        )
+      })}
+      <td className={`px-2 py-1.5 text-right font-semibold tabular-nums ${yearTotal >= 0 ? 'text-red-500' : 'text-emerald-500'}`}>
+        {yearTotal >= 0 ? '+' : ''}{yearTotal.toFixed(1)}%
+      </td>
+    </tr>
+  )
 }

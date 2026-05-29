@@ -24,6 +24,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import ModalScreen
+from textual.strip import Strip as _S
 from textual.widgets import Input, OptionList, RichLog, Static
 from textual.widgets.option_list import Option
 
@@ -184,7 +185,6 @@ class ChatLog(RichLog):
     def render_line(self, y: int) -> _S:
         from rich.segment import Segment
         from rich.style import Style
-        from textual.strip import Strip as _S
 
         scroll_x, scroll_y = self.scroll_offset
         abs_y = scroll_y + y

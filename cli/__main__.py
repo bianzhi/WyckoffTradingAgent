@@ -1168,6 +1168,7 @@ def _cmd_diagnose_headless(args):
         print(f"正在诊断 {code} ...")
         try:
             from datetime import date, timedelta
+
             from core.holding_diagnostic import diagnose_one_stock, format_diagnostic_text
             from integrations.stock_hist_repository import get_stock_hist
 
@@ -1183,6 +1184,7 @@ def _cmd_diagnose_headless(args):
         print("正在诊断全部持仓 ...")
         try:
             from core.holding_diagnostic import diagnose_portfolio
+
             from integrations.portfolio_store import load_portfolio
 
             pf = load_portfolio()

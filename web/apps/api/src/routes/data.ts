@@ -672,4 +672,66 @@ dataRoutes.post('/parameter-tuning', async (c) => {
   }
 })
 
+// ── POST /api/data/walk-forward ─────────────────────────
+
+dataRoutes.post('/walk-forward', async (c) => {
+  try {
+    const body = await c.req.json<{ trades: Array<Record<string, unknown>>; param_grid?: Record<string, number[]>; train_months?: number; test_months?: number; step_months?: number }>()
+    const trades = body.trades
+    if (!Array.isArray(trades) || trades.length < 10) {
+      return c.json({ error: '请提供至少 10 笔交易记录 trades=[{signal_date, ret_pct, score}, ...]' }, 400)
+    }
+    const paramGrid = body.param_grid || { min_score: [0.1, 0.15, 0.2, 0.25] }
+    const trainMonths = body.train_months || 12
+    const testMonths = body.test_months || 3
+    const stepMonths = body.step_months || 3
+    const { spawnSync } = await import('node:child_process')
+    const proc = spawnSync('python3', [
+      '-c',
+      `from tools.walk_forward_optimizer import run_walk_forward; import json, sys; trades=json.loads(sys.stdin.read()); print(json.dumps(run_walk_forward(pd.DataFrame(trades), ${JSON.stringify(paramGrid)}, date.today()-timedelta(days=365*2), date.today(), ${trainMonths}, ${testMonths}, ${stepMonths}), ensure_ascii=False, default=str))`,
+    ], {
+      timeout: 30_000, encoding: 'utf-8',
+      env: { ...process.env, PYTHONPATH: process.env.PYTHONPATH || process.cwd() },
+      cwd: process.cwd(),
+      input: JSON.stringify(trades),
+    })
+    if (proc.error) return c.json({ error: proc.error.message }, 500)
+    try { return c.json(JSON.parse(proc.stdout?.trim() || '{}')) } catch {
+      return c.json({ error: 'parse error' }, 500)
+    }
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500)
+  }
+})
+
+// ── POST /api/data/monte-carlo ──────────────────────────
+
+dataRoutes.post('/monte-carlo', async (c) => {
+  try {
+    const body = await c.req.json<{ returns: number[]; n_simulations?: number; n_trades?: number; initial_capital?: number }>()
+    const returns = body.returns
+    if (!Array.isArray(returns) || returns.length < 5) {
+      return c.json({ error: '请提供至少 5 笔收益率 returns=[5.2, -3.1, 8.7, ...]' }, 400)
+    }
+    const nSim = Math.min(Math.max(body.n_simulations || 5000, 100), 50000)
+    const nTrades = Math.min(Math.max(body.n_trades || 100, 10), 10000)
+    const initCap = body.initial_capital || 100000
+    const { spawnSync } = await import('node:child_process')
+    const proc = spawnSync('python3', [
+      '-c',
+      `from tools.monte_carlo_simulator import run_monte_carlo; import json; print(json.dumps(run_monte_carlo(${JSON.stringify(returns)}, ${nSim}, ${nTrades}, ${initCap}), ensure_ascii=False, default=str))`,
+    ], {
+      timeout: 30_000, encoding: 'utf-8',
+      env: { ...process.env, PYTHONPATH: process.env.PYTHONPATH || process.cwd() },
+      cwd: process.cwd(),
+    })
+    if (proc.error) return c.json({ error: proc.error.message }, 500)
+    try { return c.json(JSON.parse(proc.stdout?.trim() || '{}')) } catch {
+      return c.json({ error: 'parse error' }, 500)
+    }
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500)
+  }
+})
+
 export { dataRoutes }

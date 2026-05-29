@@ -11,6 +11,7 @@ import {
   execAnalyzeStock, execScreenStocks, execGenerateAiReport, execStrategyDecision,
   execMarketHistory, execIntradayAnalysis, execGetSignalQuality,
   execManageAlerts, execPortfolioRisk, execTuneParameters,
+  execWalkForwardOptimize, execMonteCarloSimulate,
 } from './chat-tools'
 
 const SYSTEM_PROMPT = `# 角色设定
@@ -54,6 +55,8 @@ const SYSTEM_PROMPT = `# 角色设定
 - "预警规则""创建预警""删除预警""设置价格预警""放量预警""跑一下预警" → manage_alerts
 - "风险分析""组合风险""VaR""压力测试""回撤""相关性" → portfolio_risk
 - "参数调优""自适应""收紧阈值""放松阈值""当前应该用什么参数""水温调参" → tune_parameters
+- "滚动优化""walk forward""参数寻优""最优参数""防止过拟合""样本外验证" → walk_forward_optimize
+- "蒙特卡洛""monte carlo""模拟""概率分布""盈利概率""破产概率""权益曲线" → monte_carlo_simulate
 
 # 行为铁律
 
@@ -654,6 +657,30 @@ function buildTools(userId: string, config: LLMConfig, reasoningCache: string[])
       }),
       execute: ({ benchCode, smallcapCode, lookbackDays }) =>
         execTuneParameters(benchCode ?? null, smallcapCode ?? null, lookbackDays ?? null),
+    }),
+
+    walk_forward_optimize: tool({
+      description: 'Walk-Forward 优化：滚动窗口参数寻优，防止过拟合。输入历史交易记录 trades[{signal_date, ret_pct, score}]，在训练窗网格搜索最优参数，在测试窗验证样本外表现。输出推荐参数 + 各窗口明细 + 参数稳定性。',
+      inputSchema: z.object({
+        trades: z.array(z.record(z.unknown())).describe('历史交易记录 [{signal_date, ret_pct, score}, ...]，至少10笔'),
+        paramGrid: z.record(z.array(z.number())).nullable().optional().describe('参数搜索空间，如 {min_score: [0.1, 0.15, 0.2]}'),
+        trainMonths: z.number().nullable().optional().describe('训练窗月数，默认12'),
+        testMonths: z.number().nullable().optional().describe('测试窗月数，默认3'),
+      }),
+      execute: ({ trades, paramGrid, trainMonths, testMonths }) =>
+        execWalkForwardOptimize(trades, paramGrid ?? null, trainMonths ?? null, testMonths ?? null),
+    }),
+
+    monte_carlo_simulate: tool({
+      description: 'Monte Carlo 模拟：基于历史交易收益率，生成数千条可能权益曲线，输出概率化风险评估。输入 returns=[5.2, -3.1, ...]，输出 VaR/CVaR、盈利概率、破产概率、回撤分布。',
+      inputSchema: z.object({
+        returns: z.array(z.number()).nullable().optional().describe('历史交易收益率列表 [5.2, -3.1, 8.7, ...]'),
+        nSimulations: z.number().nullable().optional().describe('模拟次数，默认5000'),
+        nTrades: z.number().nullable().optional().describe('每次模拟交易笔数，默认100'),
+        initialCapital: z.number().nullable().optional().describe('初始资金，默认100000'),
+      }),
+      execute: ({ returns, nSimulations, nTrades, initialCapital }) =>
+        execMonteCarloSimulate(returns ?? null, nSimulations ?? null, nTrades ?? null, initialCapital ?? null),
     }),
   }
 }

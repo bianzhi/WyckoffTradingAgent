@@ -768,6 +768,89 @@ export async function execTuneParameters(
   return lines.join('\n')
 }
 
+// ── walk_forward / monte_carlo ────────────────────────────
+
+export async function execWalkForwardOptimize(
+  trades: Array<Record<string, unknown>>,
+  paramGrid: Record<string, number[]> | null,
+  trainMonths: number | null,
+  testMonths: number | null,
+): Promise<string> {
+  if (!trades || trades.length < 10) return '⛔ 请提供至少 10 笔交易记录。用法：trades=[{signal_date, ret_pct, score}, ...]'
+  const result = await dataSkill.fetchWalkForward(trades, paramGrid || undefined, trainMonths || 12, testMonths || 3)
+  if ((result as Record<string, unknown>).error) return `⛔ Walk-Forward 优化失败：${(result as Record<string, unknown>).error}`
+
+  const r = result as Record<string, unknown>
+  const lines: string[] = []
+  lines.push(`## Walk-Forward 优化报告\n`)
+  lines.push(`**窗口数**: ${r.n_windows} | **样本外夏普**: ${r.oos_sharpe} | **样本外胜率**: ${r.oos_win_rate_pct}%\n`)
+
+  const rec = r.recommendation as Record<string, number>
+  if (rec && Object.keys(rec).length > 0) {
+    lines.push(`### 推荐参数`)
+    for (const [k, v] of Object.entries(rec)) lines.push(`- ${k}: **${v}**`)
+    lines.push('')
+  }
+
+  const stability = r.param_stability as Record<string, number>
+  if (stability && Object.keys(stability).length > 0) {
+    lines.push(`### 参数稳定性（标准差，越小越稳定）`)
+    for (const [k, v] of Object.entries(stability)) lines.push(`- ${k}: ${v}`)
+    lines.push('')
+  }
+
+  const windows = r.windows as Array<Record<string, unknown>>
+  if (windows && windows.length > 0) {
+    lines.push(`### 各窗口明细`)
+    lines.push(`| 训练窗 | 测试窗 | 最优参数 | 训练夏普 | 测试夏普 | 测试笔数 |`)
+    lines.push(`|--------|--------|----------|---------|---------|---------|`)
+    for (const w of windows.slice(0, 10)) {
+      lines.push(`| ${w.train} | ${w.test} | ${JSON.stringify(w.best_params)} | ${w.train_sharpe} | ${w.test_sharpe} | ${w.test_trades} |`)
+    }
+  }
+
+  return lines.join('\n')
+}
+
+export async function execMonteCarloSimulate(
+  returns: number[] | null,
+  nSimulations: number | null,
+  nTrades: number | null,
+  initialCapital: number | null,
+): Promise<string> {
+  if (!returns || !Array.isArray(returns) || returns.length < 5) return '⛔ 请提供至少 5 笔收益率。用法：returns=[5.2, -3.1, 8.7, ...]'
+  const result = await dataSkill.fetchMonteCarlo(returns, nSimulations || 5000, nTrades || 100, initialCapital || 100000)
+  if ((result as Record<string, unknown>).error) return `⛔ Monte Carlo 模拟失败：${(result as Record<string, unknown>).error}`
+
+  const r = result as Record<string, unknown>
+  const is = r.input_stats as Record<string, unknown> || {}
+  const lines: string[] = []
+  lines.push(`## Monte Carlo 模拟报告\n`)
+  lines.push(`**输入**: ${is.n_trades_input} 笔交易 | 平均收益 ${is.avg_ret_pct}% | 胜率 ${is.win_rate_pct}% | 偏度 ${is.skewness}\n`)
+  lines.push(`**模拟**: ${r.n_simulations} 次 × ${r.n_trades_per_run} 笔/次 | 初始资金 ¥${r.initial_capital}\n`)
+
+  lines.push(`### 最终权益分布`)
+  lines.push(`| 分位数 | 权益 |`)
+  lines.push(`|--------|------|`)
+  lines.push(`| P5 (最差) | ¥${r.final_equity_p5} |`)
+  lines.push(`| P25 | ¥${r.final_equity_p25} |`)
+  lines.push(`| P50 (中位) | ¥${r.final_equity_p50} |`)
+  lines.push(`| P75 | ¥${r.final_equity_p75} |`)
+  lines.push(`| P95 (最佳) | ¥${r.final_equity_p95} |\n`)
+
+  lines.push(`### 风险指标`)
+  lines.push(`| 指标 | 值 |`)
+  lines.push(`|------|----|`)
+  lines.push(`| VaR(95%) | ${r.var95_pct}% |`)
+  lines.push(`| CVaR(95%) | ${r.cvar95_pct}% |`)
+  lines.push(`| 最大回撤 P50 | ${r.max_dd_p50_pct}% |`)
+  lines.push(`| 最大回撤 P95 | ${r.max_dd_p95_pct}% |`)
+  lines.push(`| 盈利概率 | ${r.prob_profit_pct}% |`)
+  lines.push(`| 回撤>20%概率 | ${r.prob_ruin_20pct_pct}% |\n`)
+
+  return lines.join('\n')
+}
+
 function computeStrength(vwapPos: number, closePos: number, m30: number, _m15: number, trendShort: string, trendMid: string, volumeConcentration: string): number {
   let score = 50
   if (vwapPos > 0.5) score += 10

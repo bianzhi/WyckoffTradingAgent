@@ -196,4 +196,30 @@ export const dataSkill = {
     })
     return resp.json()
   },
+
+  /** Walk-Forward 优化 */
+  async fetchWalkForward(trades: Array<Record<string, unknown>>, paramGrid?: Record<string, number[]>, trainMonths?: number, testMonths?: number): Promise<Record<string, unknown>> {
+    const { supabase } = await import('./supabase')
+    const { data: { session } } = await supabase.auth.getSession()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+    const resp = await fetch('/api/data/walk-forward', {
+      method: 'POST', headers,
+      body: JSON.stringify({ trades, param_grid: paramGrid, train_months: trainMonths || 12, test_months: testMonths || 3 }),
+    })
+    return resp.json()
+  },
+
+  /** Monte Carlo 模拟 */
+  async fetchMonteCarlo(returns: number[], nSimulations?: number, nTrades?: number, initialCapital?: number): Promise<Record<string, unknown>> {
+    const { supabase } = await import('./supabase')
+    const { data: { session } } = await supabase.auth.getSession()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+    const resp = await fetch('/api/data/monte-carlo', {
+      method: 'POST', headers,
+      body: JSON.stringify({ returns, n_simulations: nSimulations || 5000, n_trades: nTrades || 100, initial_capital: initialCapital || 100000 }),
+    })
+    return resp.json()
+  },
 }

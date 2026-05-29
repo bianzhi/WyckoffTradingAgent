@@ -576,7 +576,7 @@ class WyckoffTUI(App):
 
     BINDINGS = [
         Binding("super+c", "smart_copy", show=False, priority=True),
-        Binding("ctrl+c", "smart_copy", show=False, priority=True),
+        Binding("ctrl+c", "quit", show=False, priority=True),
         Binding("escape", "cancel", show=False),
     ]
 
@@ -599,7 +599,6 @@ class WyckoffTUI(App):
         self._session_tokens = {"input": 0, "output": 0, "rounds": 0}
         self._busy = False
         self._cancel_event = threading.Event()
-        self._last_ctrl_c: float = 0.0
         self._queue: deque[str] = deque()
         self._session_id = uuid.uuid4().hex[:12]
         self._last_assistant_text: str = ""
@@ -762,31 +761,26 @@ class WyckoffTUI(App):
             pass  # 镜像写入失败不影响主流程
 
     def action_quit(self) -> None:
+        """Ctrl+C: 正在运行时中断，否则直接退出。"""
+        if self._busy:
+            self._cancel_event.set()
+            self.notify("已中断", timeout=1)
+            return
         self._save_and_exit()
 
     def action_smart_copy(self) -> None:
-        """Ctrl+C / Cmd+C: 选中文本→复制；无选区→双击退出/中断/复制回复。"""
+        """Cmd+C: 选中文本→复制；无选区→复制最后一条回复。"""
         text = self.screen.get_selected_text()
         if text:
             self.app.copy_to_clipboard(text)
             self.screen.clear_selection()
             self.notify("已复制", timeout=1)
             return
-        # 无选区时，优先处理退出/中断，再尝试复制回复
-        if self._busy:
-            self._cancel_event.set()
-            self.notify("已中断", timeout=1)
-            return
-        now = time.monotonic()
-        if now - self._last_ctrl_c < 1.0:
-            self._save_and_exit()
-            return
-        self._last_ctrl_c = now
         if self._last_assistant_text.strip():
             self.app.copy_to_clipboard(self._last_assistant_text)
             self.notify(f"已复制回复（{len(self._last_assistant_text)} 字符）", timeout=1)
         else:
-            self.notify("再按一次 Ctrl+C 退出", timeout=1)
+            self.notify("无内容可复制", timeout=1)
 
     def action_switch_model(self) -> None:
         self._switch_model_selector()

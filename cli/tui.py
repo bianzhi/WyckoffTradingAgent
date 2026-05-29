@@ -201,13 +201,15 @@ class ChatLog(RichLog):
                     end = line.cell_length
                 end = min(end, line.cell_length)
                 if 0 <= start < end:
-                    sel_style = self.screen.get_component_rich_style(
+                    sel_style_full = self.screen.get_component_rich_style(
                         "screen--selection", partial=True
                     )
-                    # Build selected portion with sel_style overriding the existing background
+                    # Only use background from selection style, keep original foreground
+                    sel_bg = Style(bgcolor=sel_style_full.bgcolor)
+                    # Build selected portion with sel_bg overriding the existing background
                     selected_segs: list[Segment] = []
                     for seg in line.crop(start, end):
-                        combined = (seg.style or Style.null()) + sel_style
+                        combined = (seg.style or Style.null()) + sel_bg
                         selected_segs.append(
                             Segment(seg.text, combined, seg.control)
                         )
@@ -555,8 +557,7 @@ class WyckoffTUI(App):
         layout: vertical;
     }
     Screen > .screen--selection {
-        background: $boost;
-        color: $text;
+        background: #0178d4;
     }
     #chat-log {
         height: 1fr;
@@ -575,11 +576,9 @@ class WyckoffTUI(App):
 
     BINDINGS = [
         Binding("super+c", "smart_copy", show=False, priority=True),
+        Binding("ctrl+c", "smart_copy", show=False, priority=True),
         Binding("escape", "cancel", show=False),
-    ] + (
-        [] if sys.platform == "darwin" else
-        [Binding("ctrl+c", "smart_copy", show=False, priority=True)]
-    )
+    ]
 
     def __init__(
         self,

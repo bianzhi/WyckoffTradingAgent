@@ -191,6 +191,77 @@ class StockDataSkill:
             logger.exception("StockDataSkill.health error")
             return {"error": str(e)}
 
+    # ── A 股全量列表 ───────────────────────────────────────────────────────
+
+    def fetch_a_share_list(self) -> list[dict]:
+        """获取全量 A 股列表（code, name）。
+
+        封装 integrations.fetch_a_share_csv.get_all_stocks，统一入口。
+        """
+        from integrations.fetch_a_share_csv import get_all_stocks
+
+        return get_all_stocks()
+
+    # ── 指数历史日线（含 TickFlow 优先） ──────────────────────────────────
+
+    def fetch_market_hist(
+        self, symbol: str, days: int, tool_context: Any | None = None
+    ) -> tuple[Any, str, list[str]]:
+        """获取指数历史日线，TickFlow 优先回退到 tushare/akshare。
+
+        Args:
+            symbol: 如 "000001.SH"
+            days: 回看天数
+            tool_context: 用于读取 tickflow_api_key（可选，兼容旧调用方）
+
+        Returns:
+            (DataFrame, source_label, errors_list)
+        """
+        from datetime import date as _date, timedelta as _td
+
+        errors: list[str] = []
+
+        # 优先 TickFlow
+        ctx = tool_context or self._tool_context
+        api_key = None
+        if ctx is not None:
+            try:
+                from agents.chat_tools import _get_credential
+
+                api_key = _get_credential(ctx, "tickflow_api_key", "TICKFLOW_API_KEY")
+            except Exception:
+                pass
+        if not api_key:
+            try:
+                api_key = os.environ.get("TICKFLOW_API_KEY") or os.environ.get("TICKFLOW_API_KEY_STOCK")
+            except Exception:
+                pass
+
+        if api_key:
+            try:
+                from integrations.tickflow_client import TickFlowClient
+
+                client = TickFlowClient(api_key=api_key)
+                df = client.get_klines(symbol, period="1d", count=days, adjust="none")
+                if df is not None and not df.empty:
+                    return df, "tickflow", errors
+            except Exception as e:
+                errors.append(f"tickflow: {e}")
+        else:
+            errors.append("tickflow: TICKFLOW_API_KEY 未配置")
+
+        # 回退 tushare/akshare
+        try:
+            end = _date.today()
+            start = end - _td(days=int(days * 2.4) + 30)
+            df = self.fetch_index_hist(symbol, start, end)
+            if df is not None and not df.empty:
+                return df, "tushare/akshare", errors
+        except Exception as e:
+            errors.append(f"tushare/akshare: {e}")
+
+        raise RuntimeError("; ".join(errors) if errors else "所有数据源均失败")
+
     # ── 实时快照 ────────────────────────────────────────────────────────────
 
     def fetch_stock_spot(self, code: str) -> dict[str, Any] | None:

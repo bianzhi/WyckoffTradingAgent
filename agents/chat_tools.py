@@ -323,13 +323,13 @@ def _validate_public_http_url(url: str) -> str | dict:
 
 
 def _code_to_name(code: str) -> str:
-    """根据股票代码查名称，基于 get_all_stocks() + ETF 池缓存。"""
+    """根据股票代码查名称，基于 StockDataSkill + ETF 池缓存。"""
     global _NAME_MAP
     if _NAME_MAP is None:
         try:
-            from integrations.fetch_a_share_csv import get_all_stocks
+            from agents.stock_data_skill import StockDataSkill
 
-            _NAME_MAP = {s["code"]: s["name"] for s in get_all_stocks()}
+            _NAME_MAP = {s["code"]: s["name"] for s in StockDataSkill(None).fetch_a_share_list()}
         except Exception:
             _NAME_MAP = {}
         _NAME_MAP.update(_load_etf_name_map())
@@ -565,10 +565,10 @@ def search_stock_by_name(keyword: str, tool_context: ToolContext) -> list[dict]:
         匹配的股票列表，每项包含 code、name、price、pct_chg、market_cap、news 字段。最多返回 10 条。
     """
     try:
-        from integrations.fetch_a_share_csv import get_all_stocks
+        from agents.stock_data_skill import StockDataSkill
 
         kw = keyword.strip()
-        stocks = get_all_stocks()
+        stocks = StockDataSkill(tool_context).fetch_a_share_list()
         results: list[dict] = []
         for s in stocks:
             code = s.get("code", "")
@@ -996,28 +996,9 @@ def _prepare_market_history_frame(df: Any, days: int) -> Any:
 
 
 def _fetch_market_history_frame(symbol: str, days: int, tool_context: ToolContext | None) -> tuple[Any, str, list[str]]:
-    errors: list[str] = []
-    api_key = _get_credential(tool_context, "tickflow_api_key", "TICKFLOW_API_KEY")
-    if api_key:
-        try:
-            from integrations.tickflow_client import TickFlowClient
+    from agents.stock_data_skill import StockDataSkill
 
-            client = TickFlowClient(api_key=api_key)
-            return client.get_klines(symbol, period="1d", count=days, adjust="none"), "tickflow", errors
-        except Exception as e:
-            errors.append(f"tickflow: {e}")
-    else:
-        errors.append("tickflow: TICKFLOW_API_KEY 未配置")
-    try:
-        from agents.stock_data_skill import StockDataSkill
-
-        skill = StockDataSkill(tool_context)
-        end = date.today()
-        start = end - timedelta(days=int(days * 2.4) + 30)
-        return skill.fetch_index_hist(symbol, start, end), "tushare/akshare", errors
-    except Exception as e:
-        errors.append(f"tushare/akshare: {e}")
-    raise RuntimeError("; ".join(errors))
+    return StockDataSkill(tool_context).fetch_market_hist(symbol, days, tool_context)
 
 
 def _market_history_summary(df: Any) -> dict[str, Any]:

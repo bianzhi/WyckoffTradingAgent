@@ -491,32 +491,15 @@ def _compliance_user_message(payload: dict[str, Any]) -> str:
     )
 
 
-def generate_compliance_brief(
-    *,
-    benchmark_context: dict,
-    selected_df: pd.DataFrame,
-    ops_codes: list[str] | None = None,
-    code_name: dict[str, str] | None = None,
-    rag_veto_count: int = 0,
+def _compliance_llm_retry_loop(
+    llm_cfg: ComplianceLLMConfig,
+    user_message: str,
+    forbidden_names: list[str],
+    max_output_tokens: int,
+    retries: int,
+    fallback: str,
 ) -> str:
-    payload = build_public_payload(
-        benchmark_context=benchmark_context,
-        selected_df=selected_df,
-        ops_codes=ops_codes,
-        rag_veto_count=rag_veto_count,
-    )
-    fallback = render_compliance_fallback(payload)
-    if not _bool_env("STEP3_COMPLIANCE_LLM_ENABLED", True):
-        return fallback
-
-    llm_cfg = resolve_compliance_llm_config()
-    if llm_cfg is None:
-        return fallback
-
-    forbidden_names = list((code_name or {}).values())
-    retries = max(_int_env("STEP3_COMPLIANCE_MAX_RETRIES", 1), 0)
-    max_output_tokens = max(_int_env("STEP3_COMPLIANCE_MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS), 512)
-    user_message = _compliance_user_message(payload)
+    """LLM 生成 + 合规校验重试循环。"""
     last_reasons: tuple[str, ...] = ()
     for attempt in range(retries + 1):
         prompt = _system_prompt()
@@ -544,6 +527,38 @@ def generate_compliance_brief(
         print(
             f"[step3][compliance] 合规校验失败: attempt={attempt + 1}/{retries + 1}, reasons={','.join(last_reasons)}"
         )
-
-    print("[step3][compliance] 已降级为确定性模板")
     return fallback
+
+
+def generate_compliance_brief(
+    *,
+    benchmark_context: dict,
+    selected_df: pd.DataFrame,
+    ops_codes: list[str] | None = None,
+    code_name: dict[str, str] | None = None,
+    rag_veto_count: int = 0,
+) -> str:
+    payload = build_public_payload(
+        benchmark_context=benchmark_context,
+        selected_df=selected_df,
+        ops_codes=ops_codes,
+        rag_veto_count=rag_veto_count,
+    )
+    fallback = render_compliance_fallback(payload)
+    if not _bool_env("STEP3_COMPLIANCE_LLM_ENABLED", True):
+        return fallback
+
+    llm_cfg = resolve_compliance_llm_config()
+    if llm_cfg is None:
+        return fallback
+
+    forbidden_names = list((code_name or {}).values())
+    retries = max(_int_env("STEP3_COMPLIANCE_MAX_RETRIES", 1), 0)
+    max_output_tokens = max(_int_env("STEP3_COMPLIANCE_MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS), 512)
+    text = _compliance_llm_retry_loop(
+        llm_cfg, _compliance_user_message(payload), forbidden_names,
+        max_output_tokens, retries, fallback,
+    )
+    if text is fallback:
+        print("[step3][compliance] 已降级为确定性模板")
+    return text

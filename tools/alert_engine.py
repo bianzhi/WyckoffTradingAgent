@@ -283,6 +283,48 @@ def _get_regime() -> str | None:
     return None
 
 
+def _eval_pct_change(cond: AlertCondition) -> tuple[bool, str]:
+    """评估涨跌幅条件。"""
+    price_now = _fetch_latest_price(cond.symbol)
+    if price_now is None:
+        return (False, f"{cond.symbol}: 无法获取价格")
+    try:
+        from integrations.data_source import fetch_stock_hist
+
+        start = (datetime.now() - timedelta(days=5)).strftime("%Y%m%d")
+        end = datetime.now().strftime("%Y%m%d")
+        df = fetch_stock_hist(cond.symbol, start=start, end=end, adjust="qfq")
+        prev_close = float(df["收盘"].iloc[-2]) if df is not None and not df.empty and len(df) >= 2 else None
+        if prev_close is None or prev_close == 0:
+            return (False, f"{cond.symbol}: 无法获取前收盘价")
+        pct = abs((price_now - prev_close) / prev_close * 100)
+        ok = pct > cond.threshold
+        return (ok, f"{cond.symbol}: |{pct:+.2f}%| {'>' if ok else '<='} {cond.threshold}%")
+    except Exception as e:
+        return (False, f"{cond.symbol}: 计算涨跌幅失败 ({e})")
+
+
+def _eval_volume_spike(cond: AlertCondition) -> tuple[bool, str]:
+    """评估成交量放量条件。"""
+    vol_avg = _fetch_volume_avg(cond.symbol)
+    if vol_avg is None:
+        return (False, f"{cond.symbol}: 无法获取均量")
+    try:
+        from integrations.data_source import fetch_stock_hist
+
+        start = (datetime.now() - timedelta(days=3)).strftime("%Y%m%d")
+        end = datetime.now().strftime("%Y%m%d")
+        df = fetch_stock_hist(cond.symbol, start=start, end=end, adjust="qfq")
+        if df is None or df.empty or "成交量" not in df.columns:
+            return (False, f"{cond.symbol}: 无法获取最新成交量")
+        latest_vol = float(df["成交量"].iloc[-1])
+        ratio = latest_vol / vol_avg if vol_avg > 0 else 0
+        ok = ratio > cond.multiplier
+        return (ok, f"{cond.symbol}: 量比 {ratio:.1f}x {'>' if ok else '<='} {cond.multiplier}x")
+    except Exception as e:
+        return (False, f"{cond.symbol}: 计算量比失败 ({e})")
+
+
 def _evaluate_condition(cond: AlertCondition) -> tuple[bool, str]:
     """评估单个条件，返回 (是否满足, 描述)。"""
     t = cond.type
@@ -302,42 +344,10 @@ def _evaluate_condition(cond: AlertCondition) -> tuple[bool, str]:
         return (ok, f"{cond.symbol}: {price:.2f} {'<' if ok else '>='} {cond.threshold:.2f}")
 
     if t == "pct_change":
-        price_now = _fetch_latest_price(cond.symbol)
-        if price_now is None:
-            return (False, f"{cond.symbol}: 无法获取价格")
-        try:
-            from integrations.data_source import fetch_stock_hist
-
-            start = (datetime.now() - timedelta(days=5)).strftime("%Y%m%d")
-            end = datetime.now().strftime("%Y%m%d")
-            df = fetch_stock_hist(cond.symbol, start=start, end=end, adjust="qfq")
-            prev_close = float(df["收盘"].iloc[-2]) if df is not None and not df.empty and len(df) >= 2 else None
-            if prev_close is None or prev_close == 0:
-                return (False, f"{cond.symbol}: 无法获取前收盘价")
-            pct = abs((price_now - prev_close) / prev_close * 100)
-            ok = pct > cond.threshold
-            return (ok, f"{cond.symbol}: |{pct:+.2f}%| {'>' if ok else '<='} {cond.threshold}%")
-        except Exception as e:
-            return (False, f"{cond.symbol}: 计算涨跌幅失败 ({e})")
+        return _eval_pct_change(cond)
 
     if t == "volume_spike":
-        vol_avg = _fetch_volume_avg(cond.symbol)
-        if vol_avg is None:
-            return (False, f"{cond.symbol}: 无法获取均量")
-        try:
-            from integrations.data_source import fetch_stock_hist
-
-            start = (datetime.now() - timedelta(days=3)).strftime("%Y%m%d")
-            end = datetime.now().strftime("%Y%m%d")
-            df = fetch_stock_hist(cond.symbol, start=start, end=end, adjust="qfq")
-            if df is None or df.empty or "成交量" not in df.columns:
-                return (False, f"{cond.symbol}: 无法获取最新成交量")
-            latest_vol = float(df["成交量"].iloc[-1])
-            ratio = latest_vol / vol_avg if vol_avg > 0 else 0
-            ok = ratio > cond.multiplier
-            return (ok, f"{cond.symbol}: 量比 {ratio:.1f}x {'>' if ok else '<='} {cond.multiplier}x")
-        except Exception as e:
-            return (False, f"{cond.symbol}: 计算量比失败 ({e})")
+        return _eval_volume_spike(cond)
 
     if t == "index_pct":
         pct = _fetch_index_pct(cond.index_code)

@@ -211,24 +211,10 @@ def _load_index_returns(days: int = 252) -> np.ndarray | None:
         return None
 
 
-def generate_risk_report(positions: list[dict], lookback_days: int = 252) -> dict:
-    """
-    生成组合风险报告。
-
-    Args:
-        positions: [{"code": "000001", "shares": 1000, "cost_price": 12.5}, ...]
-        lookback_days: 回看交易日数（默认252≈1年）
-
-    Returns:
-        完整风险报告 dict
-    """
-    if not positions:
-        return {"error": "持仓列表为空"}
-
-    end = date.today()
-    start = end - timedelta(days=lookback_days + 30)
-
-    # 拉取每只股票的日线
+def _fetch_position_data(
+    positions: list[dict], start: str, end: str
+) -> tuple[dict[str, np.ndarray], dict[str, float], list[str], list[dict]]:
+    """拉取持仓股票日线数据。返回 (returns_dict, prices, errors, details)。"""
     returns_dict: dict[str, np.ndarray] = {}
     prices: dict[str, float] = {}
     fetch_errors: list[str] = []
@@ -246,58 +232,75 @@ def generate_risk_report(positions: list[dict], lookback_days: int = 252) -> dic
             df = fetch_stock_hist(code, start, end, adjust="qfq")
             if df is None or df.empty:
                 fetch_errors.append(f"{code}: 无K线数据")
-                position_details.append({"code": code, "shares": shares, "cost_price": cost_price, "latest_price": None, "position_value": 0, "error": "无数据"})
+                position_details.append(_pos_error(code, shares, cost_price, "无数据"))
                 continue
 
             close = pd.to_numeric(df["收盘"], errors="coerce").dropna()
             if len(close) < 10:
                 fetch_errors.append(f"{code}: K线不足10日")
-                position_details.append({"code": code, "shares": shares, "cost_price": cost_price, "latest_price": float(close.iloc[-1]), "position_value": shares * float(close.iloc[-1]), "error": "数据不足"})
+                position_details.append(_pos_detail(code, shares, cost_price, float(close.iloc[-1]), "数据不足"))
                 continue
 
             rets = _daily_returns(close)
-            returns_dict[code] = rets.values[-lookback_days:]
+            returns_dict[code] = rets.values[-252:]
             latest_price = float(close.iloc[-1])
             prices[code] = latest_price
             position_value = shares * latest_price
             pnl_pct = (latest_price / cost_price - 1) * 100 if cost_price > 0 else 0
 
-            position_details.append(
-                {
-                    "code": code,
-                    "shares": shares,
-                    "cost_price": cost_price,
-                    "latest_price": latest_price,
-                    "position_value": round(position_value, 2),
-                    "pnl_pct": round(pnl_pct, 2),
-                }
-            )
+            position_details.append({
+                "code": code, "shares": shares, "cost_price": cost_price,
+                "latest_price": latest_price, "position_value": round(position_value, 2),
+                "pnl_pct": round(pnl_pct, 2),
+            })
         except Exception as e:
             fetch_errors.append(f"{code}: {e}")
+
+    return returns_dict, prices, fetch_errors, position_details
+
+
+def _pos_error(code: str, shares: float, cost_price: float, msg: str) -> dict:
+    return {"code": code, "shares": shares, "cost_price": cost_price, "latest_price": None, "position_value": 0, "error": msg}
+
+
+def _pos_detail(code: str, shares: float, cost_price: float, latest_price: float, error: str | None = None) -> dict:
+    pv = shares * latest_price
+    return {
+        "code": code, "shares": shares, "cost_price": cost_price,
+        "latest_price": latest_price, "position_value": round(pv, 2),
+        **({"error": error} if error else {}),
+    }
+
+
+def generate_risk_report(positions: list[dict], lookback_days: int = 252) -> dict:
+    """
+    生成组合风险报告。
+
+    Args:
+        positions: [{"code": "000001", "shares": 1000, "cost_price": 12.5}, ...]
+        lookback_days: 回看交易日数（默认252≈1年）
+
+    Returns:
+        完整风险报告 dict
+    """
+    if not positions:
+        return {"error": "持仓列表为空"}
+
+    end = date.today()
+    start = end - timedelta(days=lookback_days + 30)
+
+    returns_dict, prices, fetch_errors, position_details = _fetch_position_data(
+        positions, start.strftime("%Y%m%d"), end.strftime("%Y%m%d"),
+    )
 
     if not returns_dict:
         return {"error": "无法获取任何持仓的K线数据", "fetch_errors": fetch_errors}
 
-    total_value = sum(pd["position_value"] for pd_ in position_details)
+    total_value = sum(pd_["position_value"] for pd_ in position_details)
     all_returns = np.concatenate(list(returns_dict.values()))
 
-    # 组合加权收益率（按持仓市值加权）
-    weights = {}
-    for pd_ in position_details:
-        if pd_["code"] in returns_dict:
-            weights[pd_["code"]] = pd_["position_value"] / total_value if total_value > 0 else 1.0 / len(returns_dict)
-
-    portfolio_returns: np.ndarray | None = None
-    min_len = min(len(r) for r in returns_dict.values())
-    if min_len >= 5 and len(weights) > 0:
-        weighted = np.zeros(min_len)
-        for code, rets in returns_dict.items():
-            if code in weights:
-                weighted += rets[-min_len:] * weights[code]
-        portfolio_returns = weighted
-
-    # 指数收益率
-    index_returns = _load_index_returns(lookback_days)
+    # 组合加权收益率
+    portfolio_returns = _weighted_portfolio_returns(returns_dict, position_details, total_value)
 
     # VaR / CVaR
     var_95_hist = historical_var(all_returns, 0.95)
@@ -306,44 +309,24 @@ def generate_risk_report(positions: list[dict], lookback_days: int = 252) -> dic
     cvar_95 = cvar(all_returns, 0.95)
     cvar_99 = cvar(all_returns, 0.99)
 
-    # 组合级 VaR
-    port_var_95 = 0.0
-    port_cvar_95 = 0.0
-    if portfolio_returns is not None:
-        port_var_95 = historical_var(portfolio_returns, 0.95)
-        port_cvar_95 = cvar(portfolio_returns, 0.95)
+    port_var_95 = historical_var(portfolio_returns, 0.95) if portfolio_returns is not None else 0.0
+    port_cvar_95 = cvar(portfolio_returns, 0.95) if portfolio_returns is not None else 0.0
 
-    # 相关性
     corr = correlation_matrix(returns_dict)
-
-    # 最大回撤
-    mdd_result = {"max_drawdown_pct": None, "note": "需要组合市值序列"}
-    if portfolio_returns is not None:
-        cum_ret = np.cumprod(1 + portfolio_returns)
-        mdd_result = max_drawdown(cum_ret)
-
-    # 压力测试
+    mdd_result = _compute_mdd(portfolio_returns) if portfolio_returns is not None else {"max_drawdown_pct": None, "note": "需要组合市值序列"}
+    index_returns = _load_index_returns(lookback_days)
     stress_results = stress_test(position_details, total_value, returns_dict, index_returns)
 
-    # 波动率
-    annual_vol = float(np.std(portfolio_returns, ddof=1) * np.sqrt(252)) if portfolio_returns is not None else float(np.std(all_returns, ddof=1) * np.sqrt(252))
+    annual_vol = _calc_annual_vol(portfolio_returns, all_returns)
 
     return {
-        "portfolio": {
-            "total_value": round(total_value, 2),
-            "position_count": len(position_details),
-            "positions": position_details,
-        },
+        "portfolio": {"total_value": round(total_value, 2), "position_count": len(position_details), "positions": position_details},
         "var": {
-            "historical_95pct": round(var_95_hist * 100, 4),
-            "parametric_95pct": round(var_95_param * 100, 4),
-            "historical_99pct": round(var_99_hist * 100, 4),
-            "cvar_95pct": round(cvar_95 * 100, 4),
-            "cvar_99pct": round(cvar_99 * 100, 4),
-            "portfolio_var_95pct": round(port_var_95 * 100, 4),
+            "historical_95pct": round(var_95_hist * 100, 4), "parametric_95pct": round(var_95_param * 100, 4),
+            "historical_99pct": round(var_99_hist * 100, 4), "cvar_95pct": round(cvar_95 * 100, 4),
+            "cvar_99pct": round(cvar_99 * 100, 4), "portfolio_var_95pct": round(port_var_95 * 100, 4),
             "portfolio_cvar_95pct": round(port_cvar_95 * 100, 4),
-            "confidence": "95%",
-            "lookback_days": lookback_days,
+            "confidence": "95%", "lookback_days": lookback_days,
         },
         "volatility": {"annualized_vol_pct": round(annual_vol * 100, 2)},
         "max_drawdown": mdd_result,

@@ -153,5 +153,16 @@
   "web/apps/web/src/routes/backtest.tsx::BacktestPage": 73,
   "web/apps/web/src/routes/backtest.tsx::useEquityChart": 55,
   "web/apps/web/src/routes/funnel.tsx::FunnelPage": 64,
-  "web/apps/web/src/routes/funnel.tsx::FunnelLayersChart": 57
+  "web/apps/web/src/routes/funnel.tsx::FunnelLayersChart": 57,
+  "agents/stock_data_skill.py::fetch_index_overview": 98,
+  "integrations/compliance_report.py::build_public_payload": 80,
+  "tools/exit_strategies.py::atr_trailing_stop": 53,
+  "tools/exit_strategies.py::hybrid_exit": 70,
+  "tools/exit_strategies.py::benchmark_exit_strategies": 73,
+  "tools/monte_carlo_simulator.py::run_monte_carlo": 78,
+  "tools/portfolio_risk.py::generate_risk_report": 62,
+  "tools/walk_forward_optimizer.py::run_walk_forward": 95,
+  "web/apps/web/src/lib/chat-tools.ts::execPortfolioRisk": 65,
+  "web/apps/web/src/lib/chat-tools.ts::execTuneParameters": 82,
+  "web/apps/web/src/routes/funnel.tsx::SignalQualitySection": 68
 }

@@ -204,6 +204,37 @@ class StockDataSkill:
 
     # ── 指数历史日线（含 TickFlow 优先） ──────────────────────────────────
 
+    def _try_tickflow_for_market_hist(
+        self, symbol: str, days: int, tool_context: Any | None
+    ) -> tuple[Any | None, list[str]]:
+        """尝试从 TickFlow 获取指数历史数据。返回 (DataFrame|None, errors)。"""
+        errors: list[str] = []
+        ctx = tool_context or self._tool_context
+        api_key = None
+        if ctx is not None:
+            try:
+                from agents.chat_tools import _get_credential
+                api_key = _get_credential(ctx, "tickflow_api_key", "TICKFLOW_API_KEY")
+            except Exception:
+                pass
+        if not api_key:
+            try:
+                api_key = os.environ.get("TICKFLOW_API_KEY") or os.environ.get("TICKFLOW_API_KEY_STOCK")
+            except Exception:
+                pass
+        if api_key:
+            try:
+                from integrations.tickflow_client import TickFlowClient
+                client = TickFlowClient(api_key=api_key)
+                df = client.get_klines(symbol, period="1d", count=days, adjust="none")
+                if df is not None and not df.empty:
+                    return df, errors
+            except Exception as e:
+                errors.append(f"tickflow: {e}")
+        else:
+            errors.append("tickflow: TICKFLOW_API_KEY 未配置")
+        return None, errors
+
     def fetch_market_hist(
         self, symbol: str, days: int, tool_context: Any | None = None
     ) -> tuple[Any, str, list[str]]:
@@ -219,36 +250,9 @@ class StockDataSkill:
         """
         from datetime import date as _date, timedelta as _td
 
-        errors: list[str] = []
-
-        # 优先 TickFlow
-        ctx = tool_context or self._tool_context
-        api_key = None
-        if ctx is not None:
-            try:
-                from agents.chat_tools import _get_credential
-
-                api_key = _get_credential(ctx, "tickflow_api_key", "TICKFLOW_API_KEY")
-            except Exception:
-                pass
-        if not api_key:
-            try:
-                api_key = os.environ.get("TICKFLOW_API_KEY") or os.environ.get("TICKFLOW_API_KEY_STOCK")
-            except Exception:
-                pass
-
-        if api_key:
-            try:
-                from integrations.tickflow_client import TickFlowClient
-
-                client = TickFlowClient(api_key=api_key)
-                df = client.get_klines(symbol, period="1d", count=days, adjust="none")
-                if df is not None and not df.empty:
-                    return df, "tickflow", errors
-            except Exception as e:
-                errors.append(f"tickflow: {e}")
-        else:
-            errors.append("tickflow: TICKFLOW_API_KEY 未配置")
+        df, errors = self._try_tickflow_for_market_hist(symbol, days, tool_context)
+        if df is not None:
+            return df, "tickflow", errors
 
         # 回退 tushare/akshare
         try:

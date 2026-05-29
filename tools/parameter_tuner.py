@@ -52,41 +52,21 @@ def _cfg_before_after(cfg_original: FunnelConfig, cfg_tuned: FunnelConfig) -> di
     return {"before": before, "after": after, "changed": changed}
 
 
-def generate_tuning_report(
-    bench_df: pd.DataFrame | None = None,
-    smallcap_df: pd.DataFrame | None = None,
-) -> dict:
-    """
-    生成自适应参数调优报告。
+def _compute_breadth_or_none(
+    bench_df: pd.DataFrame | None, smallcap_df: pd.DataFrame | None
+) -> tuple[dict | None, str | None]:
+    """计算市场广度，若数据不足则返回 None + 说明。"""
+    if bench_df is None or bench_df.empty or smallcap_df is None or smallcap_df.empty:
+        return None, "市场广度数据不足，使用纯指数分析"
+    try:
+        df_map = {BENCH_CODE: bench_df, SMALLCAP_CODE: smallcap_df}
+        return calc_market_breadth(df_map), None
+    except Exception:
+        return None, "市场广度数据不足，使用纯指数分析"
 
-    Returns:
-        dict: {
-            regime, market_context, tuned_params, before_after,
-            outlook, breadth
-        }
-    """
-    cfg_original = _default_cfg()
-    cfg_tuned = FunnelConfig()
 
-    # 市场广度（若数据充足）
-    breadth = None
-    breadth_msg = None
-    if bench_df is not None and not bench_df.empty and smallcap_df is not None and not smallcap_df.empty:
-        try:
-            df_map = {BENCH_CODE: bench_df, SMALLCAP_CODE: smallcap_df}
-            breadth = calc_market_breadth(df_map)
-        except Exception:
-            breadth_msg = "市场广度数据不足，使用纯指数分析"
-
-    context = analyze_benchmark_and_tune_cfg(
-        bench_df=bench_df,
-        smallcap_df=smallcap_df,
-        cfg=cfg_tuned,
-        breadth=breadth,
-    )
-
-    ba = _cfg_before_after(cfg_original, cfg_tuned)
-
+def _build_tuning_payload(context: dict, cfg_original: FunnelConfig, cfg_tuned: FunnelConfig, breadth_msg: str | None) -> dict:
+    """从 context 构建标准化调优报告 payload。"""
     return {
         "regime": context.get("regime", "UNKNOWN"),
         "market_context": {
@@ -103,21 +83,31 @@ def generate_tuning_report(
             "smallcap_today_pct": context.get("smallcap_today_pct"),
             "smallcap_recent3_cum_pct": context.get("smallcap_recent3_cum_pct"),
         },
-        "panic": {
-            "triggered": context.get("panic_triggered", False),
-            "reasons": context.get("panic_reasons", []),
-        },
-        "repair": {
-            "triggered": context.get("repair_triggered", False),
-            "reasons": context.get("repair_reasons", []),
-        },
+        "panic": {"triggered": context.get("panic_triggered", False), "reasons": context.get("panic_reasons", [])},
+        "repair": {"triggered": context.get("repair_triggered", False), "reasons": context.get("repair_reasons", [])},
         "breadth": context.get("breadth", {}),
         "breadth_note": breadth_msg,
         "outlook": context.get("market_pv_outlook", ""),
         "outlook_summary": context.get("market_pv_summary", ""),
         "tuned_params": context.get("tuned", {}),
-        "before_after": ba,
+        "before_after": _cfg_before_after(cfg_original, cfg_tuned),
     }
+
+
+def generate_tuning_report(
+    bench_df: pd.DataFrame | None = None,
+    smallcap_df: pd.DataFrame | None = None,
+) -> dict:
+    """生成自适应参数调优报告。"""
+    cfg_original = _default_cfg()
+    cfg_tuned = FunnelConfig()
+
+    breadth, breadth_msg = _compute_breadth_or_none(bench_df, smallcap_df)
+
+    context = analyze_benchmark_and_tune_cfg(
+        bench_df=bench_df, smallcap_df=smallcap_df, cfg=cfg_tuned, breadth=breadth,
+    )
+    return _build_tuning_payload(context, cfg_original, cfg_tuned, breadth_msg)
 
 
 def fetch_and_tune(

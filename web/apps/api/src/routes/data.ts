@@ -837,8 +837,6 @@ dataRoutes.post('/analyze-exit-quality', async (c) => {
   }
 })
 
-export { dataRoutes }
-
 // ═══ POST /api/data/data-source-health ═══════════════════
 
 dataRoutes.get('/data-source-health', async (c) => {

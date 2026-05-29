@@ -7,8 +7,8 @@ from typing import Literal
 
 import pandas as pd
 
-from integrations.data_source import fetch_stock_hist as fetch_stock_hist_from_source
 from core.constants import COL_MAP as _COL_MAP
+from integrations.data_source import fetch_stock_hist as fetch_stock_hist_from_source
 
 AdjustType = Literal["", "qfq", "hfq"]
 

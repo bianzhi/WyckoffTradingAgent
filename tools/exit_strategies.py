@@ -20,9 +20,10 @@ Agent 工具:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from datetime import date, timedelta
-from typing import Any, Callable
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import date
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -585,7 +586,6 @@ def benchmark_exit_strategies(
             best_sharpe: float,
         }
     """
-    import math
 
     names = strategies or list(STRATEGY_REGISTRY.keys())
     param_overrides = extra_params or {}
@@ -618,7 +618,9 @@ def benchmark_exit_strategies(
 
         results[name] = exits
 
-    scores: dict[str, dict[str, Any]] = {name: _score_single_strategy_exits(exits) for name, exits in results.items()}
+    scores: dict[str, dict[str, Any]] = {
+        name: _score_single_strategy_exits(exits) for name, exits in results.items()
+    }
 
     # 排名（按 Sharpe）
     rankings = sorted(
@@ -633,6 +635,30 @@ def benchmark_exit_strategies(
         "best_strategy": rankings[0]["name"] if rankings else "none",
         "best_sharpe": rankings[0]["sharpe_approx"] if rankings else 0.0,
         "total_trades": len(trades),
+    }
+
+
+def _score_single_strategy_exits(exits: list[ExitResult]) -> dict[str, Any]:
+    """对单个策略的出场结果评分。返回 avg_ret/win_rate/profit_factor/sharpe 等。"""
+    import math
+    if not exits:
+        return {"avg_ret": 0, "win_rate": 0, "profit_factor": 0, "sharpe_approx": 0, "exit_rate": 0, "trade_count": 0}
+    rets = [e.ret_pct for e in exits]
+    wins = [r for r in rets if r > 0]
+    losses = [r for r in rets if r <= 0]
+    avg_ret = sum(rets) / len(rets)
+    win_rate = len(wins) / len(rets) * 100 if rets else 0
+    avg_win = float(sum(wins) / len(wins)) if wins else 0.0
+    avg_loss = float(sum(losses) / len(losses)) if losses else 0.0
+    profit_factor = abs(sum(wins) / sum(losses)) if losses and sum(losses) != 0 else (999 if wins else 0)
+    mean_r = sum(rets) / len(rets)
+    var_r = sum((r - mean_r) ** 2 for r in rets) / len(rets) if len(rets) > 1 else 0
+    sharpe = mean_r / math.sqrt(var_r) if var_r > 0 else 0
+    return {
+        "avg_ret": round(avg_ret, 2), "win_rate": round(win_rate, 1),
+        "avg_win": round(avg_win, 2), "avg_loss": round(avg_loss, 2),
+        "profit_factor": round(profit_factor, 2), "sharpe_approx": round(sharpe, 3),
+        "trade_count": len(exits), "max_drawdown_pct": 0,
     }
 
 

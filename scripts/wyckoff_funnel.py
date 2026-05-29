@@ -24,13 +24,6 @@ import pandas as pd
 # Ensure project root is on sys.path for direct script invocation
 if __name__ == "__main__" or not __package__:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from tools.dynamic_policy import (
-    build_signal_weight_map,
-    dynamic_policy_mode,
-    filter_triggers_by_registry,
-    resolve_dynamic_candidate_policy,
-)
-from tools.ai_quota_config import load_ai_quota_config
 from core.sector_rotation import analyze_sector_rotation
 from core.theme_radar import build_theme_radar_snapshot, summarize_theme_radar
 from core.wyckoff_engine import (
@@ -66,6 +59,7 @@ from integrations.supabase_signal_feedback import (
     upsert_policy_shadow_run,
 )
 from integrations.tickflow_notice import TICKFLOW_UPGRADE_URL
+from tools.ai_quota_config import load_ai_quota_config
 
 # ── tools/ 层导入 ──
 from tools.candidate_ranker import (
@@ -77,6 +71,12 @@ from tools.candidate_ranker import (
 )
 from tools.candidate_ranker import (
     rank_l3_candidates as _rank_l3_candidates,
+)
+from tools.dynamic_policy import (
+    build_signal_weight_map,
+    dynamic_policy_mode,
+    filter_triggers_by_registry,
+    resolve_dynamic_candidate_policy,
 )
 from utils.feishu import send_feishu_notification
 from utils.trading_clock import CN_TZ, resolve_end_calendar_day

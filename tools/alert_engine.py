@@ -222,7 +222,7 @@ def _mark_fired(rule_id: str) -> None:
 def _fetch_latest_price(symbol: str) -> float | None:
     """获取个股最新价（优先 spot snapshot，回退日线）。"""
     try:
-        from integrations.data_source import fetch_stock_spot_snapshot, fetch_stock_hist
+        from integrations.data_source import fetch_stock_hist, fetch_stock_spot_snapshot
 
         snap = fetch_stock_spot_snapshot(symbol)
         if snap and snap.get("close") is not None:

@@ -1183,9 +1183,9 @@ def _cmd_diagnose_headless(args):
     else:
         print("正在诊断全部持仓 ...")
         try:
-            from core.holding_diagnostic import diagnose_portfolio
-
             from integrations.portfolio_store import load_portfolio
+
+            from core.holding_diagnostic import diagnose_portfolio
 
             pf = load_portfolio()
             if not pf or not pf.get("positions"):

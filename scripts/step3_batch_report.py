@@ -17,10 +17,10 @@ if __name__ == "__main__" or not __package__:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from functools import partial
 
-from integrations.compliance_report import generate_compliance_brief
 from core.prompts import WYCKOFF_FUNNEL_SYSTEM_PROMPT
 from core.sector_rotation import SECTOR_STATE_LABELS
 from core.wyckoff_engine import fit_ai_candidate_quotas, normalize_hist_from_fetch
+from integrations.compliance_report import generate_compliance_brief
 from integrations.data_source import (
     fetch_index_hist,
     fetch_market_cap_map,

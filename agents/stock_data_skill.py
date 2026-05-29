@@ -248,7 +248,8 @@ class StockDataSkill:
         Returns:
             (DataFrame, source_label, errors_list)
         """
-        from datetime import date as _date, timedelta as _td
+        from datetime import date as _date
+        from datetime import timedelta as _td
 
         df, errors = self._try_tickflow_for_market_hist(symbol, days, tool_context)
         if df is not None:

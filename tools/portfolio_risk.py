@@ -272,6 +272,39 @@ def _pos_detail(code: str, shares: float, cost_price: float, latest_price: float
     }
 
 
+def _weighted_portfolio_returns(
+    returns_dict: dict[str, np.ndarray],
+    position_details: list[dict],
+    total_value: float,
+) -> np.ndarray | None:
+    """按持仓市值加权计算组合日收益率序列。"""
+    weights: dict[str, float] = {}
+    for pd_ in position_details:
+        code = pd_["code"]
+        if code in returns_dict:
+            weights[code] = pd_["position_value"] / total_value if total_value > 0 else 1.0 / len(returns_dict)
+    min_len = min(len(r) for r in returns_dict.values())
+    if min_len < 5 or not weights:
+        return None
+    weighted = np.zeros(min_len)
+    for code, rets in returns_dict.items():
+        if code in weights:
+            weighted += rets[-min_len:] * weights[code]
+    return weighted
+
+
+def _compute_mdd(portfolio_returns: np.ndarray) -> dict:
+    """计算组合最大回撤。"""
+    cum_ret = np.cumprod(1 + portfolio_returns)
+    return max_drawdown(cum_ret)
+
+
+def _calc_annual_vol(portfolio_returns: np.ndarray | None, all_returns: np.ndarray) -> float:
+    """计算年化波动率。优先用组合收益率，回退到全部收益率。"""
+    rets = portfolio_returns if portfolio_returns is not None else all_returns
+    return float(np.std(rets, ddof=1) * np.sqrt(252))
+
+
 def generate_risk_report(positions: list[dict], lookback_days: int = 252) -> dict:
     """
     生成组合风险报告。

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import { useRealtimeQuotes, type ConnectionStatus } from '@/lib/realtime-quotes'
 import { usePreferences, type TranslationKey } from '@/lib/preferences'
 
 interface MarketSignal {
@@ -99,6 +100,21 @@ export function MarketBar() {
     refetchInterval: 60_000,
   })
 
+  // Phase 1.2: realtime WebSocket quotes for main indices
+  const { quotes: rtQuotes, status: wsStatus } = useRealtimeQuotes({
+    symbols: ['000001.SH', '399001.SZ', '399006.SZ', '000688.SH'],
+    enabled: true,
+  })
+
+  const wsStatusLabel: Record<ConnectionStatus, string> = {
+    connecting: '🔄',
+    connected: '🟢',
+    reconnecting: '🔄',
+    polling: '📡',
+    error: '🔴',
+    closed: '⏸️',
+  }
+
   if (!signal) return null
 
   const regime = REGIME_COLORS[signal.benchmark_regime] || REGIME_COLORS.NEUTRAL!
@@ -154,7 +170,27 @@ export function MarketBar() {
         {signal.banner_title && (
           <span className="ml-auto text-xs font-medium text-foreground">{signal.banner_title}</span>
         )}
+
+        {/* Phase 1.2: WebSocket connection indicator */}
+        <span className="text-xs text-muted-foreground" title={`WebSocket: ${wsStatus}`}>
+          {wsStatusLabel[wsStatus] || '🔌'}
+        </span>
       </div>
+
+      {/* Phase 1.2: Realtime quote ticker */}
+      {rtQuotes.size > 0 && (
+        <div className="mt-1 flex flex-wrap gap-3 border-t border-border/30 pt-1">
+          {Array.from(rtQuotes.values()).map((q) => (
+            <span key={q.symbol} className="text-[11px]">
+              <span className="text-muted-foreground">{q.symbol.replace(/\.(SH|SZ)$/, '')}</span>{' '}
+              <span className="font-medium">{q.price.toFixed(2)}</span>{' '}
+              <span className={q.changePct >= 0 ? 'text-up' : 'text-down'}>
+                {q.changePct >= 0 ? '+' : ''}{q.changePct.toFixed(2)}%
+              </span>
+            </span>
+          ))}
+        </div>
+      )}
 
       {signal.banner_message && (
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{signal.banner_message}</p>

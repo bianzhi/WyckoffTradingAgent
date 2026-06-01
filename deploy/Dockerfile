@@ -140,7 +140,7 @@ FROM python-base AS agent
 RUN addgroup --system wyckoff && adduser --system --group wyckoff
 
 # Ensure volume mount points and home are writable by the wyckoff user
-RUN mkdir -p /app/data /app/logs && chown -R wyckoff:wyckoff /app/data /app/logs /home/wyckoff
+RUN mkdir -p /app/data /app/logs /home/wyckoff && chown -R wyckoff:wyckoff /app/data /app/logs /home/wyckoff
 
 USER wyckoff
 WORKDIR /app

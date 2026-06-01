@@ -62,7 +62,11 @@ export function FunnelPage() {
 
     const poll = async () => {
       try {
-        const resp = await fetch('/api/funnel/status')
+        const { supabase } = await import('@/lib/supabase')
+        const { data: { session } } = await supabase.auth.getSession()
+        const headers: Record<string, string> = {}
+        if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+        const resp = await fetch('/api/funnel/status', { headers })
         const body = await resp.json() as Record<string, unknown>
         if (stopped) return
 

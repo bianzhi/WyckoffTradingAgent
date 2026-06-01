@@ -89,7 +89,7 @@ export interface ModelOption {
   protocol?: 'openai' | 'anthropic'
 }
 
-const RETIRED_PROVIDERS = new Set(['zhipu', 'minimax', 'qwen', 'volcengine'])
+const RETIRED_PROVIDERS = new Set(['zhipu', 'minimax', 'volcengine'])
 const CHAT_STREAM_TIMEOUT_MS = 120_000
 const ALLOWED_URL_RE = /^https?:\/\//i
 const DEFAULT_CONTEXT_WINDOW = 64_000
@@ -305,6 +305,10 @@ function resolveProviderKey(data: Record<string, unknown> | null): {
     api_key = (data.deepseek_api_key as string) || ''
     model = (data.deepseek_model as string) || 'deepseek-chat'
     base_url = (data.deepseek_base_url as string) || 'https://api.deepseek.com/v1'
+  } else if (provider === 'qwen') {
+    api_key = (data.qwen_api_key as string) || ''
+    model = (data.qwen_model as string) || 'qwen3-8b'
+    base_url = (data.qwen_base_url as string) || 'https://dashscope.aliyuncs.com/compatible-mode/v1'
   } else if (provider === 'anthropic') {
     api_key = (data.anthropic_api_key as string) || ''
     model = (data.anthropic_model as string) || 'claude-sonnet-4-20250514'
@@ -323,7 +327,7 @@ function resolveProviderKey(data: Record<string, unknown> | null): {
 export async function loadLLMConfig(userId: string): Promise<LLMConfig | null> {
   const { data } = await supabase
     .from('user_settings')
-    .select('chat_provider, gemini_api_key, gemini_model, gemini_base_url, openai_api_key, openai_model, openai_base_url, deepseek_api_key, deepseek_model, deepseek_base_url, anthropic_api_key, anthropic_model, anthropic_base_url, custom_providers')
+    .select('chat_provider, gemini_api_key, gemini_model, gemini_base_url, openai_api_key, openai_model, openai_base_url, deepseek_api_key, deepseek_model, deepseek_base_url, qwen_api_key, qwen_model, qwen_base_url, anthropic_api_key, anthropic_model, anthropic_base_url, custom_providers')
     .eq('user_id', userId)
     .maybeSingle()
 
@@ -352,7 +356,7 @@ function collectKnownProviderModels(
   data: Record<string, unknown>,
   models: ModelOption[],
 ): void {
-  const known = ['gemini', 'openai', 'deepseek', 'anthropic'] as const
+  const known = ['gemini', 'openai', 'deepseek', 'qwen', 'anthropic'] as const
   for (const p of known) {
     const key = data[`${p}_api_key`]
     const m = data[`${p}_model`]
@@ -401,7 +405,7 @@ export async function loadAllModels(userId: string): Promise<ModelOption[]> {
   const [{ data }, sys] = await Promise.all([
     supabase
       .from('user_settings')
-      .select('gemini_api_key, gemini_model, gemini_base_url, openai_api_key, openai_model, openai_base_url, deepseek_api_key, deepseek_model, deepseek_base_url, anthropic_api_key, anthropic_model, anthropic_base_url, custom_providers')
+      .select('gemini_api_key, gemini_model, gemini_base_url, openai_api_key, openai_model, openai_base_url, deepseek_api_key, deepseek_model, deepseek_base_url, qwen_api_key, qwen_model, qwen_base_url, anthropic_api_key, anthropic_model, anthropic_base_url, custom_providers')
       .eq('user_id', userId)
       .maybeSingle(),
     loadSystemConfig().catch(() => null),

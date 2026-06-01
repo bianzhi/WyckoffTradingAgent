@@ -1,0 +1,8 @@
+# Web directory .dockerignore (main build context for docker-compose)
+# This excludes local junk from the pnpm workspace build context.
+
+node_modules/
+dist/
+.turbo/
+.DS_Store
+*.md

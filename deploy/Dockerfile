@@ -2,6 +2,8 @@
 # Wyckoff Trading Agent — Dockerfile
 # Build context: web/  (pnpm workspace root)
 # Multi-stage: frontend + API → production
+#
+# Requires BuildKit (DOCKER_BUILDKIT=1) for cache mounts
 # ============================================
 
 # ── Stage 1: Build Frontend ───────────────────
@@ -17,22 +19,19 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 
 WORKDIR /app
 
-# pnpm workspace root + dependencies
+# pnpm workspace root + deps (rarely changes → cached first)
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
-
-# shared package
 COPY packages/shared/package.json packages/shared/
 COPY packages/shared/tsconfig.json packages/shared/
-
-# web app
 COPY apps/web/package.json apps/web/
 COPY apps/web/tsconfig.json apps/web/
 COPY apps/web/vite.config.ts apps/web/
 COPY apps/web/index.html apps/web/
 
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
 
-# source
+# source (changes frequently → after deps install)
 COPY packages/shared/src/ packages/shared/src/
 COPY apps/web/src/ apps/web/src/
 
@@ -49,12 +48,12 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
 
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
-
 COPY apps/api/package.json apps/api/
 COPY apps/api/tsconfig.json apps/api/
 COPY apps/api/build-server.mjs apps/api/
 
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
 
 COPY apps/api/src/ apps/api/src/
 
@@ -76,16 +75,17 @@ WORKDIR /app
 
 COPY --from=api-builder /prod/ /app/
 
-# Python dependencies (cached unless requirements.txt changes)
+# Python deps (cached mount — survives pip install across rebuilds)
 COPY --from=root requirements.txt /app/
 
-RUN pip3 install --no-cache-dir --break-system-packages \
+RUN --mount=type=cache,id=pip,target=/root/.cache/pip \
+    pip3 install --no-cache-dir --break-system-packages \
     -i https://mirrors.aliyun.com/pypi/simple/ \
     --trusted-host mirrors.aliyun.com \
     --default-timeout=120 \
     -r requirements.txt
 
-# Python tools source (pip install already cached above)
+# Python source (changes frequently → after pip install)
 COPY --from=root tools/ /app/tools/
 COPY --from=root integrations/ /app/integrations/
 COPY --from=root core/ /app/core/
@@ -98,8 +98,7 @@ ENV NODE_ENV=production \
     PYTHONPATH=/app
 CMD ["node", "dist/server.js"]
 
-# ── Stage 4: Python Agent Builder ──────────────
-# build context = web/ ; root context = project root (..)
+# ── Stage 4: Python Agent Runtime ──────────────
 FROM python:3.11-slim AS python-base
 
 ENV PYTHONUNBUFFERED=1 \
@@ -108,22 +107,21 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Use aliyun mirror for faster apt in CI (deb.debian.org often times out)
-# Clean apt caches first — GitHub Actions runners often have low disk space
+# Replace apt mirrors for faster CI (deb.debian.org often times out)
 RUN rm -rf /var/cache/apt/archives/* /var/lib/apt/lists/* \
     && sed -i 's|http://deb.debian.org|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
     && apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Copy Python project files (from project root via additional_contexts)
+# Python deps (cached mount — survives pip install across rebuilds)
+COPY --from=root pyproject.toml requirements.txt ./
+
+RUN --mount=type=cache,id=pip,target=/root/.cache/pip \
+    pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt
+
+# Install the wyckoff package itself
 COPY --from=root pyproject.toml ./
-COPY --from=root requirements.txt ./
-
-# Install Python dependencies (aliyun mirror for faster pip in CI)
-RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt
-
-# Install the wyckoff package itself (editable not needed in prod)
 COPY --from=root cli/ cli/
 COPY --from=root agents/ agents/
 COPY --from=root core/ core/
@@ -132,12 +130,11 @@ COPY --from=root tools/ tools/
 COPY --from=root utils/ utils/
 COPY --from=root scripts/ scripts/
 COPY --from=root data/ data/
-COPY --from=root mcp_server.py ./
-COPY --from=root AGENTS.md ./
+COPY --from=root mcp_server.py AGENTS.md ./
 
-RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ -e . --no-deps
+RUN --mount=type=cache,id=pip,target=/root/.cache/pip \
+    pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ -e . --no-deps
 
-# ── Stage 5: Python Agent Runtime ──────────────
 FROM python-base AS agent
 
 RUN addgroup --system wyckoff && adduser --system --no-create-home --group wyckoff
@@ -152,7 +149,7 @@ WORKDIR /app
 CMD ["python", "-m", "cli", "dash", "--port", "8080"]
 
 
-# ── Stage 6: Nginx + Frontend ──────────────────
+# ── Stage 5: Nginx + Frontend ──────────────────
 FROM nginx:1.27-alpine AS web
 
 COPY --from=deploy nginx.conf /etc/nginx/nginx.conf

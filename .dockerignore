@@ -1,0 +1,32 @@
+# Project root .dockerignore (used by "root" additional_context in docker-compose.yml)
+# This excludes junk from the Python source context sent to Docker daemon.
+
+.git/
+.gitattributes
+.gitignore
+.github/
+
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+*.egg
+.eggs/
+
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+node_modules/
+web/node_modules/
+
+.DS_Store
+*.md
+docs/
+
+.atomcode/
+CLAUDE.md
+.metrics/

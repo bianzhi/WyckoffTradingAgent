@@ -1,5 +1,5 @@
 export const PROVIDERS = [
-  '1route', 'gemini', 'openai', 'deepseek', 'anthropic', 'qwen',
+  '1route', 'gemini', 'openai', 'deepseek', 'anthropic',
 ] as const
 
 export type Provider = (typeof PROVIDERS)[number]
@@ -10,7 +10,6 @@ export const PROVIDER_LABELS: Record<Provider, string> = {
   openai: '兼容OpenAI协议',
   deepseek: 'DeepSeek',
   anthropic: '兼容Anthropic协议',
-  qwen: 'Qwen（通义千问）',
 }
 
 export const PROVIDER_BASE_URLS: Record<Provider, string> = {
@@ -19,7 +18,6 @@ export const PROVIDER_BASE_URLS: Record<Provider, string> = {
   openai: 'https://api.openai.com/v1',
   deepseek: 'https://api.deepseek.com/v1',
   anthropic: '',
-  qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
 }
 
 export const TABLE_NAMES = {

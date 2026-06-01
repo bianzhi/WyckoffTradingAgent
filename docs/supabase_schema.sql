@@ -29,10 +29,6 @@ CREATE TABLE IF NOT EXISTS public.user_settings (
     deepseek_api_key    TEXT DEFAULT '',
     deepseek_model      TEXT DEFAULT '',
     deepseek_base_url   TEXT DEFAULT '',
-    -- Qwen（通义千问）
-    qwen_api_key        TEXT DEFAULT '',
-    qwen_model          TEXT DEFAULT '',
-    qwen_base_url       TEXT DEFAULT '',
     -- Gemini
     gemini_api_key      TEXT DEFAULT '',
     gemini_model        TEXT DEFAULT '',

@@ -10,9 +10,6 @@ export interface UserSettings {
   deepseek_api_key?: string
   deepseek_model?: string
   deepseek_base_url?: string
-  qwen_api_key?: string
-  qwen_model?: string
-  qwen_base_url?: string
   custom_providers?: Record<string, { apikey?: string; model?: string; baseurl?: string }>
   feishu_webhook?: string
   wecom_webhook?: string

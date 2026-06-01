@@ -67,7 +67,7 @@ RUN pnpm --filter @wyckoff/api deploy --prod --legacy /prod
 FROM node:22-slim AS api
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-pip \
+    python3 python3-pip wget \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 RUN addgroup --system wyckoff && adduser --system --no-create-home --group wyckoff

@@ -355,7 +355,7 @@ async function savePortfolioPosition(
 
 // ── funnel ─────────────────────────────────────────────────
 
-export async function execTriggerFunnel(deps: ToolDeps, userId: string): Promise<string> {
+export async function execTriggerFunnel(_deps: ToolDeps, _userId: string): Promise<string> {
   try {
     const resp = await fetch('/api/funnel/trigger', { method: 'POST' })
     const body = await resp.json() as Record<string, unknown>

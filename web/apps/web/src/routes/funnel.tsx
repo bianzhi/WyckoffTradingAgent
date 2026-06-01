@@ -225,7 +225,6 @@ function FunnelDateSelect({ dates, selectedDate, onDateChange }: {
 function FunnelTriggerButton({
   isZh,
   funnelState,
-  funnelError,
   onTrigger,
 }: {
   isZh: boolean

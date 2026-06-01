@@ -88,10 +88,6 @@ function makeSessionTitle(messages: Message[]): string {
   return '新对话'
 }
 
-function removeSession(sessionId: string) {
-  try { localStorage.removeItem(CHAT_SESSION_PREFIX + sessionId) } catch { /* */ }
-}
-
 function StepsCollapsible({ steps }: { steps: StepInfo[] }) {
   const [expanded, setExpanded] = useState(false)
   const { t } = usePreferences()

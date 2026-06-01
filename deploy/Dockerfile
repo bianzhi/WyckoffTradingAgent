@@ -143,6 +143,7 @@ RUN addgroup --system wyckoff && adduser --system --group wyckoff
 RUN mkdir -p /app/data /app/logs /home/wyckoff && chown -R wyckoff:wyckoff /app/data /app/logs /home/wyckoff
 
 USER wyckoff
+ENV HOME=/home/wyckoff
 WORKDIR /app
 
 # Default: run scheduler loop (configurable via CMD override)

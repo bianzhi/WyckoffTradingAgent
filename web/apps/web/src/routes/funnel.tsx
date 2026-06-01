@@ -111,11 +111,15 @@ export function FunnelPage() {
       const headers: Record<string, string> = {}
       if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
       const resp = await fetch('/api/funnel/trigger', { method: 'POST', headers })
-      const body = await resp.json() as Record<string, unknown>
+      const text = await resp.text()
+      let body: Record<string, unknown> = {}
+      try { body = JSON.parse(text) } catch { /* non-JSON response */ }
       if (!resp.ok || !body.ok) {
         setFunnelRunning(false)
         setFunnelState('error')
-        setFunnelError(String(body.error || '触发失败'))
+        const err = (body.error as string) || (body.message as string) || (resp.status === 502 ? '后端服务暂不可用 (502)' : `请求失败 (${resp.status})`)
+        setFunnelError(String(err))
+        return
       }
     } catch (e) {
       setFunnelRunning(false)
@@ -229,6 +233,7 @@ function FunnelDateSelect({ dates, selectedDate, onDateChange }: {
 function FunnelTriggerButton({
   isZh,
   funnelState,
+  funnelError,
   onTrigger,
 }: {
   isZh: boolean
@@ -239,23 +244,26 @@ function FunnelTriggerButton({
   const isRunning = funnelState === 'running'
 
   return (
-    <button
-      type="button"
-      onClick={onTrigger}
-      disabled={isRunning}
-      className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-        isRunning
-          ? 'cursor-not-allowed bg-muted text-muted-foreground'
-          : 'bg-primary text-primary-foreground hover:bg-primary/90'
-      }`}
-    >
-      {isRunning ? (
-        <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
-      ) : null}
-      {isRunning
-        ? (isZh ? '筛选中...' : 'Running...')
-        : (isZh ? '🔍 发起筛选' : '🔍 Run Funnel')}
-    </button>
+    <div className="flex flex-col items-center gap-1">
+      <button
+        type="button"
+        onClick={onTrigger}
+        disabled={isRunning}
+        className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+          isRunning
+            ? 'cursor-not-allowed bg-muted text-muted-foreground'
+            : 'bg-primary text-primary-foreground hover:bg-primary/90'
+        }`}
+      >
+        {isRunning ? (
+          <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+        ) : null}
+        {isRunning
+          ? (isZh ? '筛选中...' : 'Running...')
+          : (isZh ? '🔍 发起筛选' : '🔍 Run Funnel')}
+      </button>
+      {funnelError && <p className="text-xs text-red-500">{funnelError}</p>}
+    </div>
   )
 }
 

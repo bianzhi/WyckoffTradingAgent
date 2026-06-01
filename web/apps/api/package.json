@@ -2,6 +2,7 @@
   "name": "@wyckoff/api",
   "private": true,
   "type": "module",
+  "files": ["dist", "package.json", "src"],
   "scripts": {
     "dev": "wrangler dev",
     "build": "node build-server.mjs",

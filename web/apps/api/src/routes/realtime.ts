@@ -76,7 +76,7 @@ const realtime = new Hono<{ Bindings: Env }>()
 
 realtime.get('/watchlist', upgradeWebSocket((c) => {
   const env = c.env
-  const apiKey = env.TICKFLOW_API_BASE || ''
+  const apiKey = env.SYSTEM_TICKFLOW_API_KEY || process.env.SYSTEM_TICKFLOW_API_KEY || ''
   let symbols: string[] = []
   let timer: ReturnType<typeof setInterval> | null = null
   let closed = false

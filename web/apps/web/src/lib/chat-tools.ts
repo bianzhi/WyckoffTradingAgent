@@ -356,36 +356,17 @@ async function savePortfolioPosition(
 // ── funnel ─────────────────────────────────────────────────
 
 export async function execTriggerFunnel(deps: ToolDeps, userId: string): Promise<string> {
-  // 1. 检查最近15分钟内是否已有漏斗请求
-  const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString()
-  const { data: recent } = await deps.supabase
-    .from('funnel_requests')
-    .select('id')
-    .eq('user_id', userId)
-    .gte('created_at', fifteenMinAgo)
-    .limit(1)
-    .maybeSingle()
-
-  if (recent) {
-    return '⏳ 漏斗已在处理中（最近15分钟内已触发）。请稍后使用 screen_stocks 查看最新选股结果。'
+  try {
+    const resp = await fetch('/api/funnel/trigger', { method: 'POST' })
+    const body = await resp.json() as Record<string, unknown>
+    if (resp.ok && body.ok) {
+      return '✅ 漏斗筛选已启动，系统正在处理（通常需要30-60秒）。完成后请使用 screen_stocks 查看最新选股结果。'
+    }
+    const err = (body.error as string) || (body.message as string) || resp.statusText
+    return `⛔ 漏斗触发失败：${err}`
+  } catch (e) {
+    return `⛔ 漏斗触发失败：${e instanceof Error ? e.message : '网络错误'}`
   }
-
-  // 2. 插入新的 funnel_requests 行
-  const now = new Date().toISOString()
-  const { error } = await deps.supabase
-    .from('funnel_requests')
-    .insert({
-      user_id: userId,
-      status: 'pending',
-      created_at: now,
-    })
-
-  if (error) {
-    return `⛔ 漏斗触发失败：${error.message}`
-  }
-
-  // 3. 返回排队消息，提示用户稍后查看 screen_stocks
-  return '✅ 漏斗请求已加入队列，系统正在处理。请稍后使用 screen_stocks 查看最新选股结果（通常需要1-2分钟）。'
 }
 
 // ── screen & analyze ───────────────────────────────────────

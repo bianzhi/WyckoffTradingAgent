@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { chatRoutes } from './routes/chat'
 import { dataRoutes } from './routes/data'
+import { funnelRoutes } from './routes/funnel'
 import { portfolioRoutes } from './routes/portfolio'
 import { settingsRoutes } from './routes/settings'
 import { llmProxyRoutes } from './routes/llm-proxy'
@@ -25,6 +26,7 @@ app.get('/api/health', (c) => c.json({ status: 'ok' }))
 
 app.route('/api/chat', chatRoutes)
 app.route('/api/data', dataRoutes)
+app.route('/api/funnel', funnelRoutes)
 app.route('/api/portfolio', portfolioRoutes)
 app.route('/api/settings', settingsRoutes)
 app.route('/api/llm-proxy', llmProxyRoutes)

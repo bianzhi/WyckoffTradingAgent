@@ -204,6 +204,105 @@ def _get_background_task(task_id: str) -> dict:
         return {}
 
 
+_funnel_run_lock = threading.Lock()
+_funnel_last_result: dict | None = None
+
+
+def _build_and_persist_funnel(triggers: dict, metrics: dict) -> dict:
+    """从漏斗结果构建 symbols_info 并持久化到 Supabase。返回持久化摘要。"""
+    import time
+
+    result: dict = {}
+    try:
+        from integrations.supabase_recommendation import upsert_recommendations
+
+        end_date = metrics.get("end_trade_date") or ""
+        if end_date:
+            try:
+                recommend_date = int(end_date.replace("-", ""))
+            except ValueError:
+                recommend_date = int(time.strftime("%Y%m%d"))
+        else:
+            recommend_date = int(time.strftime("%Y%m%d"))
+
+        seen: dict[str, float] = {}
+        for hits in triggers.values():
+            for code, score in hits:
+                seen[code] = max(seen.get(code, 0.0), score)
+        symbols_info = [
+            {"code": code, "name": "", "tag": "", "initial_price": 0.0, "score": score}
+            for code, score in sorted(seen.items())
+        ]
+        if symbols_info:
+            ok = upsert_recommendations(recommend_date, symbols_info)
+            result["persisted"] = ok
+            result["persisted_count"] = len(symbols_info)
+    except Exception as e:
+        logger.warning("funnel persist failed: %s", e)
+        result["persist_error"] = str(e)
+    return result
+
+
+def _run_funnel_background() -> dict:
+    """后台执行全市场漏斗筛选，返回摘要。"""
+    global _funnel_last_result
+    import time
+
+    start = time.time()
+    try:
+        from scripts.wyckoff_funnel import run_funnel_job
+
+        triggers, metrics = run_funnel_job()
+        elapsed = time.time() - start
+        codes = sorted({code for hits in triggers.values() for code, _ in hits})
+        result = {
+            "ok": True,
+            "elapsed_s": round(elapsed, 1),
+            "total_scanned": len(metrics.get("all_symbols", [])),
+            "trigger_hits": sum(len(v) for v in triggers.values()),
+            "hit_codes": len(codes),
+            "triggers": {k: len(v) for k, v in triggers.items()},
+        }
+
+        persist = _build_and_persist_funnel(triggers, metrics)
+        result.update(persist)
+
+        _funnel_last_result = result
+        return result
+    except Exception as e:
+        elapsed = time.time() - start
+        result = {"ok": False, "error": str(e), "elapsed_s": round(elapsed, 1)}
+        _funnel_last_result = result
+        return result
+    finally:
+        if _funnel_run_lock.locked():
+            _funnel_run_lock.release()
+
+
+def _trigger_funnel_async() -> dict:
+    """触发漏斗筛选（非阻塞），返回立即状态。"""
+    acquired = _funnel_run_lock.acquire(blocking=False)
+    if not acquired:
+        return {"ok": False, "error": "漏斗正在运行中，请稍后再试", "last_result": _funnel_last_result}
+
+    try:
+        thread = threading.Thread(target=_run_funnel_background, daemon=True)
+        thread.start()
+        return {"ok": True, "status": "running", "message": "漏斗筛选已在后台启动，通常需要30-60秒"}
+    except Exception as e:
+        _funnel_run_lock.release()
+        return {"ok": False, "error": str(e)}
+
+
+def _get_funnel_status() -> dict:
+    """查询漏斗运行状态。"""
+    if _funnel_run_lock.locked():
+        return {"status": "running", "last_result": _funnel_last_result}
+    if _funnel_last_result:
+        return {"status": "idle", "last_result": _funnel_last_result}
+    return {"status": "idle", "last_result": None}
+
+
 # ---------------------------------------------------------------------------
 # HTTP Handler
 # ---------------------------------------------------------------------------
@@ -257,6 +356,8 @@ class _Handler(BaseHTTPRequestHandler):
         elif path.startswith("/api/background-tasks/"):
             task_id = path.split("/")[-1]
             self._json(_get_background_task(task_id))
+        elif path == "/api/funnel/status":
+            self._json(_get_funnel_status())
         else:
             self._html(_DASHBOARD_HTML)
 
@@ -278,6 +379,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True})
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 400)
+        elif path == "/api/funnel/run":
+            result = _trigger_funnel_async()
+            status = 200 if result.get("ok") else 409
+            self._json(result, status)
         else:
             self._json({"error": "not found"}, 404)
 

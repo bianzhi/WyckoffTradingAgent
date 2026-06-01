@@ -2,14 +2,17 @@
  * Phase 1.3 — 漏斗结果可视化页面
  *
  * 展示：漏斗各层通过率柱状图 + 板块热力图 + L4 触发分布
+ * 支持一键发起全市场漏斗筛选
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createChart, HistogramSeries, type HistogramData, type Time } from 'lightweight-charts'
 import { fetchFunnelSummary, fetchFunnelDates, fetchSignalQualityStats, type FunnelSummary, type SectorStat, type TriggerStat } from '@/lib/funnel-data'
 import { WyckoffLoading } from '@/components/loading'
 import { usePreferences } from '@/lib/preferences'
+
+type FunnelState = 'idle' | 'running' | 'completed' | 'error'
 
 const SECTOR_COLORS = [
   '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#22c55e', '#06b6d4',
@@ -29,14 +32,18 @@ const TRIGGER_COLORS: Record<string, string> = {
 export function FunnelPage() {
   const { locale } = usePreferences()
   const [selectedDate, setSelectedDate] = useState<string>('')
+  const [funnelState, setFunnelState] = useState<FunnelState>('idle')
+  const [funnelError, setFunnelError] = useState('')
+  const [funnelRunning, setFunnelRunning] = useState(false)
+  const queryClient = useQueryClient()
 
-  const { data: dates } = useQuery({
+  const { data: dates, refetch: refetchDates } = useQuery({
     queryKey: ['funnel-dates'],
     queryFn: fetchFunnelDates,
     staleTime: 300_000,
   })
 
-  const { data: summary, isLoading } = useQuery({
+  const { data: summary, isLoading, refetch: refetchSummary } = useQuery({
     queryKey: ['funnel-summary', selectedDate],
     queryFn: () => fetchFunnelSummary(selectedDate || undefined),
     staleTime: 300_000,
@@ -48,16 +55,90 @@ export function FunnelPage() {
     }
   }, [dates, selectedDate])
 
-  if (isLoading) return <WyckoffLoading />
-  if (!summary) {
-    return (
-      <div className="flex min-h-[300px] items-center justify-center text-muted-foreground">
-        {locale === 'zh-CN' ? '暂无漏斗数据，等待后台任务运行。' : 'No funnel data yet. Waiting for background jobs.'}
-      </div>
-    )
+  // ── 漏斗状态轮询 ──────────────────────────────────────────
+  useEffect(() => {
+    if (!funnelRunning) return
+    let stopped = false
+
+    const poll = async () => {
+      try {
+        const resp = await fetch('/api/funnel/status')
+        const body = await resp.json() as Record<string, unknown>
+        if (stopped) return
+
+        const status = String(body.status || 'idle')
+        if (status === 'running') {
+          setFunnelState('running')
+          setTimeout(poll, 3000)
+        } else {
+          setFunnelRunning(false)
+          if (body.last_result && (body.last_result as Record<string, unknown>).ok) {
+            setFunnelState('completed')
+            // 刷新数据
+            await refetchDates()
+            await refetchSummary()
+            queryClient.invalidateQueries({ queryKey: ['funnel-summary'] })
+            queryClient.invalidateQueries({ queryKey: ['funnel-dates'] })
+          } else if (body.last_result) {
+            const lr = body.last_result as Record<string, unknown>
+            setFunnelState('error')
+            setFunnelError(String(lr.error || '未知错误'))
+          } else {
+            setFunnelState('idle')
+          }
+        }
+      } catch {
+        if (!stopped) {
+          setFunnelRunning(false)
+          setFunnelState('error')
+          setFunnelError('无法连接漏斗服务')
+        }
+      }
+    }
+
+    poll()
+    return () => { stopped = true }
+  }, [funnelRunning, refetchDates, refetchSummary, queryClient])
+
+  // ── 触发漏斗 ─────────────────────────────────────────────
+  const triggerFunnel = async () => {
+    setFunnelState('running')
+    setFunnelRunning(true)
+    setFunnelError('')
+    try {
+      const resp = await fetch('/api/funnel/trigger', { method: 'POST' })
+      const body = await resp.json() as Record<string, unknown>
+      if (!resp.ok || !body.ok) {
+        setFunnelRunning(false)
+        setFunnelState('error')
+        setFunnelError(String(body.error || '触发失败'))
+      }
+    } catch (e) {
+      setFunnelRunning(false)
+      setFunnelState('error')
+      setFunnelError(e instanceof Error ? e.message : '网络错误')
+    }
   }
 
   const isZh = locale === 'zh-CN'
+
+  if (isLoading) return <WyckoffLoading />
+  if (!summary) {
+    return (
+      <div className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6">
+        <div className="flex flex-col items-center justify-center gap-4 py-20">
+          <div className="text-lg font-semibold">{isZh ? '暂无漏斗数据' : 'No funnel data yet'}</div>
+          <p className="text-sm text-muted-foreground">{isZh ? '点击下方按钮启动全市场漏斗筛选' : 'Click the button below to start a funnel screening'}</p>
+          <FunnelTriggerButton
+            isZh={isZh}
+            funnelState={funnelState}
+            funnelError={funnelError}
+            onTrigger={triggerFunnel}
+          />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6">
@@ -67,6 +148,9 @@ export function FunnelPage() {
         dates={dates}
         selectedDate={selectedDate}
         onDateChange={setSelectedDate}
+        funnelState={funnelState}
+        funnelError={funnelError}
+        onTriggerFunnel={triggerFunnel}
       />
 
       {/* Layer pass rate chart */}
@@ -94,19 +178,17 @@ export function FunnelPage() {
   )
 }
 
-function FunnelHeader({
-  isZh,
-  summary,
-  dates,
-  selectedDate,
-  onDateChange,
-}: {
+function FunnelHeader(props: {
   isZh: boolean
   summary: FunnelSummary
   dates: string[] | undefined
   selectedDate: string
   onDateChange: (date: string) => void
+  funnelState: FunnelState
+  funnelError: string
+  onTriggerFunnel: () => void
 }) {
+  const { isZh, summary, dates, selectedDate, onDateChange, funnelState, funnelError, onTriggerFunnel } = props
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
       <div>
@@ -116,19 +198,61 @@ function FunnelHeader({
             ? `日期: ${summary.date} · 扫描 ${summary.totalScanned} 只 · AI 精选 ${summary.aiCount} 只`
             : `Date: ${summary.date} · Scanned ${summary.totalScanned} · AI picked ${summary.aiCount}`}
         </p>
+        {funnelError && <p className="text-xs text-red-500 mt-1">{funnelError}</p>}
       </div>
-      {dates && dates.length > 0 && (
-        <select
-          value={selectedDate}
-          onChange={(e) => onDateChange(e.target.value)}
-          className="rounded-md border border-border bg-background px-3 py-1.5 text-xs"
-        >
-          {dates.map((d) => (
-            <option key={d} value={d}>{d}</option>
-          ))}
-        </select>
-      )}
+      <div className="flex items-center gap-2">
+        <FunnelTriggerButton isZh={isZh} funnelState={funnelState} funnelError={funnelError} onTrigger={onTriggerFunnel} />
+        <FunnelDateSelect dates={dates} selectedDate={selectedDate} onDateChange={onDateChange} />
+      </div>
     </div>
+  )
+}
+
+function FunnelDateSelect({ dates, selectedDate, onDateChange }: {
+  dates: string[] | undefined
+  selectedDate: string
+  onDateChange: (d: string) => void
+}) {
+  if (!dates || dates.length === 0) return null
+  return (
+    <select value={selectedDate} onChange={(e) => onDateChange(e.target.value)}
+      className="rounded-md border border-border bg-background px-3 py-1.5 text-xs">
+      {dates.map((d) => (<option key={d} value={d}>{d}</option>))}
+    </select>
+  )
+}
+
+function FunnelTriggerButton({
+  isZh,
+  funnelState,
+  funnelError,
+  onTrigger,
+}: {
+  isZh: boolean
+  funnelState: FunnelState
+  funnelError: string
+  onTrigger: () => void
+}) {
+  const isRunning = funnelState === 'running'
+
+  return (
+    <button
+      type="button"
+      onClick={onTrigger}
+      disabled={isRunning}
+      className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+        isRunning
+          ? 'cursor-not-allowed bg-muted text-muted-foreground'
+          : 'bg-primary text-primary-foreground hover:bg-primary/90'
+      }`}
+    >
+      {isRunning ? (
+        <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+      ) : null}
+      {isRunning
+        ? (isZh ? '筛选中...' : 'Running...')
+        : (isZh ? '🔍 发起筛选' : '🔍 Run Funnel')}
+    </button>
   )
 }
 

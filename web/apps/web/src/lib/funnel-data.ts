@@ -229,7 +229,11 @@ export interface SignalQualityStats {
 }
 
 export async function fetchSignalQualityStats(): Promise<SignalQualityStats> {
-  const resp = await fetch('/api/data/signal-quality-stats')
+  const { supabase } = await import('./supabase')
+  const { data: { session } } = await supabase.auth.getSession()
+  const headers: Record<string, string> = {}
+  if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+  const resp = await fetch('/api/data/signal-quality-stats', { headers })
   if (!resp.ok) throw new Error(`signal-quality-stats: ${resp.status}`)
   return resp.json()
 }

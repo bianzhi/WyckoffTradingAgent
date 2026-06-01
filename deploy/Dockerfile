@@ -83,7 +83,11 @@ COPY --from=root integrations/ /app/integrations/
 COPY --from=root core/ /app/core/
 COPY --from=root utils/ /app/utils/
 
-RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages \
+    -i https://mirrors.aliyun.com/pypi/simple/ \
+    --trusted-host mirrors.aliyun.com \
+    --default-timeout=120 \
+    -r requirements.txt
 
 USER wyckoff
 EXPOSE 8787

@@ -99,7 +99,7 @@ ruff check . && ruff format --check . && python scripts/quality_gate.py --check-
 
 ### 高优先级
 
-1. **funnel 页面加"发起筛选"按钮** — 直接调用 `run_funnel_job()` 或插入 funnel_requests，不要只依赖 chat。
+1. ✅ **funnel 页面加"发起筛选"按钮** — 已修复：按钮 → API 代理 → Agent `run_funnel_job()` → Supabase，带状态轮询。
 2. **Signal 信号池页** — 新增 `/signal` 路由或 chat tool `view_signals`，展示 pending/confirmed/expired 信号状态。
 3. **Recommend 原始推荐列表** — tracking 页加 tab 切换「业绩跟踪」/「推荐明细」，或 chat tool `view_recommendations`。
 

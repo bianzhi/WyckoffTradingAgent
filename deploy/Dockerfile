@@ -64,18 +64,32 @@ RUN pnpm --filter @wyckoff/api build
 RUN pnpm --filter @wyckoff/api deploy --prod --legacy /prod
 
 # ── Stage 3: API Runtime ──────────────────────
-FROM node:22-alpine AS api
+FROM node:22-slim AS api
 
-RUN addgroup -S wyckoff && adduser -S wyckoff -G wyckoff
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN addgroup --system wyckoff && adduser --system --no-create-home --group wyckoff
 
 WORKDIR /app
 
 COPY --from=api-builder /prod/ /app/
 
+# Python tools for spawnSync calls in data.ts
+COPY --from=root requirements.txt /app/
+COPY --from=root tools/ /app/tools/
+COPY --from=root integrations/ /app/integrations/
+COPY --from=root core/ /app/core/
+COPY --from=root utils/ /app/utils/
+
+RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
+
 USER wyckoff
 EXPOSE 8787
 
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+    PYTHONPATH=/app
 CMD ["node", "dist/server.js"]
 
 # ── Stage 4: Python Agent Builder ──────────────

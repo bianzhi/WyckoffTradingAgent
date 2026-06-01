@@ -19,7 +19,7 @@ jobs:
           username: ${{ secrets.ECS_USER }}
           password: ${{ secrets.ECS_PASSWORD }}
           port: ${{ secrets.ECS_PORT || 22 }}
-          source: "web,deploy,cli,agents,core,integrations,tools,utils,scripts,data,mcp_server.py,AGENTS.md,pyproject.toml,requirements.txt"
+          source: "web,deploy,cli,agents,core,integrations,tools,utils,scripts,data,docs,mcp_server.py,AGENTS.md,pyproject.toml,requirements.txt"
           target: /tmp/wyckoff-deploy/
           strip_components: 0
           rm: true
@@ -68,8 +68,8 @@ jobs:
             docker image prune -af 2>/dev/null || true
             df -h /var/lib/docker 2>/dev/null || df -h /
 
-            echo "[1/3] docker compose build..."
-            docker compose -f $COMPOSE_FILE build --progress=plain
+            echo "[1/3] docker compose build (--no-cache)..."
+            docker compose -f $COMPOSE_FILE build --no-cache --progress=plain
 
             echo "[2/3] docker compose up -d..."
             docker compose -f $COMPOSE_FILE up -d

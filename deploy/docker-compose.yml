@@ -10,6 +10,8 @@ services:
       context: ../web
       dockerfile: ../deploy/Dockerfile
       target: api
+      additional_contexts:
+        root: ..
     container_name: wyckoff-api
     restart: unless-stopped
     env_file:

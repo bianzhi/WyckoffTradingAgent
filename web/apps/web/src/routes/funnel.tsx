@@ -106,7 +106,11 @@ export function FunnelPage() {
     setFunnelRunning(true)
     setFunnelError('')
     try {
-      const resp = await fetch('/api/funnel/trigger', { method: 'POST' })
+      const { supabase } = await import('@/lib/supabase')
+      const { data: { session } } = await supabase.auth.getSession()
+      const headers: Record<string, string> = {}
+      if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+      const resp = await fetch('/api/funnel/trigger', { method: 'POST', headers })
       const body = await resp.json() as Record<string, unknown>
       if (!resp.ok || !body.ok) {
         setFunnelRunning(false)

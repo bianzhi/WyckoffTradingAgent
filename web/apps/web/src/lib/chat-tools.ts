@@ -355,9 +355,12 @@ async function savePortfolioPosition(
 
 // ── funnel ─────────────────────────────────────────────────
 
-export async function execTriggerFunnel(_deps: ToolDeps, _userId: string): Promise<string> {
+export async function execTriggerFunnel(deps: ToolDeps, _userId: string): Promise<string> {
   try {
-    const resp = await fetch('/api/funnel/trigger', { method: 'POST' })
+    const { data: { session } } = await deps.supabase.auth.getSession()
+    const headers: Record<string, string> = {}
+    if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+    const resp = await fetch('/api/funnel/trigger', { method: 'POST', headers })
     const body = await resp.json() as Record<string, unknown>
     if (resp.ok && body.ok) {
       return '✅ 漏斗筛选已启动，系统正在处理（通常需要30-60秒）。完成后请使用 screen_stocks 查看最新选股结果。'

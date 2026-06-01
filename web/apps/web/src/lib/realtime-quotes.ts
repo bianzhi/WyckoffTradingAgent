@@ -27,9 +27,15 @@ interface UseRealtimeQuotesOptions {
 const DEFAULT_WS_URL = (() => {
   if (typeof window === 'undefined') return ''
   const isDev = window.location.hostname === 'localhost'
-  return isDev
-    ? 'ws://localhost:8787/api/realtime/watchlist'
-    : 'wss://wyckoff-api.your-username.workers.dev/api/realtime/watchlist'
+  if (isDev) return 'ws://localhost:8787/api/realtime/watchlist'
+  const apiBase = import.meta.env.VITE_API_URL
+  if (apiBase) {
+    const wsScheme = apiBase.startsWith('https') ? 'wss' : 'ws'
+    return `${wsScheme}://${new URL(apiBase).host}/api/realtime/watchlist`
+  }
+  // Self-hosted: derive from current host (nginx proxies both REST + WebSocket)
+  const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws'
+  return `${scheme}://${window.location.host}/api/realtime/watchlist`
 })()
 
 const RECONNECT_BASE_MS = 2_000

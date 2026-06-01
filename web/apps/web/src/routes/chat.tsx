@@ -249,55 +249,65 @@ function ChatHeader(props: {
     <div className="flex items-center justify-between border-b border-border px-6 py-3">
       <div className="flex items-center gap-3">
         <h1 className="text-lg font-semibold">{props.t('chat.title')}</h1>
-        {props.llmConfig && (
-          <ModelPicker
-            llmConfig={props.llmConfig}
-            models={props.models}
-            show={props.showModelPicker}
-            pickerRef={props.pickerRef}
-            onToggle={props.onToggleModelPicker}
-            onSelect={props.onSelectModel}
-          />
-        )}
-        {!props.llmConfig && props.user && (
-          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700 dark:bg-amber-500/10 dark:text-amber-200">
-            {props.t('chat.noApiKey')}
-          </span>
-        )}
+        <ChatModelBadge llmConfig={props.llmConfig} models={props.models} showModelPicker={props.showModelPicker}
+          pickerRef={props.pickerRef} onToggleModelPicker={props.onToggleModelPicker} onSelectModel={props.onSelectModel}
+          user={props.user} t={props.t} />
       </div>
       <div className="flex items-center gap-2">
-        {props.sessionList.length > 1 && (
-          <div className="relative">
-            <button
-              onClick={() => setShowSessions(!showSessions)}
-              className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted/50"
-            >
-              {props.t('chat.history') || '历史'}
-              <ChevronDown size={12} />
-            </button>
-            {showSessions && (
-              <div className="absolute right-0 top-full z-50 mt-1 w-52 rounded-lg border border-border bg-background shadow-lg" onMouseLeave={() => setShowSessions(false)}>
-                {props.sessionList.slice(0, 8).map(s => (
-                  <button
-                    key={s.id}
-                    onClick={() => { props.onSwitchSession(s.id); setShowSessions(false) }}
-                    className={`w-full truncate px-3 py-1.5 text-left text-xs hover:bg-muted/50 ${s.id === props.sessionId ? 'bg-muted/30 font-medium' : ''}`}
-                  >
-                    {s.title}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        <button
-          onClick={props.onNewChat}
-          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-muted/50"
-        >
+        <ChatSessionDropdown sessions={props.sessionList} sessionId={props.sessionId}
+          show={showSessions} onToggle={() => setShowSessions(!showSessions)} onSwitch={props.onSwitchSession} t={props.t} />
+        <button onClick={props.onNewChat}
+          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-muted/50">
           <RotateCcw size={14} />
           {props.t('chat.newChat')}
         </button>
       </div>
+    </div>
+  )
+}
+
+function ChatModelBadge({ llmConfig, models, showModelPicker, pickerRef, onToggleModelPicker, onSelectModel, user, t }: {
+  llmConfig: LLMConfig | null; models: ModelOption[]; showModelPicker: boolean; pickerRef: React.RefObject<HTMLDivElement | null>
+  onToggleModelPicker: () => void; onSelectModel: (m: ModelOption) => void
+  user: ReturnType<typeof useAuthStore.getState>['user']; t: (key: TranslationKey) => string
+}) {
+  if (llmConfig) {
+    return (
+      <ModelPicker llmConfig={llmConfig} models={models} show={showModelPicker} pickerRef={pickerRef}
+        onToggle={onToggleModelPicker} onSelect={onSelectModel} />
+    )
+  }
+  if (user) {
+    return (
+      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700 dark:bg-amber-500/10 dark:text-amber-200">
+        {t('chat.noApiKey')}
+      </span>
+    )
+  }
+  return null
+}
+
+function ChatSessionDropdown({ sessions, sessionId, show, onToggle, onSwitch, t }: {
+  sessions: ChatSessionMeta[]; sessionId: string; show: boolean; onToggle: () => void
+  onSwitch: (sId: string) => void; t: (key: TranslationKey) => string
+}) {
+  if (sessions.length <= 1) return null
+  return (
+    <div className="relative">
+      <button onClick={onToggle} className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted/50">
+        {t('chat.history') || '历史'}
+        <ChevronDown size={12} />
+      </button>
+      {show && (
+        <div className="absolute right-0 top-full z-50 mt-1 w-52 rounded-lg border border-border bg-background shadow-lg" onMouseLeave={onToggle}>
+          {sessions.slice(0, 8).map(s => (
+            <button key={s.id} onClick={() => { onSwitch(s.id); onToggle() }}
+              className={`w-full truncate px-3 py-1.5 text-left text-xs hover:bg-muted/50 ${s.id === sessionId ? 'bg-muted/30 font-medium' : ''}`}>
+              {s.title}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

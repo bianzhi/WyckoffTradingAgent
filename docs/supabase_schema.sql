@@ -460,7 +460,91 @@ CREATE POLICY "Users can insert own funnel_requests" ON public.funnel_requests
 CREATE INDEX IF NOT EXISTS idx_funnel_requests_user_date
     ON public.funnel_requests (user_id, created_at DESC);
 
+-- ──────────────────────────────────────────
+-- 21. analytics_excluded_users — 排除用户（不写入分析事件）
+-- ──────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.analytics_excluded_users (
+    user_id     TEXT PRIMARY KEY,
+    created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.analytics_excluded_users ENABLE ROW LEVEL SECURITY;
+
+-- 任何人都能读取排除列表（前端 isAnalyticsExcluded 检查用）
+CREATE POLICY "Anyone can read excluded_users" ON public.analytics_excluded_users
+    FOR SELECT USING (true);
+
+-- 只有 service_role 能插入（通过后端或 SQL Editor 管理）
+CREATE POLICY "Service role can insert excluded_users" ON public.analytics_excluded_users
+    FOR INSERT WITH CHECK (true);
+
+-- ──────────────────────────────────────────
+-- 22. user_activity_events — 用户行为事件原始日志
+-- ──────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.user_activity_events (
+    id          BIGSERIAL PRIMARY KEY,
+    event_id    TEXT NOT NULL,
+    user_id     TEXT NOT NULL,
+    source      TEXT DEFAULT 'web',
+    session_id  TEXT NOT NULL,
+    event_name  TEXT DEFAULT 'page_view',
+    feature     TEXT DEFAULT '',
+    route       TEXT NOT NULL,
+    success     BOOLEAN DEFAULT TRUE,
+    duration_ms INTEGER,
+    app_version TEXT DEFAULT '',
+    metadata    JSONB DEFAULT '{}'::jsonb,
+    client_ts   TIMESTAMPTZ NOT NULL
+);
+
+ALTER TABLE public.user_activity_events ENABLE ROW LEVEL SECURITY;
+
+-- 用户只能写入自己的事件（前端 recordActivity 用）
+CREATE POLICY "Users can insert own events" ON public.user_activity_events
+    FOR INSERT WITH CHECK (auth.uid()::text = user_id);
+
+-- 用户只能读取自己的事件
+CREATE POLICY "Users can read own events" ON public.user_activity_events
+    FOR SELECT USING (auth.uid()::text = user_id);
+
+-- ──────────────────────────────────────────
+-- 23. user_daily_activity — 用户每日活动聚合
+-- ──────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.user_daily_activity (
+    activity_date   TEXT NOT NULL,
+    user_id         TEXT NOT NULL,
+    sources         TEXT[] DEFAULT '{}',
+    event_count     INTEGER DEFAULT 0,
+    session_count   INTEGER DEFAULT 0,
+    first_seen_at   TIMESTAMPTZ,
+    last_seen_at    TIMESTAMPTZ,
+    feature_counts  JSONB DEFAULT '{}'::jsonb,
+    updated_at      TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (activity_date, user_id)
+);
+
+ALTER TABLE public.user_daily_activity ENABLE ROW LEVEL SECURITY;
+
+-- 用户只能写入自己的聚合（前端 upsertDailyActivity 用）
+CREATE POLICY "Users can upsert own daily" ON public.user_daily_activity
+    FOR INSERT WITH CHECK (auth.uid()::text = user_id);
+
+CREATE POLICY "Users can update own daily" ON public.user_daily_activity
+    FOR UPDATE USING (auth.uid()::text = user_id);
+
+-- 用户只能读取自己的聚合
+CREATE POLICY "Users can read own daily" ON public.user_daily_activity
+    FOR SELECT USING (auth.uid()::text = user_id);
+
 -- ============================================================
--- 完成！共 20 张表。
--- 如有问题，请对照 Supabase Dashboard → Table Editor 逐个验证。
+-- 索引（analytics 表查询加速）
+-- ============================================================
+CREATE INDEX IF NOT EXISTS idx_activity_events_user
+    ON public.user_activity_events (user_id, client_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_daily_activity_user_date
+    ON public.user_daily_activity (user_id, activity_date DESC);
+
+-- ============================================================
+-- 完成！共 23 张表。
+-- 如需重建，请在 Supabase Dashboard → SQL Editor 执行全部语句。
 -- ============================================================

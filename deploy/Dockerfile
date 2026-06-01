@@ -76,18 +76,20 @@ WORKDIR /app
 
 COPY --from=api-builder /prod/ /app/
 
-# Python tools for spawnSync calls in data.ts
+# Python dependencies (cached unless requirements.txt changes)
 COPY --from=root requirements.txt /app/
-COPY --from=root tools/ /app/tools/
-COPY --from=root integrations/ /app/integrations/
-COPY --from=root core/ /app/core/
-COPY --from=root utils/ /app/utils/
 
 RUN pip3 install --no-cache-dir --break-system-packages \
     -i https://mirrors.aliyun.com/pypi/simple/ \
     --trusted-host mirrors.aliyun.com \
     --default-timeout=120 \
     -r requirements.txt
+
+# Python tools source (pip install already cached above)
+COPY --from=root tools/ /app/tools/
+COPY --from=root integrations/ /app/integrations/
+COPY --from=root core/ /app/core/
+COPY --from=root utils/ /app/utils/
 
 USER wyckoff
 EXPOSE 8787

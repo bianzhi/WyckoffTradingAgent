@@ -517,14 +517,6 @@ function createMarketHistoryTool(deps: ToolDeps, userId: string, model: unknown)
   })
 }
 
-function createMarketOverviewTool(deps: ToolDeps, userId: string) {
-  return tool({
-    description: '查看当前/最新大盘行情信号：市场状态（regime）、上证指数、A50、VIX、市场提示。只适合回答今天或当前的大盘状态。',
-    inputSchema: z.object({}),
-    execute: () => execMarketOverview(deps, userId),
-  })
-}
-
 function formatPortfolioPlan({ action, code, name, shares, cost_price, stop_loss, reason }: { action: string; code: string; name: string | null; shares: number | null; cost_price: number | null; stop_loss: number | null; reason: string | null }) {
   const actionLabel = { add: '新增', update: '修改', delete: '删除' }[action] ?? action
   const lines = [`📋 **调仓方案**`, `- 操作：${actionLabel}`, `- 标的：${code} ${name || ''}`]
@@ -538,33 +530,43 @@ function formatPortfolioPlan({ action, code, name, shares, cost_price, stop_loss
 
 function buildTools(userId: string, config: LLMConfig, reasoningCache: string[]) {
   const deps: ToolDeps = { supabase, fetch: globalThis.fetch, generateText }
+  // 为每个工具创建带进度上报的 deps 包装器
+  const progressDeps = (toolName: string): ToolDeps => ({
+    ...deps,
+    onProgress: (msg: string) => {
+      window.dispatchEvent(new CustomEvent('tool-progress', { detail: { tool: toolName, msg } }))
+    },
+  })
   const model = createProxiedProvider(config, reasoningCache).chat(config.model)
   return {
     search_stock: tool({
       description: '搜索股票，支持代码或名称。返回匹配的股票列表及最新行情。',
       inputSchema: z.object({ query: z.string().describe('股票代码或名称关键词') }),
-      execute: ({ query }) => execSearchStock(deps, userId, query),
+      execute: ({ query }) => execSearchStock(progressDeps('search_stock'), userId, query),
     }),
 
     view_portfolio: tool({
       description: '查看用户当前持仓列表（代码、名称、股数、成本价）和可用资金。',
       inputSchema: z.object({}),
-      execute: () => execViewPortfolio(deps, userId),
+      execute: () => execViewPortfolio(progressDeps('view_portfolio'), userId),
     }),
-
-    market_overview: createMarketOverviewTool(deps, userId),
-    market_history: createMarketHistoryTool(deps, userId, model),
+    market_overview: tool({
+      description: '查看当前/最新大盘行情信号：市场状态（regime）、上证指数、A50、VIX、市场提示。只适合回答今天或当前的大盘状态。',
+      inputSchema: z.object({}),
+      execute: () => execMarketOverview(progressDeps('market_overview'), userId),
+    }),
+    market_history: createMarketHistoryTool(progressDeps('market_history'), userId, model),
 
     query_recommendations: tool({
       description: '查询形态复盘记录，显示入选股票及其后续涨跌表现。',
       inputSchema: z.object({ limit: z.number().describe('返回条数，通常20') }),
-      execute: ({ limit }) => execQueryRecommendations(deps, limit),
+      execute: ({ limit }) => execQueryRecommendations(progressDeps('query_recommendations'), limit),
     }),
 
     query_tail_buy: tool({
       description: '查询尾盘买入策略的历史记录（BUY/WATCH 决策、评分、LLM 理由）。',
       inputSchema: z.object({ limit: z.number().describe('返回条数，通常20') }),
-      execute: ({ limit }) => execQueryTailBuy(deps, limit),
+      execute: ({ limit }) => execQueryTailBuy(progressDeps('query_tail_buy'), limit),
     }),
 
     plan_portfolio_update: tool({
@@ -592,7 +594,7 @@ function buildTools(userId: string, config: LLMConfig, reasoningCache: string[])
         stop_loss: z.number().nullable().describe('止损价'),
       }),
       execute: ({ action, code, name, shares, cost_price, stop_loss }) =>
-        execExecutePortfolioUpdate(deps, userId, action, code, name, shares, cost_price, stop_loss),
+         execExecutePortfolioUpdate(progressDeps('execute_portfolio_update'), userId, action, code, name, shares, cost_price, stop_loss),
     }),
 
     analyze_stock: tool({
@@ -601,37 +603,37 @@ function buildTools(userId: string, config: LLMConfig, reasoningCache: string[])
         code: z.string().describe('股票代码：A股6位数字；美股/港股使用 TickFlow 标准代码，如 AAPL.US / 00700.HK'),
         name: z.string().nullable().describe('股票名称'),
       }),
-      execute: ({ code, name }) => execAnalyzeStock(deps, userId, config, model, code, name),
+      execute: ({ code, name }) => execAnalyzeStock(progressDeps('analyze_stock'), userId, config, model, code, name),
     }),
 
     screen_stocks: tool({
       description: '查看最新一期漏斗选股结果：AI入选的候选股票列表及其评分。',
       inputSchema: z.object({}),
-      execute: () => execScreenStocks(deps),
+      execute: () => execScreenStocks(progressDeps('screen_stocks')),
     }),
 
     trigger_funnel_screening: tool({
       description: '发起一次全市场漏斗选股。将请求加入后台队列，系统完成筛选后结果可通过 screen_stocks 查看。通常需要1-2分钟。',
       inputSchema: z.object({}),
-      execute: () => execTriggerFunnel(deps, userId),
+      execute: () => execTriggerFunnel(progressDeps('trigger_funnel_screening'), userId),
     }),
 
     generate_ai_report: tool({
       description: '为指定股票生成威科夫深度研报（AI分析），支持多只股票批量生成。',
       inputSchema: z.object({ codes: z.array(z.string()).describe('股票代码数组，如 ["600519", "AAPL.US", "00700.HK"]') }),
-      execute: ({ codes }) => execGenerateAiReport(deps, userId, config, model, codes),
+      execute: ({ codes }) => execGenerateAiReport(progressDeps('generate_ai_report'), userId, config, model, codes),
     }),
 
     generate_strategy_decision: tool({
       description: '基于当前持仓和市场状态，给出买入/卖出/持有的操作建议。',
       inputSchema: z.object({}),
-      execute: () => execStrategyDecision(deps, userId, model),
+      execute: () => execStrategyDecision(progressDeps('generate_strategy_decision'), userId, model),
     }),
 
     intraday_analysis: tool({
       description: '盘中多周期分析：获取分钟线数据，返回VWAP位置、趋势方向、动量、量能分布和综合强度评分。用于判断当前是否适合交易。',
       inputSchema: z.object({ code: z.string().describe('股票代码：A股6位数字，如 000001') }),
-      execute: ({ code }) => execIntradayAnalysis(deps, userId, code),
+      execute: ({ code }) => execIntradayAnalysis(progressDeps('intraday_analysis'), userId, code),
     }),
 
     get_signal_quality: tool({
@@ -648,7 +650,7 @@ function buildTools(userId: string, config: LLMConfig, reasoningCache: string[])
         ruleSpec: z.record(z.unknown()).nullable().optional().describe('add 时必填：规则 JSON，包含 id/name/enabled/conditions/notify/cooldown_minutes'),
       }),
       execute: ({ action, ruleId, ruleSpec }) =>
-        execManageAlerts(deps, action, ruleId ?? null, ruleSpec ?? null),
+        execManageAlerts(progressDeps('manage_alerts'), action, ruleId ?? null, ruleSpec ?? null),
     }),
 
     portfolio_risk: tool({
@@ -658,7 +660,7 @@ function buildTools(userId: string, config: LLMConfig, reasoningCache: string[])
         lookbackDays: z.number().nullable().optional().describe('回看交易日数，默认252（约1年）'),
       }),
       execute: ({ positions, lookbackDays }) =>
-        execPortfolioRisk(deps, positions, lookbackDays ?? null),
+        execPortfolioRisk(progressDeps('portfolio_risk'), positions, lookbackDays ?? null),
     }),
 
     tune_parameters: tool({
@@ -669,7 +671,7 @@ function buildTools(userId: string, config: LLMConfig, reasoningCache: string[])
         lookbackDays: z.number().nullable().optional().describe('回看交易日数，默认252'),
       }),
       execute: ({ benchCode, smallcapCode, lookbackDays }) =>
-        execTuneParameters(benchCode ?? null, smallcapCode ?? null, lookbackDays ?? null),
+        execTuneParameters(progressDeps('tune_parameters'), benchCode ?? null, smallcapCode ?? null, lookbackDays ?? null),
     }),
 
     walk_forward_optimize: tool({
@@ -681,7 +683,7 @@ function buildTools(userId: string, config: LLMConfig, reasoningCache: string[])
         testMonths: z.number().nullable().optional().describe('测试窗月数，默认3'),
       }),
       execute: ({ trades, paramGrid, trainMonths, testMonths }) =>
-        execWalkForwardOptimize(trades, paramGrid ?? null, trainMonths ?? null, testMonths ?? null),
+        execWalkForwardOptimize(progressDeps('walk_forward_optimize'), trades, paramGrid ?? null, trainMonths ?? null, testMonths ?? null),
     }),
 
     monte_carlo_simulate: tool({
@@ -693,7 +695,7 @@ function buildTools(userId: string, config: LLMConfig, reasoningCache: string[])
         initialCapital: z.number().nullable().optional().describe('初始资金，默认100000'),
       }),
       execute: ({ returns, nSimulations, nTrades, initialCapital }) =>
-        execMonteCarloSimulate(returns ?? null, nSimulations ?? null, nTrades ?? null, initialCapital ?? null),
+        execMonteCarloSimulate(progressDeps('monte_carlo_simulate'), returns ?? null, nSimulations ?? null, nTrades ?? null, initialCapital ?? null),
     }),
 
     benchmark_exit_strategies: tool({
@@ -706,7 +708,7 @@ function buildTools(userId: string, config: LLMConfig, reasoningCache: string[])
         extraParams: z.record(z.record(z.unknown())).nullable().optional().describe('策略参数覆盖 {策略名: {参数: 值}}'),
       }),
       execute: ({ ohlcData, sortedDates, trades, strategies, extraParams }) =>
-        execBenchmarkExitStrategies(ohlcData, sortedDates, trades, strategies ?? undefined, extraParams ?? undefined),
+        execBenchmarkExitStrategies(progressDeps('benchmark_exit_strategies'), ohlcData, sortedDates, trades, strategies ?? undefined, extraParams ?? undefined),
     }),
 
     analyze_exit_quality: tool({
@@ -714,7 +716,7 @@ function buildTools(userId: string, config: LLMConfig, reasoningCache: string[])
       inputSchema: z.object({
         exits: z.array(z.record(z.unknown())).nullable().optional().describe('出场记录 [{exit_price, entry_price, peak_high, trough_low, hold_days}]'),
       }),
-      execute: ({ exits }) => execAnalyzeExitQuality(exits ?? []),
+      execute: ({ exits }) => execAnalyzeExitQuality(progressDeps('analyze_exit_quality'), exits ?? []),
     }),
 
     data_source_health: tool({
@@ -737,6 +739,8 @@ export interface StreamCallbacks {
   onTextDelta: (delta: string) => void
   onFinish: (finalText: string, steps: StepInfo[]) => void
   onError: (error: Error) => void
+  /** 工具执行中实时进度：toolName → 当前步骤描述 */
+  onToolProgress?: (toolName: string, detail: string) => void
 }
 
 export function runChatAgentStream(
@@ -759,6 +763,12 @@ export function runChatAgentStream(
   }, CHAT_STREAM_TIMEOUT_MS)
 
   void (async () => {
+    // 监听工具进度事件，实时转发到 UI
+    const handleToolProgress = (e: Event) => {
+      const { tool, msg } = (e as CustomEvent).detail
+      callbacks.onToolProgress?.(tool, msg)
+    }
+    window.addEventListener('tool-progress', handleToolProgress)
     try {
       const preparedHistory = prepareChatMessagesForModel(messages, config.model)
       const result = streamText({
@@ -802,6 +812,7 @@ export function runChatAgentStream(
       }
     } finally {
       clearTimeout(timer)
+      window.removeEventListener('tool-progress', handleToolProgress)
     }
   })()
 

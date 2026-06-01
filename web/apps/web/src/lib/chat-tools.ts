@@ -10,6 +10,8 @@ export interface ToolDeps {
   supabase: SupabaseClient
   fetch: typeof globalThis.fetch
   generateText: typeof GenerateTextFn
+  /** 工具执行中上报进度消息，UI 实时显示 */
+  onProgress?: (msg: string) => void
 }
 
 export interface LLMToolConfig {
@@ -417,6 +419,7 @@ export async function execScreenStocks(deps: ToolDeps): Promise<string> {
 export async function execAnalyzeStock(
   deps: ToolDeps, _userId: string, _config: LLMToolConfig, model: unknown, code: string, name: string | null,
 ): Promise<string> {
+  deps.onProgress?.('📊 正在拉取K线和估值数据...')
   const [klineResult, valueSnapshot] = await Promise.all([
     dataSkill.fetchKline(code, 250),
     dataSkill.fetchValueSnapshot(code).catch((): ValueSnapshot => ({ symbol: code, source: 'none', metrics: null, reason: 'not-found' })),
@@ -432,6 +435,7 @@ export async function execAnalyzeStock(
 
   const digest = buildKlineDigest(klineResult.rows)
   const valueDigest = buildValueAgentDigest(valueSnapshot)
+  deps.onProgress?.('🤖 AI正在深度分析威科夫阶段...')
   const result = await deps.generateText({
     model: model as Parameters<typeof GenerateTextFn>[0]['model'],
     system: `你是威科夫分析大师。基于以下K线数据和价值面摘要，对 ${code} ${name || ''} 进行深度诊断。主框架仍是量价与威科夫阶段判断，价值面只作为质量、风险和仓位置信度校准：技术面负责时机，价值面负责是否值得提高/降低结论置信度。
@@ -507,7 +511,8 @@ export async function execStrategyDecision(deps: ToolDeps, userId: string, model
 }
 
 
-export async function execIntradayAnalysis(_deps: ToolDeps, _userId: string, code: string): Promise<string> {
+export async function execIntradayAnalysis(deps: ToolDeps, _userId: string, code: string): Promise<string> {
+  deps.onProgress?.('📊 正在获取盘中分钟线数据...')
   const { periods, error } = await dataSkill.fetchIntraday(code)
   if (error) return error
 
@@ -542,11 +547,12 @@ export async function execGetSignalQuality(): Promise<string> {
 // ── alert management ──────────────────────────────────────────
 
 export async function execManageAlerts(
-  _deps: ToolDeps,
+  deps: ToolDeps,
   action: string,
   ruleId: string | null,
   ruleSpec: Record<string, unknown> | null,
 ): Promise<string> {
+  deps.onProgress?.(`🔔 正在执行预警操作: ${action}...`)
   if (action === 'list') {
     const { rules, error } = await dataSkill.fetchAlerts()
     if (error) return `预警规则获取失败：${error}`
@@ -586,10 +592,11 @@ export async function execManageAlerts(
 }
 
 export async function execPortfolioRisk(
-  _deps: ToolDeps,
+  deps: ToolDeps,
   positions: Array<Record<string, unknown>>,
   lookbackDays: number | null,
 ): Promise<string> {
+  deps.onProgress?.('⚖️ 正在计算组合风险指标...')
   if (!positions || positions.length === 0) return '⛔ 请提供持仓列表。用法：传入 positions=[{code, shares, cost_price}, ...]'
   const result = await dataSkill.fetchPortfolioRisk(positions, lookbackDays || 252)
   if ((result as Record<string, unknown>).error) return `⛔ 风险分析失败：${(result as Record<string, unknown>).error}`
@@ -705,10 +712,12 @@ function computeTrendDir(rows: KlineRow[]): string {
 }
 
 export async function execTuneParameters(
+  deps: ToolDeps,
   benchCode: string | null,
   smallcapCode: string | null,
   lookbackDays: number | null,
 ): Promise<string> {
+  deps.onProgress?.('🔧 正在拉取大盘数据并计算水温...')
   const result = await dataSkill.fetchParameterTuning(
     benchCode || undefined,
     smallcapCode || undefined,
@@ -790,12 +799,14 @@ export async function execTuneParameters(
 // ── walk_forward / monte_carlo ────────────────────────────
 
 export async function execWalkForwardOptimize(
+  deps: ToolDeps,
   trades: Array<Record<string, unknown>>,
   paramGrid: Record<string, number[]> | null,
   trainMonths: number | null,
   testMonths: number | null,
 ): Promise<string> {
-  if (!trades || trades.length < 10) return '⛔ 请提供至少 10 笔交易记录。用法：trades=[{signal_date, ret_pct, score}, ...]'
+  deps.onProgress?.('🔄 正在执行 Walk-Forward 优化...')
+  if (!trades || trades.length < 5) return '⛔ 需要至少5笔交易记录用于Walk-Forward优化。'
   const result = await dataSkill.fetchWalkForward(trades, paramGrid || undefined, trainMonths || 12, testMonths || 3)
   if ((result as Record<string, unknown>).error) return `⛔ Walk-Forward 优化失败：${(result as Record<string, unknown>).error}`
 
@@ -832,11 +843,13 @@ export async function execWalkForwardOptimize(
 }
 
 export async function execMonteCarloSimulate(
+  deps: ToolDeps,
   returns: number[] | null,
   nSimulations: number | null,
   nTrades: number | null,
   initialCapital: number | null,
 ): Promise<string> {
+  deps.onProgress?.('🎲 正在运行 Monte Carlo 模拟...')
   if (!returns || !Array.isArray(returns) || returns.length < 5) return '⛔ 请提供至少 5 笔收益率。用法：returns=[5.2, -3.1, 8.7, ...]'
   const result = await dataSkill.fetchMonteCarlo(returns, nSimulations || 5000, nTrades || 100, initialCapital || 100000)
   if ((result as Record<string, unknown>).error) return `⛔ Monte Carlo 模拟失败：${(result as Record<string, unknown>).error}`
@@ -872,12 +885,14 @@ export async function execMonteCarloSimulate(
 
 /** 出场策略基准对比 */
 export async function execBenchmarkExitStrategies(
+  deps: ToolDeps,
   ohlcData: Record<string, Record<string, number[]>>,
   sortedDates: Record<string, string[]>,
   trades: Array<Record<string, unknown>>,
   strategies?: string[],
   extraParams?: Record<string, Record<string, unknown>>,
 ): Promise<string> {
+  deps.onProgress?.('📊 正在对比出场策略...')
   const result = await dataSkill.fetchBenchmarkExits(ohlcData, sortedDates, trades, strategies, extraParams)
   if (result.error) return `出场策略对比失败：${result.error}`
   const rankings = result.rankings as Array<Record<string, unknown>> || []
@@ -893,8 +908,10 @@ export async function execBenchmarkExitStrategies(
 
 /** 出场质量评估 */
 export async function execAnalyzeExitQuality(
+  deps: ToolDeps,
   exits: Array<Record<string, unknown>>,
 ): Promise<string> {
+  deps.onProgress?.('📝 正在评估出场质量...')
   const result = await dataSkill.fetchExitQuality(exits)
   if (result.error) return `出场质量评估失败：${result.error}`
   const lines: string[] = ['## 出场质量评估\n']

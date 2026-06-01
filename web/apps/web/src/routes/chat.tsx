@@ -343,6 +343,7 @@ function ChatMessageList(props: {
   messages: Message[]
   loading: boolean
   liveSteps: StepInfo[]
+  liveProgress: Record<string, string>
   streamingText: string
   t: (key: TranslationKey) => string
 }) {
@@ -363,6 +364,11 @@ function ChatMessageList(props: {
                       <>
                         <Wrench size={10} className="text-amber-500" />
                         <span>✓ {formatToolName(step.toolName, props.t)}</span>
+                        {props.liveProgress[step.toolName ?? ''] && (
+                          <span className="ml-1 animate-pulse text-[10px] text-blue-500">
+                            — {props.liveProgress[step.toolName ?? '']}
+                          </span>
+                        )}
                       </>
                     ) : (
                       <>
@@ -402,6 +408,7 @@ export function ChatPage() {
   const [models, setModels] = useState<ModelOption[]>([])
   const [showModelPicker, setShowModelPicker] = useState(false)
   const [liveSteps, setLiveSteps] = useState<StepInfo[]>([])
+  const [liveProgress, setLiveProgress] = useState<Record<string, string>>({})
   const [streamingText, setStreamingText] = useState('')
   const streamBufRef = useRef('')
   const streamFlushRef = useRef(0)
@@ -479,6 +486,7 @@ export function ChatPage() {
     setError('')
     setLoading(true)
     setLiveSteps([])
+    setLiveProgress({})
     setStreamingText('')
 
     abortRef.current = runChatAgentStream(
@@ -488,8 +496,15 @@ export function ChatPage() {
       {
         onStep: (step) => {
           setLiveSteps((prev) => [...prev, step])
+          // 当新工具开始执行时，清除其旧进度
+          if (step.type === 'tool_call' && step.toolName) {
+            setLiveProgress((prev) => ({ ...prev, [step.toolName!]: '⏳ 启动中...' }))
+          }
           streamBufRef.current = ''
           setStreamingText('')
+        },
+        onToolProgress: (tool, detail) => {
+          setLiveProgress((prev) => ({ ...prev, [tool]: detail }))
         },
         onTextDelta: (delta) => {
           streamBufRef.current += delta
@@ -531,6 +546,7 @@ export function ChatPage() {
           }
           setStreamingText('')
           setLiveSteps([])
+          setLiveProgress({})
           setLoading(false)
           abortRef.current = null
         },
@@ -543,6 +559,7 @@ export function ChatPage() {
           setMessages((prev) => [...prev, { id: ++msgIdCounter, role: 'assistant', content: `⚠️ ${msg}`, isError: true }])
           setStreamingText('')
           setLiveSteps([])
+          setLiveProgress({})
           setLoading(false)
           abortRef.current = null
         },
@@ -636,7 +653,7 @@ export function ChatPage() {
         {messages.length === 0 && !loading ? (
           <ChatEmptyState onSelectPrompt={setInput} t={t} />
         ) : (
-          <ChatMessageList messages={messages} loading={loading} liveSteps={liveSteps} streamingText={streamingText} t={t} />
+          <ChatMessageList messages={messages} loading={loading} liveSteps={liveSteps} liveProgress={liveProgress} streamingText={streamingText} t={t} />
         )}
       </div>
 

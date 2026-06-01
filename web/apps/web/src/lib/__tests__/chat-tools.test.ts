@@ -542,14 +542,14 @@ describe('execPortfolioRisk', () => {
 describe('execTuneParameters', () => {
   it('returns error from API', async () => {
     vi.mocked(dataSkill).fetchParameterTuning.mockResolvedValue({ error: '无法获取基准指数数据' })
-    const result = await execTuneParameters(null, null, null)
+    const result = await execTuneParameters(createMockDeps(), null, null, null)
     expect(result).toContain('参数调优失败')
     expect(result).toContain('无法获取基准指数数据')
   })
 
   it('returns empty message when no data', async () => {
     vi.mocked(dataSkill).fetchParameterTuning.mockResolvedValue({})
-    const result = await execTuneParameters(null, null, null)
+    const result = await execTuneParameters(createMockDeps(), null, null, null)
     expect(result).toContain('参数调优对比')
   })
 
@@ -569,7 +569,7 @@ describe('execTuneParameters', () => {
       },
     })
 
-    const result = await execTuneParameters('000001', '399006', 252)
+    const result = await execTuneParameters(createMockDeps(), '000001', '399006', 252)
 
     expect(result).toContain('自适应参数调优报告')
     expect(result).toContain('RISK_OFF')
@@ -587,7 +587,7 @@ describe('execTuneParameters', () => {
 describe('execBenchmarkExitStrategies', () => {
   it('returns error from API', async () => {
     vi.mocked(dataSkill.fetchBenchmarkExits).mockResolvedValue({ error: '数据不足' })
-    const result = await execBenchmarkExitStrategies({}, {}, [])
+    const result = await execBenchmarkExitStrategies(createMockDeps(), {}, {}, [])
     expect(result).toContain('失败')
     expect(result).toContain('数据不足')
   })
@@ -601,7 +601,7 @@ describe('execBenchmarkExitStrategies', () => {
       best_strategy: 'hybrid',
       best_sharpe: 1.25,
     })
-    const result = await execBenchmarkExitStrategies({}, {}, [])
+    const result = await execBenchmarkExitStrategies(createMockDeps(), {}, {}, [])
     expect(result).toContain('hybrid')
     expect(result).toContain('12.3')
     expect(result).toContain('62.5')
@@ -611,7 +611,7 @@ describe('execBenchmarkExitStrategies', () => {
 
   it('handles empty rankings', async () => {
     vi.mocked(dataSkill.fetchBenchmarkExits).mockResolvedValue({ rankings: [] })
-    const result = await execBenchmarkExitStrategies({}, {}, [])
+    const result = await execBenchmarkExitStrategies(createMockDeps(), {}, {}, [])
     expect(result).toContain('排名')
   })
 })
@@ -621,7 +621,7 @@ describe('execBenchmarkExitStrategies', () => {
 describe('execAnalyzeExitQuality', () => {
   it('returns error from API', async () => {
     vi.mocked(dataSkill.fetchExitQuality).mockResolvedValue({ error: '无数据' })
-    const result = await execAnalyzeExitQuality([])
+    const result = await execAnalyzeExitQuality(createMockDeps(), [])
     expect(result).toContain('失败')
     expect(result).toContain('无数据')
   })
@@ -637,7 +637,7 @@ describe('execAnalyzeExitQuality', () => {
       advice: ['收紧 trailing stop', '放宽 patience_days'],
       sample_size: 120,
     })
-    const result = await execAnalyzeExitQuality([])
+    const result = await execAnalyzeExitQuality(createMockDeps(), [])
     expect(result).toContain('C')
     expect(result).toContain('35')
     expect(result).toContain('4.2')
@@ -656,7 +656,7 @@ describe('execAnalyzeExitQuality', () => {
       advice: [],
       sample_size: 50,
     })
-    const result = await execAnalyzeExitQuality([])
+    const result = await execAnalyzeExitQuality(createMockDeps(), [])
     expect(result).toContain('A')
     expect(result).not.toContain('改进建议')
   })

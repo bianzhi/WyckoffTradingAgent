@@ -206,6 +206,12 @@ def _get_background_task(task_id: str) -> dict:
 
 _funnel_run_lock = threading.Lock()
 _funnel_last_result: dict | None = None
+# 漏斗运行中的实时进度
+_funnel_progress: dict = {
+    "stage": "",
+    "detail": "",
+    "progress": -1.0,
+}
 
 
 def _build_and_persist_funnel(triggers: dict, metrics: dict) -> dict:
@@ -245,8 +251,15 @@ def _build_and_persist_funnel(triggers: dict, metrics: dict) -> dict:
 
 def _run_funnel_background() -> dict:
     """后台执行全市场漏斗筛选，返回摘要。"""
-    global _funnel_last_result
+    global _funnel_last_result, _funnel_progress
     import time
+
+    from cli.progress import set_reporter, report_progress
+
+    def _on_progress(stage: str, detail: str, progress: float) -> None:
+        _funnel_progress = {"stage": stage, "detail": detail, "progress": progress}
+
+    set_reporter(_on_progress)
 
     start = time.time()
     try:
@@ -275,6 +288,8 @@ def _run_funnel_background() -> dict:
         _funnel_last_result = result
         return result
     finally:
+        set_reporter(None)
+        _funnel_progress = {"stage": "", "detail": "", "progress": -1.0}
         if _funnel_run_lock.locked():
             _funnel_run_lock.release()
 
@@ -297,7 +312,13 @@ def _trigger_funnel_async() -> dict:
 def _get_funnel_status() -> dict:
     """查询漏斗运行状态。"""
     if _funnel_run_lock.locked():
-        return {"status": "running", "last_result": _funnel_last_result}
+        return {
+            "status": "running",
+            "last_result": _funnel_last_result,
+            "current_stage": _funnel_progress.get("stage", ""),
+            "current_detail": _funnel_progress.get("detail", ""),
+            "current_progress": _funnel_progress.get("progress", -1.0),
+        }
     if _funnel_last_result:
         return {"status": "idle", "last_result": _funnel_last_result}
     return {"status": "idle", "last_result": None}

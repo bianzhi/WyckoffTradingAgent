@@ -2094,17 +2094,26 @@ def run_funnel(
     cfg: FunnelConfig | None = None,
     regime: str = "",
 ) -> FunnelResult:
+    from cli.progress import report_progress
+
     if cfg is None:
         cfg = FunnelConfig()
     if regime:
         cfg = adjust_funnel_for_regime(cfg, regime)
 
+    total = len(all_symbols)
+
     # 预先整理时序，避免各层重复 sort/copy 产生大量临时对象。
+    report_progress("漏斗筛选", f"数据就绪, {total}只待筛选", 0.05)
     prepared_df_map: dict[str, pd.DataFrame] = {
         sym: _sorted_if_needed(df) for sym, df in df_map.items() if df is not None and not df.empty
     }
 
+    report_progress("L1剥离垃圾", f"输入{total}只", 0.10)
     l1 = layer1_filter(all_symbols, name_map, market_cap_map, prepared_df_map, cfg)
+    report_progress("L1剥离垃圾", f"通过{len(l1)}只, 剔除{total - len(l1)}只", 0.20)
+
+    report_progress("L2强弱甄别", f"输入{len(l1)}只, 七通道甄选", 0.25)
     l2, channel_map, _pre_ign = layer2_strength_detailed(
         l1,
         prepared_df_map,
@@ -2112,6 +2121,9 @@ def run_funnel(
         cfg,
         rps_universe=list(prepared_df_map.keys()),
     )
+    report_progress("L2强弱甄别", f"通过{len(l2)}只", 0.50)
+
+    report_progress("L3板块共振", f"输入{len(l2)}只, 行业Top-N过滤", 0.55)
     l3, top_sectors = layer3_sector_resonance(
         l2,
         sector_map,
@@ -2119,9 +2131,15 @@ def run_funnel(
         base_symbols=l1,
         df_map=prepared_df_map,
     )
+    report_progress("L3板块共振", f"通过{len(l3)}只, 热门板块{len(top_sectors)}个", 0.70)
+
+    report_progress("L4威科夫狙击", f"输入{len(l3)}只, Spring/SOS/LPS/EVR检测", 0.75)
     triggers = layer4_triggers(l3, prepared_df_map, cfg, channel_map=channel_map, market_cap_map=market_cap_map)
+    trigger_count = sum(len(v) for v in triggers.values())
+    report_progress("L4威科夫狙击", f"触发信号{trigger_count}个", 0.85)
 
     # 阶段识别和退出信号
+    report_progress("L5阶段&退出", f"Markup识别 + 止损检测", 0.90)
     markup_symbols = detect_markup_stage(l3, prepared_df_map, cfg)
     accum_stage_map = detect_accum_stage(l2, prepared_df_map, cfg)  # 对 L2 做细化分析
 
@@ -2132,6 +2150,7 @@ def run_funnel(
 
     # 退出信号针对 L2 和 Markup 股票
     exit_signals = layer5_exit_signals(l2 + markup_symbols, prepared_df_map, accum_stage_map, cfg)
+    report_progress("漏斗完成", f"L1={len(l1)}→L2={len(l2)}→L3={len(l3)}, 信号{trigger_count}个", 1.0)
 
     return FunnelResult(
         layer1_symbols=l1,

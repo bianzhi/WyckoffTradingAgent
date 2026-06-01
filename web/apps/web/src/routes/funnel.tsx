@@ -35,6 +35,7 @@ export function FunnelPage() {
   const [funnelState, setFunnelState] = useState<FunnelState>('idle')
   const [funnelError, setFunnelError] = useState('')
   const [funnelRunning, setFunnelRunning] = useState(false)
+  const [funnelProgress, setFunnelProgress] = useState({ stage: '', detail: '', progress: -1 })
   const queryClient = useQueryClient()
 
   const { data: dates, refetch: refetchDates } = useQuery({
@@ -73,7 +74,12 @@ export function FunnelPage() {
         const status = String(body.status || 'idle')
         if (status === 'running') {
           setFunnelState('running')
-          setTimeout(poll, 3000)
+          setFunnelProgress({
+            stage: String(body.current_stage || ''),
+            detail: String(body.current_detail || ''),
+            progress: Number(body.current_progress ?? -1),
+          })
+          setTimeout(poll, 2000)
         } else {
           setFunnelRunning(false)
           if (body.last_result && (body.last_result as Record<string, unknown>).ok) {
@@ -145,6 +151,7 @@ export function FunnelPage() {
             isZh={isZh}
             funnelState={funnelState}
             funnelError={funnelError}
+            funnelProgress={funnelProgress}
             onTrigger={triggerFunnel}
           />
         </div>
@@ -162,6 +169,7 @@ export function FunnelPage() {
         onDateChange={setSelectedDate}
         funnelState={funnelState}
         funnelError={funnelError}
+        funnelProgress={funnelProgress}
         onTriggerFunnel={triggerFunnel}
       />
 
@@ -198,9 +206,10 @@ function FunnelHeader(props: {
   onDateChange: (date: string) => void
   funnelState: FunnelState
   funnelError: string
+  funnelProgress: { stage: string; detail: string; progress: number }
   onTriggerFunnel: () => void
 }) {
-  const { isZh, summary, dates, selectedDate, onDateChange, funnelState, funnelError, onTriggerFunnel } = props
+  const { isZh, summary, dates, selectedDate, onDateChange, funnelState, funnelError, funnelProgress, onTriggerFunnel } = props
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
       <div>
@@ -212,11 +221,9 @@ function FunnelHeader(props: {
         </p>
         {funnelError && <p className="text-xs text-red-500 mt-1">{funnelError}</p>}
       </div>
-      <div className="flex items-center gap-2">
-        <FunnelTriggerButton isZh={isZh} funnelState={funnelState} funnelError={funnelError} onTrigger={onTriggerFunnel} />
+        <FunnelTriggerButton isZh={isZh} funnelState={funnelState} funnelError={funnelError} funnelProgress={funnelProgress} onTrigger={onTriggerFunnel} />
         <FunnelDateSelect dates={dates} selectedDate={selectedDate} onDateChange={onDateChange} />
       </div>
-    </div>
   )
 }
 
@@ -238,14 +245,17 @@ function FunnelTriggerButton({
   isZh,
   funnelState,
   funnelError,
+  funnelProgress,
   onTrigger,
 }: {
   isZh: boolean
   funnelState: FunnelState
   funnelError: string
+  funnelProgress: { stage: string; detail: string; progress: number }
   onTrigger: () => void
 }) {
   const isRunning = funnelState === 'running'
+  const pct = funnelProgress.progress >= 0 ? Math.round(funnelProgress.progress * 100) : null
 
   return (
     <div className="flex flex-col items-center gap-1">
@@ -266,6 +276,23 @@ function FunnelTriggerButton({
           ? (isZh ? '筛选中...' : 'Running...')
           : (isZh ? '🔍 发起筛选' : '🔍 Run Funnel')}
       </button>
+      {isRunning && funnelProgress.stage && (
+        <div className="flex flex-col items-center gap-0.5">
+          <span className="text-[11px] text-muted-foreground">
+            {funnelProgress.stage}
+            {funnelProgress.detail ? ` — ${funnelProgress.detail}` : ''}
+            {pct !== null ? ` (${pct}%)` : ''}
+          </span>
+          {pct !== null && (
+            <div className="h-1 w-32 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-primary transition-all duration-500"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          )}
+        </div>
+      )}
       {funnelError && <p className="text-xs text-red-500">{funnelError}</p>}
     </div>
   )

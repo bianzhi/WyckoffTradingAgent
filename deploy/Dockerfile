@@ -142,6 +142,9 @@ FROM python-base AS agent
 
 RUN addgroup --system wyckoff && adduser --system --no-create-home --group wyckoff
 
+# Ensure volume mount points are writable by the wyckoff user
+RUN mkdir -p /app/data /app/logs && chown -R wyckoff:wyckoff /app/data /app/logs
+
 USER wyckoff
 WORKDIR /app
 

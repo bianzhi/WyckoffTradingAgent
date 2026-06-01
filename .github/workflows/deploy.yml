@@ -40,8 +40,8 @@ jobs:
             if [ -f "$COMPOSE_FILE_OLD" ]; then
               docker compose -f "$COMPOSE_FILE_OLD" down --remove-orphans 2>/dev/null || true
             fi
-            # 兜底：强制删除可能残留的同名容器
-            docker rm -f wyckoff-api wyckoff-agent wyckoff-web 2>/dev/null || true
+            # 兜底：模糊匹配强制删除所有 wyckoff 相关容器（解决容器名带前缀的残留问题）
+            docker ps -a -q --filter "name=wyckoff" | xargs -r docker rm -f 2>/dev/null || true
 
             # 备份 .env.production（不在 git 里，清理目录会删掉）
             cp /root/WyckoffTradingAgent/deploy/.env.production /tmp/.env.production.bak 2>/dev/null || true

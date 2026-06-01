@@ -10,6 +10,7 @@ await esbuild.build({
   external: [
     // native node modules that shouldn't be bundled
     '@hono/node-server',
+    'ws',
   ],
   banner: {
     js: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",

@@ -510,7 +510,7 @@ def start_dashboard(port: int = 8765):
 
     init_db()
 
-    server = HTTPServer(("127.0.0.1", port), _Handler)
+    server = HTTPServer(("0.0.0.0", port), _Handler)
     server.allow_reuse_address = True
     print(f"Wyckoff Dashboard: {url}")
     print("按 Ctrl+C 停止")

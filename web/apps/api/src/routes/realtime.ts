@@ -1,15 +1,14 @@
 /**
- * Phase 1.2 — 实时行情 WebSocket 端点
+ * Phase 1.2 — 实时行情 WebSocket 端点 / Cloudflare Workers 版本
  *
- * 客户端通过 WS 连接推送自选股列表，服务端每 60s 轮询 TickFlow 分钟线，
- * 将最新价/涨跌幅推送给客户端。A 股交易时段 (9:30-15:00) 延迟 < 5s。
- *
- * 回退：TickFlow 不可用时推送空数据，客户端自行降级到 Supabase 轮询。
+ * 使用 upgradeWebSocket()，仅 Cloudflare Workers 运行时支持。
+ * index.ts (CF Workers 入口) 使用此文件。
  */
 
-import type { Env } from '../index'
 import { Hono } from 'hono'
 import { upgradeWebSocket } from 'hono/cloudflare-workers'
+
+import type { Env } from '../index'
 
 const TICKFLOW_MINUTE_URL = 'https://api.tickflow.org/v1/minute'
 const POLL_INTERVAL_MS = 60_000
@@ -78,11 +77,16 @@ realtime.get('/watchlist', upgradeWebSocket((c) => {
   const env = c.env
   const apiKey = env.SYSTEM_TICKFLOW_API_KEY || process.env.SYSTEM_TICKFLOW_API_KEY || ''
   let symbols: string[] = []
-  let timer: ReturnType<typeof setInterval> | null = null
-  let closed = false
 
   return {
-    onMessage(event) {
+    onOpen(_event, ws) {
+      // Send initial heartbeat immediately
+      ws.send(JSON.stringify({
+        type: 'heartbeat',
+        ts: new Date().toISOString(),
+      }))
+    },
+    onMessage(event, ws) {
       try {
         const msg = JSON.parse(event.data as string) as WsMessageIn
         if (msg.type === 'watchlist' && Array.isArray(msg.symbols)) {
@@ -92,34 +96,11 @@ realtime.get('/watchlist', upgradeWebSocket((c) => {
         // ignore malformed messages
       }
     },
-
-    async onOpen(_event, ws) {
-      // Send initial heartbeat
-      ws.send(JSON.stringify({ type: 'heartbeat', ts: new Date().toISOString() } satisfies WsMessageOut))
-
-      timer = setInterval(async () => {
-        if (closed) return
-        try {
-          if (symbols.length > 0 && isTradingHour()) {
-            const quotes = await fetchMinuteQuotes(symbols, apiKey)
-            ws.send(JSON.stringify({ type: 'tick', data: quotes, ts: new Date().toISOString() } satisfies WsMessageOut))
-          } else {
-            ws.send(JSON.stringify({ type: 'heartbeat', ts: new Date().toISOString() } satisfies WsMessageOut))
-          }
-        } catch (err) {
-          ws.send(JSON.stringify({ type: 'error', error: String(err), ts: new Date().toISOString() } satisfies WsMessageOut))
-        }
-      }, POLL_INTERVAL_MS)
+    onClose(_event, _ws) {
+      // cleanup handled by CF Workers runtime
     },
-
-    onClose() {
-      closed = true
-      if (timer) clearInterval(timer)
-    },
-
-    onError(_event) {
-      closed = true
-      if (timer) clearInterval(timer)
+    onError(_event, _ws) {
+      // cleanup handled by CF Workers runtime
     },
   }
 }))

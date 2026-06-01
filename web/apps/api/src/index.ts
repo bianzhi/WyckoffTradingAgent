@@ -13,6 +13,12 @@ export type Env = {
   SUPABASE_ANON_KEY: string
   SUPABASE_SERVICE_ROLE_KEY: string
   TICKFLOW_API_BASE: string
+  SYSTEM_TICKFLOW_API_KEY: string
+  SYSTEM_TUSHARE_TOKEN: string
+  SYSTEM_LLM_PROVIDER: string
+  SYSTEM_LLM_API_KEY: string
+  SYSTEM_LLM_MODEL: string
+  SYSTEM_LLM_BASE_URL: string
 }
 
 const app = new Hono<{ Bindings: Env }>()

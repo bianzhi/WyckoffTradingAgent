@@ -38,7 +38,13 @@ interface DailyActivityRow {
 let lastRouteKey = ''
 let lastRouteAt = 0
 
+// Cache "tables missing" state to avoid repeated 404s when Supabase analytics
+// tables (analytics_excluded_users / user_activity_events / user_daily_activity)
+// haven't been created yet. Resets on page reload.
+let _analyticsUnavailable = false
+
 export function trackRouteActivity(userId: string, route: string): void {
+  if (_analyticsUnavailable) return
   const key = `${userId}:${route}`
   const now = Date.now()
   if (lastRouteKey === key && now - lastRouteAt < 1500) return
@@ -77,7 +83,10 @@ export async function recordActivity(input: ActivityInput, deps: ActivityDeps = 
     client_ts: nowIso,
   }
   const { error: eventError } = await client.from('user_activity_events').insert(eventRow)
-  if (eventError) return { eventWritten: false, dailyWritten: false }
+  if (eventError) {
+    if (eventError.code === '42P01') _analyticsUnavailable = true
+    return { eventWritten: false, dailyWritten: false }
+  }
 
   const countSession = deps.countSession ?? markSessionSeen(activityDate, sessionId)
   const dailyWritten = await upsertDailyActivity(client, userId, activityDate, source, feature, nowIso, countSession)
@@ -97,7 +106,10 @@ async function isAnalyticsExcluded(client: SupabaseLike, userId: string): Promis
     .select('user_id')
     .eq('user_id', userId)
     .limit(1)
-  if (error) return false
+  if (error) {
+    if (error.code === '42P01') _analyticsUnavailable = true
+    return false
+  }
   return Array.isArray(data) && data.length > 0
 }
 
@@ -140,7 +152,10 @@ async function loadDailyActivity(
     .eq('user_id', userId)
     .eq('activity_date', activityDate)
     .limit(1)
-  if (error) return undefined
+  if (error) {
+    if (error.code === '42P01') _analyticsUnavailable = true
+    return undefined
+  }
   return Array.isArray(data) ? (data[0] as DailyActivityRow | undefined) ?? null : null
 }
 

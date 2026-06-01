@@ -137,10 +137,10 @@ RUN --mount=type=cache,id=pip,target=/root/.cache/pip \
 
 FROM python-base AS agent
 
-RUN addgroup --system wyckoff && adduser --system --no-create-home --group wyckoff
+RUN addgroup --system wyckoff && adduser --system --group wyckoff
 
-# Ensure volume mount points are writable by the wyckoff user
-RUN mkdir -p /app/data /app/logs && chown -R wyckoff:wyckoff /app/data /app/logs
+# Ensure volume mount points and home are writable by the wyckoff user
+RUN mkdir -p /app/data /app/logs && chown -R wyckoff:wyckoff /app/data /app/logs /home/wyckoff
 
 USER wyckoff
 WORKDIR /app

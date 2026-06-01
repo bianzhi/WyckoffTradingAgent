@@ -25,6 +25,7 @@ web/node_modules/
 
 .DS_Store
 *.md
+!AGENTS.md
 docs/
 
 .atomcode/

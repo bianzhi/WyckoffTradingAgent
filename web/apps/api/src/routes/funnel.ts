@@ -39,8 +39,11 @@ funnelRoutes.use('*', authMiddleware)
 // POST /api/funnel/trigger — 发起漏斗筛选
 funnelRoutes.post('/trigger', async (c) => {
   try {
+    const payload = await c.req.text()
     const resp = await fetch(`${AGENT_URL}/api/funnel/run`, {
       method: 'POST',
+      headers: payload ? { 'Content-Type': 'application/json' } : undefined,
+      body: payload || undefined,
       signal: AbortSignal.timeout(10_000), // 10s connect timeout (agent returns immediately)
     })
 
@@ -48,6 +51,21 @@ funnelRoutes.post('/trigger', async (c) => {
     const status = resp.ok ? 200 : resp.status
 
     return c.json(body, status as 200 | 409)
+  } catch (err) {
+    const { msg, detail } = classifyFetchError(err)
+    return c.json({ ok: false, error: msg, detail, agent_url: AGENT_URL }, 502)
+  }
+})
+
+// POST /api/funnel/stop — 停止漏斗
+funnelRoutes.post('/stop', async (c) => {
+  try {
+    const resp = await fetch(`${AGENT_URL}/api/funnel/stop`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(5_000),
+    })
+    const body = await resp.json() as Record<string, unknown>
+    return c.json(body)
   } catch (err) {
     const { msg, detail } = classifyFetchError(err)
     return c.json({ ok: false, error: msg, detail, agent_url: AGENT_URL }, 502)

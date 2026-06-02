@@ -207,7 +207,12 @@ def _get_background_task(task_id: str) -> dict:
         return {}
 
 
+class FunnelInterrupted(Exception):
+    pass
+
+
 _funnel_run_lock = threading.Lock()
+_funnel_stop_event = threading.Event()
 _funnel_last_result: dict | None = None
 # 漏斗运行中的实时进度
 _funnel_progress: dict = {
@@ -335,6 +340,9 @@ def _funnel_progress_callback(stage: str, detail: str, progress: float) -> None:
     global _funnel_progress, _funnel_logs
     from utils.trading_clock import CN_TZ
 
+    if _funnel_stop_event.is_set():
+        raise InterruptedError("漏斗已被用户停止")
+
     _funnel_progress = {"stage": stage, "detail": detail, "progress": progress}
     item = {
         "ts": datetime.now(CN_TZ).strftime("%H:%M:%S"),
@@ -378,6 +386,7 @@ def _run_funnel_background(payload: dict | None = None) -> dict:
     previous_cache_mode = os.environ.get("KLINE_CACHE_MODE")
     os.environ["KLINE_CACHE_MODE"] = cache_mode
     _funnel_logs = []
+    _funnel_stop_event.clear()
     set_reporter(_funnel_progress_callback)
     mode_label = {"cache_only": "仅本地缓存", "cache_first": "缓存优先+网络补齐", "network": "强制网络拉取"}.get(
         cache_mode, cache_mode
@@ -396,6 +405,20 @@ def _run_funnel_background(payload: dict | None = None) -> dict:
         result = _build_funnel_result(triggers, metrics, elapsed, stocks, layer_conditions)
         result["cache_mode"] = cache_mode
         result["progress_logs"] = list(_funnel_logs)
+        _funnel_last_result = result
+        return result
+    except FunnelInterrupted:
+        elapsed = time.time() - start
+        from utils.trading_clock import CN_TZ
+
+        _funnel_progress = {"stage": "已停止", "detail": "用户手动停止漏斗", "progress": 1.0}
+        _funnel_logs.append({
+            "ts": datetime.now(CN_TZ).strftime("%H:%M:%S"),
+            "stage": "已停止",
+            "detail": "用户手动停止漏斗",
+            "progress": 1.0,
+        })
+        result = {"ok": False, "stopped": True, "error": "漏斗已被用户停止", "elapsed_s": round(elapsed, 1), "progress_logs": list(_funnel_logs)}
         _funnel_last_result = result
         return result
     except Exception as e:
@@ -430,18 +453,25 @@ def _trigger_funnel_async(payload: dict | None = None) -> dict:
 
 def _get_funnel_status() -> dict:
     """查询漏斗运行状态。"""
-    if _funnel_run_lock.locked():
-        return {
-            "status": "running",
-            "last_result": _funnel_last_result,
-            "current_stage": _funnel_progress.get("stage", ""),
-            "current_detail": _funnel_progress.get("detail", ""),
-            "current_progress": _funnel_progress.get("progress", -1.0),
-            "progress_logs": list(_funnel_logs),
-        }
-    if _funnel_last_result:
-        return {"status": "idle", "last_result": _funnel_last_result, "progress_logs": list(_funnel_logs)}
-    return {"status": "idle", "last_result": None, "progress_logs": list(_funnel_logs)}
+    running = _funnel_run_lock.locked()
+    result = {"status": "running" if running else "idle", "can_stop": running}
+    if running:
+        result["current_stage"] = _funnel_progress.get("stage", "")
+        result["current_detail"] = _funnel_progress.get("detail", "")
+        result["current_progress"] = _funnel_progress.get("progress", -1.0)
+        result["last_result"] = _funnel_last_result
+    elif _funnel_last_result:
+        result["last_result"] = _funnel_last_result
+    result["progress_logs"] = list(_funnel_logs)
+    return result
+
+
+def _stop_funnel() -> dict:
+    """停止正在运行的漏斗。"""
+    if not _funnel_run_lock.locked():
+        return {"ok": False, "error": "没有正在运行的漏斗"}
+    _funnel_stop_event.set()
+    return {"ok": True, "message": "已发送停止信号，漏斗将在当前阶段完成后停止"}
 
 
 def _get_funnel_result() -> dict:
@@ -681,6 +711,8 @@ class _Handler(BaseHTTPRequestHandler):
             result = _trigger_funnel_async(self._read_body())
             status = 200 if result.get("ok") else 409
             self._json(result, status)
+        elif path == "/api/funnel/stop":
+            self._json(_stop_funnel())
         else:
             self._json({"error": "not found"}, 404)
 

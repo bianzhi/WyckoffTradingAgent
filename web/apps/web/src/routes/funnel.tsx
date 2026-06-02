@@ -45,6 +45,34 @@ export function FunnelPage() {
   const [funnelLogs, setFunnelLogs] = useState<FunnelProgressLog[]>([])
   const queryClient = useQueryClient()
 
+  // ── 页面加载时检查是否有正在运行的漏斗 ──────────────────────
+  useEffect(() => {
+    let stopped = false
+    const check = async () => {
+      try {
+        const { supabase } = await import('@/lib/supabase')
+        const { data: { session } } = await supabase.auth.getSession()
+        const headers: Record<string, string> = {}
+        if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+        const resp = await fetch('/api/funnel/status', { headers })
+        const body = await resp.json() as Record<string, unknown>
+        if (stopped) return
+        if (body.status === 'running') {
+          setFunnelState('running')
+          setFunnelRunning(true)
+          setFunnelProgress({
+            stage: String(body.current_stage || ''),
+            detail: String(body.current_detail || ''),
+            progress: Number(body.current_progress ?? -1),
+          })
+          setFunnelLogs(normalizeProgressLogs(body.progress_logs))
+        }
+      } catch { /* agent maybe down, ignore */ }
+    }
+    check()
+    return () => { stopped = true }
+  }, [])
+
   const { data: dates, refetch: refetchDates } = useQuery({
     queryKey: ['funnel-dates'],
     queryFn: fetchFunnelDates,
@@ -173,6 +201,17 @@ export function FunnelPage() {
     }
   }
 
+  // ── 停止漏斗 ─────────────────────────────────────────────
+  const stopFunnel = async () => {
+    try {
+      const { supabase } = await import('@/lib/supabase')
+      const { data: { session } } = await supabase.auth.getSession()
+      const headers: Record<string, string> = {}
+      if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+      await fetch('/api/funnel/stop', { method: 'POST', headers })
+    } catch { /* best-effort */ }
+  }
+
   const isZh = locale === 'zh-CN'
   useDocTitle(isZh ? '威科夫漏斗 - Wyckoff' : 'Wyckoff Funnel - Wyckoff')
 
@@ -202,6 +241,7 @@ export function FunnelPage() {
             funnelProgress={funnelProgress}
             funnelLogs={funnelLogs}
             onTrigger={triggerFunnel}
+            onStop={stopFunnel}
             agentOnline={agentOnline}
           />
         </div>
@@ -224,6 +264,7 @@ export function FunnelPage() {
         funnelProgress={funnelProgress}
         funnelLogs={funnelLogs}
         onTriggerFunnel={triggerFunnel}
+        onStopFunnel={stopFunnel}
         agentHealth={agentHealth}
       />
       <FunnelRunPanel isZh={isZh} funnelState={funnelState} logs={funnelLogs} error={funnelError} />
@@ -323,9 +364,10 @@ function FunnelHeader(props: {
   funnelProgress: { stage: string; detail: string; progress: number }
   funnelLogs: FunnelProgressLog[]
   onTriggerFunnel: () => void
+  onStopFunnel: () => void
   agentHealth?: { reachable: boolean; error?: string; detail?: string }
 }) {
-  const { isZh, summary, dates, selectedDate, onDateChange, funnelState, funnelError, funnelProgress, funnelLogs, onTriggerFunnel, agentHealth } = props
+  const { isZh, summary, dates, selectedDate, onDateChange, funnelState, funnelError, funnelProgress, funnelLogs, onTriggerFunnel, onStopFunnel, agentHealth } = props
   const { locale } = usePreferences()
   const relTime = useMemo(() => summary.date ? relativeTime(summary.date, locale) : null, [summary.date, locale])
   return (
@@ -342,7 +384,7 @@ function FunnelHeader(props: {
         </p>
         {funnelError && <p className="text-xs text-red-500 mt-1">{funnelError}</p>}
       </div>
-        <FunnelTriggerButton isZh={isZh} funnelState={funnelState} funnelError={funnelError} funnelProgress={funnelProgress} funnelLogs={funnelLogs} onTrigger={onTriggerFunnel} />
+        <FunnelTriggerButton isZh={isZh} funnelState={funnelState} funnelError={funnelError} funnelProgress={funnelProgress} funnelLogs={funnelLogs} onTrigger={onTriggerFunnel} onStop={onStopFunnel} />
         <FunnelDateSelect dates={dates} selectedDate={selectedDate} onDateChange={onDateChange} isZh={isZh} />
       </div>
     </div>
@@ -399,6 +441,7 @@ function FunnelTriggerButton({
   funnelProgress,
   funnelLogs,
   onTrigger,
+  onStop,
   agentOnline,
 }: {
   isZh: boolean
@@ -407,6 +450,7 @@ function FunnelTriggerButton({
   funnelProgress: { stage: string; detail: string; progress: number }
   funnelLogs: FunnelProgressLog[]
   onTrigger: () => void
+  onStop: () => void
   agentOnline?: boolean
 }) {
   const isRunning = funnelState === 'running'
@@ -419,13 +463,21 @@ function FunnelTriggerButton({
 
   return (
     <div className="flex flex-col items-center gap-1">
-      <button type="button" onClick={onTrigger} disabled={isRunning || isAgentDown}
-        className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${btnClass}`}>
-        {isRunning && <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />}
-        {isAgentDown
-          ? (isZh ? '⚠️ Agent 离线' : '⚠️ Agent Offline')
-          : isRunning ? (isZh ? '筛选中...' : 'Running...') : (isZh ? '🔍 发起筛选' : '🔍 Run Funnel')}
-      </button>
+      <div className="flex items-center gap-2">
+        <button type="button" onClick={onTrigger} disabled={isRunning || isAgentDown}
+          className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${btnClass}`}>
+          {isRunning && <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />}
+          {isAgentDown
+            ? (isZh ? '⚠️ Agent 离线' : '⚠️ Agent Offline')
+            : isRunning ? (isZh ? '筛选中...' : 'Running...') : (isZh ? '🔍 发起筛选' : '🔍 Run Funnel')}
+        </button>
+        {isRunning && (
+          <button type="button" onClick={onStop}
+            className="inline-flex items-center gap-1 rounded-md bg-red-500 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-red-600 transition-colors">
+            {isZh ? '⏹ 停止' : '⏹ Stop'}
+          </button>
+        )}
+      </div>
       {isRunning && funnelProgress.stage && (
         <FunnelProgress stage={funnelProgress.stage} detail={funnelProgress.detail} progress={funnelProgress.progress} />
       )}

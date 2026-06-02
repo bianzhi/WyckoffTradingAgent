@@ -73,6 +73,40 @@ export function FunnelPage() {
     return () => { stopped = true }
   }, [])
 
+  // ── 后台轮询：探测读盘室等其他入口触发的漏斗 ──────────────
+  useEffect(() => {
+    if (funnelRunning) return // 已进入运行态，由主轮询接管
+    let stopped = false
+
+    const probe = async () => {
+      if (stopped) return
+      try {
+        const { supabase } = await import('@/lib/supabase')
+        const { data: { session } } = await supabase.auth.getSession()
+        const headers: Record<string, string> = {}
+        if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+        const resp = await fetch('/api/funnel/status', { headers })
+        const status = await resp.json() as Record<string, unknown>
+        if (stopped) return
+        if (status.status === 'running') {
+          setFunnelState('running')
+          setFunnelRunning(true)
+          setFunnelProgress({
+            stage: String(status.current_stage || ''),
+            detail: String(status.current_detail || ''),
+            progress: Number(status.current_progress ?? -1),
+          })
+          setFunnelLogs(normalizeProgressLogs(status.progress_logs))
+          return // 进入运行态后停止此轮询，由主轮询接管
+        }
+      } catch { /* agent down, ignore */ }
+      if (!stopped) setTimeout(probe, 5000)
+    }
+
+    probe()
+    return () => { stopped = true }
+  }, [funnelRunning])
+
   const { data: dates, refetch: refetchDates } = useQuery({
     queryKey: ['funnel-dates'],
     queryFn: fetchFunnelDates,

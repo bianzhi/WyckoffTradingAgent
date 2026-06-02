@@ -555,6 +555,30 @@ dataRoutes.get('/signal-quality-stats', async (c) => {
   }
 })
 
+// ── GET /api/data/headless-analysis?code=600519 ─────────────
+
+dataRoutes.get('/headless-analysis', async (c) => {
+  try {
+    const code = (c.req.query('code') || '').trim()
+    if (!code) return c.json({ error: 'code required' }, 400)
+
+    const { spawnSync } = await import('node:child_process')
+    const proc = spawnSync('python3', [
+      'tools/headless_analysis.py', code,
+    ], {
+      timeout: 30_000, encoding: 'utf-8',
+      env: { ...process.env, PYTHONPATH: process.env.PYTHONPATH || process.cwd() },
+      cwd: process.cwd(),
+    })
+    if (proc.error) return c.json({ error: proc.error.message }, 500)
+    try { return c.json(JSON.parse(proc.stdout?.trim() || '{}')) } catch {
+      return c.json({ error: 'parse error', raw: proc.stdout?.slice(0, 200) }, 500)
+    }
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500)
+  }
+})
+
 // ── GET /api/data/signal-observations?status=active&limit=50&offset=0 ──
 
 dataRoutes.get('/signal-observations', async (c) => {

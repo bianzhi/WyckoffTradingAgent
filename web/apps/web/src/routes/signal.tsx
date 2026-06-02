@@ -48,14 +48,12 @@ export function SignalPage() {
   const observations = data?.observations ?? []
   const total = data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
-
   const breadcrumbItems = [{ label: isZh ? '信号池' : 'Signals' }]
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
       <Breadcrumb items={breadcrumbItems} />
       <ScrollToTop />
-
       <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight">{t('signal.title')}</h1>
@@ -66,43 +64,55 @@ export function SignalPage() {
           )}
         </div>
       </header>
-
-      {/* Filter tabs */}
-      <nav className="mb-4 flex gap-1 overflow-x-auto">
-        {STATUS_TABS.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => { setFilter(tab); setPage(0) }}
-            className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors ${
-              filter === tab
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-muted text-muted-foreground hover:bg-muted/80'
-            }`}
-          >
-            {t(`signal.${tab}`)}
-          </button>
-        ))}
-      </nav>
-
-      {/* Content */}
-      {isLoading ? (
-        <SkeletonTable rows={8} cols={7} />
-      ) : error ? (
-        <div className="rounded-xl border border-border bg-card p-8 text-center text-muted-foreground">
-          <Activity size={32} className="mx-auto mb-2 opacity-30" />
-          <p className="text-sm">{String(error)}</p>
-        </div>
-      ) : observations.length === 0 ? (
-        <EmptyState isZh={isZh} t={t} />
-      ) : (
-        <>
-          <SignalTable observations={observations} isZh={isZh} t={t} />
-          {totalPages > 1 && (
-            <Pagination page={page} totalPages={totalPages} onPage={setPage} />
-          )}
-        </>
-      )}
+      <FilterTabs filter={filter} onFilter={(f) => { setFilter(f); setPage(0) }} t={t} />
+      <SignalContent
+        observations={observations} total={total} totalPages={totalPages}
+        page={page} onPage={setPage} isLoading={isLoading}
+        error={error ? String(error) : null} isZh={isZh} t={t}
+      />
     </div>
+  )
+}
+
+function FilterTabs({ filter, onFilter, t }: { filter: StatusFilter; onFilter: (f: StatusFilter) => void; t: (key: string) => string }) {
+  return (
+    <nav className="mb-4 flex gap-1 overflow-x-auto">
+      {STATUS_TABS.map((tab) => (
+        <button
+          key={tab}
+          onClick={() => onFilter(tab)}
+          className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors ${
+            filter === tab ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/80'
+          }`}
+        >
+          {t(`signal.${tab}`)}
+        </button>
+      ))}
+    </nav>
+  )
+}
+
+function SignalContent({
+  observations, total, totalPages, page, onPage, isLoading, error, isZh, t,
+}: {
+  observations: Array<Record<string, unknown>>
+  total: number; totalPages: number; page: number
+  onPage: (p: number) => void; isLoading: boolean
+  error: string | null; isZh: boolean; t: (key: string) => string
+}) {
+  if (isLoading) return <SkeletonTable rows={8} cols={7} />
+  if (error) return (
+    <div className="rounded-xl border border-border bg-card p-8 text-center text-muted-foreground">
+      <Activity size={32} className="mx-auto mb-2 opacity-30" />
+      <p className="text-sm">{error}</p>
+    </div>
+  )
+  if (observations.length === 0) return <EmptyState isZh={isZh} t={t} />
+  return (
+    <>
+      <SignalTable observations={observations} isZh={isZh} t={t} />
+      {totalPages > 1 && <Pagination page={page} totalPages={totalPages} onPage={onPage} />}
+    </>
   )
 }
 
@@ -116,58 +126,65 @@ function SignalTable({
   return (
     <div className="overflow-x-auto rounded-xl border border-border bg-card">
       <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b border-border bg-muted/40 text-muted-foreground">
-            <th className="px-3 py-2.5 text-left font-medium">{t('common.code')}</th>
-            <th className="px-3 py-2.5 text-left font-medium">{t('common.name')}</th>
-            <th className="px-3 py-2.5 text-left font-medium">{t('signal.type')}</th>
-            <th className="px-3 py-2.5 text-left font-medium">{t('signal.track')}</th>
-            <th className="px-3 py-2.5 text-right font-medium">{t('signal.score')}</th>
-            <th className="px-3 py-2.5 text-left font-medium">{t('signal.date')}</th>
-            <th className="px-3 py-2.5 text-center font-medium">{t('signal.status')}</th>
-          </tr>
-        </thead>
+        <SignalTableHead t={t} />
         <tbody>
-          {observations.map((obs, i) => {
-            const signalType = String(obs.signal_type || '')
-            const track = String(obs.track || '')
-            const status = String(obs.lifecycle_status || '')
-            return (
-              <tr
-                key={obs.id != null ? String(obs.id) : `${i}`}
-                className="border-b border-border/50 transition-colors hover:bg-muted/20"
-              >
-                <td className="px-3 py-2.5 font-mono font-medium tabular-nums">
-                  {String(obs.code || '')}
-                </td>
-                <td className="px-3 py-2.5 text-muted-foreground truncate max-w-[120px]">
-                  {String(obs.name || '-')}
-                </td>
-                <td className="px-3 py-2.5 font-medium">
-                  {isZh ? (SIGNAL_LABELS[signalType] ?? signalType) : signalType}
-                </td>
-                <td className="px-3 py-2.5">
-                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${TRACK_BADGE[track] || 'bg-muted text-muted-foreground'}`}>
-                    {track || '-'}
-                  </span>
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums font-semibold">
-                  {typeof obs.trigger_score === 'number' ? obs.trigger_score.toFixed(2) : '-'}
-                </td>
-                <td className="px-3 py-2.5 text-muted-foreground tabular-nums">
-                  {String(obs.trade_date || '-')}
-                </td>
-                <td className="px-3 py-2.5 text-center">
-                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${STATUS_BADGE[status] || 'bg-muted text-muted-foreground'}`}>
-                    {status || '-'}
-                  </span>
-                </td>
-              </tr>
-            )
-          })}
+          {observations.map((obs, i) => (
+            <SignalRow key={obs.id != null ? String(obs.id) : `${i}`} obs={obs} isZh={isZh} />
+          ))}
         </tbody>
       </table>
     </div>
+  )
+}
+
+function SignalTableHead({ t }: { t: (key: string) => string }) {
+  return (
+    <thead>
+      <tr className="border-b border-border bg-muted/40 text-muted-foreground">
+        <th className="px-3 py-2.5 text-left font-medium">{t('common.code')}</th>
+        <th className="px-3 py-2.5 text-left font-medium">{t('common.name')}</th>
+        <th className="px-3 py-2.5 text-left font-medium">{t('signal.type')}</th>
+        <th className="px-3 py-2.5 text-left font-medium">{t('signal.track')}</th>
+        <th className="px-3 py-2.5 text-right font-medium">{t('signal.score')}</th>
+        <th className="px-3 py-2.5 text-left font-medium">{t('signal.date')}</th>
+        <th className="px-3 py-2.5 text-center font-medium">{t('signal.status')}</th>
+      </tr>
+    </thead>
+  )
+}
+
+function SignalRow({ obs, isZh }: { obs: Record<string, unknown>; isZh: boolean }) {
+  const signalType = String(obs.signal_type || '')
+  const track = String(obs.track || '')
+  const status = String(obs.lifecycle_status || '')
+  return (
+    <tr className="border-b border-border/50 transition-colors hover:bg-muted/20">
+      <td className="px-3 py-2.5 font-mono font-medium tabular-nums">
+        {String(obs.code || '')}
+      </td>
+      <td className="px-3 py-2.5 text-muted-foreground truncate max-w-[120px]">
+        {String(obs.name || '-')}
+      </td>
+      <td className="px-3 py-2.5 font-medium">
+        {isZh ? (SIGNAL_LABELS[signalType] ?? signalType) : signalType}
+      </td>
+      <td className="px-3 py-2.5">
+        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${TRACK_BADGE[track] || 'bg-muted text-muted-foreground'}`}>
+          {track || '-'}
+        </span>
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums font-semibold">
+        {typeof obs.trigger_score === 'number' ? obs.trigger_score.toFixed(2) : '-'}
+      </td>
+      <td className="px-3 py-2.5 text-muted-foreground tabular-nums">
+        {String(obs.trade_date || '-')}
+      </td>
+      <td className="px-3 py-2.5 text-center">
+        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${STATUS_BADGE[status] || 'bg-muted text-muted-foreground'}`}>
+          {status || '-'}
+        </span>
+      </td>
+    </tr>
   )
 }
 

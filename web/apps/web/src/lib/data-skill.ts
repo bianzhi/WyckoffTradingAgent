@@ -144,6 +144,15 @@ export const dataSkill = {
     }
   },
 
+  /** Headless Wyckoff diagnosis (no LLM) */
+  async fetchHeadlessAnalysis(code: string): Promise<{ diagnosis: Record<string, unknown> | null; error?: string }> {
+    const res = (await authFetch(`/api/data/headless-analysis?code=${encodeURIComponent(code)}`)) as unknown as Record<string, unknown>
+    return {
+      diagnosis: (res.diagnosis as Record<string, unknown>) || null,
+      error: res.error as string | undefined,
+    }
+  },
+
   /** 预警规则列表 */
   async fetchAlerts(): Promise<{ rules: Array<Record<string, unknown>>; error?: string }> {
     const res = (await authFetch('/api/data/alerts')) as unknown as Record<string, unknown>

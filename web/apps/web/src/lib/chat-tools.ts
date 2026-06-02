@@ -544,6 +544,47 @@ export async function execGetSignalQuality(): Promise<string> {
   return report
 }
 
+// ── headless_analysis ───────────────────────────────────────
+
+export async function execHeadlessAnalysis(deps: ToolDeps, code: string): Promise<string> {
+  deps.onProgress?.(`🔍 正在对 ${code} 进行无AI快速诊断...`)
+  const { diagnosis, error } = await dataSkill.fetchHeadlessAnalysis(code)
+  if (error) return `快速诊断失败：${error}`
+  if (!diagnosis) return '未获取到诊断数据，请确认股票代码正确且数据源正常。'
+
+  const d = diagnosis
+  const lines = [
+    `## ${d.health || '?'} ${d.code || code} ${d.name || ''}`,
+    '',
+    `| 指标 | 数值 |`,
+    `|------|------|`,
+  ]
+  const rows: [string, string][] = [
+    ['通道', String(d.l2_channel || '-')],
+    ['轨道', String(d.track || '-')],
+    ['吸筹阶段', String(d.accum_stage || '-')],
+    ['均线结构', String(d.ma_pattern || '-')],
+  ]
+  if (d.ma200_bias_pct != null) rows.push(['MA200乖离', `${Number(d.ma200_bias_pct).toFixed(1)}%`])
+  if (d.l4_triggers && Array.isArray(d.l4_triggers) && d.l4_triggers.length)
+    rows.push(['L4触发', (d.l4_triggers as string[]).join('+')])
+  if (d.exit_signal)
+    rows.push(['退出信号', `${d.exit_signal}${d.exit_reason ? ` (${d.exit_reason})` : ''}`])
+  rows.push(['现价', d.latest_close != null ? String(d.latest_close) : '-'])
+  rows.push(['盈亏', d.pnl_pct != null ? `${Number(d.pnl_pct).toFixed(2)}%` : '-'])
+  rows.push(['止损状态', String(d.stop_loss_status || '-')])
+  rows.push(['近10日', d.ret_10d_pct != null ? `${Number(d.ret_10d_pct).toFixed(1)}%` : '-'])
+  rows.push(['近20日', d.ret_20d_pct != null ? `${Number(d.ret_20d_pct).toFixed(1)}%` : '-'])
+
+  for (const [label, value] of rows) lines.push(`| ${label} | ${value} |`)
+
+  if (d.health_reasons && Array.isArray(d.health_reasons) && d.health_reasons.length) {
+    lines.push('', `**分析理由**: ${(d.health_reasons as string[]).join(', ')}`)
+  }
+  lines.push('', '> ⚡ 此为无AI快速诊断结果，不含深度技术面分析。需要完整AI分析请使用单股分析功能。')
+  return lines.join('\n')
+}
+
 // ── alert management ──────────────────────────────────────────
 
 export async function execManageAlerts(

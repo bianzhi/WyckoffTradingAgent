@@ -2139,7 +2139,7 @@ def run_funnel(
     report_progress("L4威科夫狙击", f"触发信号{trigger_count}个", 0.85)
 
     # 阶段识别和退出信号
-    report_progress("L5阶段&退出", f"Markup识别 + 止损检测", 0.90)
+    report_progress("L5阶段&退出", "Markup识别 + 止损检测", 0.90)
     markup_symbols = detect_markup_stage(l3, prepared_df_map, cfg)
     accum_stage_map = detect_accum_stage(l2, prepared_df_map, cfg)  # 对 L2 做细化分析
 

@@ -6,6 +6,8 @@ import { useAuthStore } from '@/stores/auth'
 import { MarketBar } from '@/components/market-bar'
 import { usePreferences, type TranslationKey } from '@/lib/preferences'
 import { trackRouteActivity } from '@/lib/activity'
+import { PageTransition } from '@/components/ux/page-transition'
+import { KbdShortcuts } from '@/components/ux/kbd-shortcuts'
 
 const navItems = [
   { to: '/chat', icon: MessageSquare, labelKey: 'nav.chat' },
@@ -74,23 +76,41 @@ function SidebarFooter({ email, onLogout }: { email: string; onLogout: () => voi
 
 export function AppLayout() {
   const location = useLocation()
+  const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
-  const { t } = usePreferences()
+  const { locale, setLocale, toggleTheme, t } = usePreferences()
   const handleLogout = useLogoutHandler()
   useRouteActivity(user?.id, location)
 
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [kbdOpen, setKbdOpen] = useState(false)
   const closeSidebar = useCallback(() => setSidebarOpen(false), [])
 
   // Close sidebar on route change (mobile)
   useEffect(() => { setSidebarOpen(false) }, [location.pathname])
 
-  // Close sidebar on Escape
+  // Global keyboard shortcuts
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSidebarOpen(false) }
+    const onKey = (e: KeyboardEvent) => {
+      // Don't trigger in input fields
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      const mod = e.metaKey || e.ctrlKey
+
+      if (e.key === '?') { e.preventDefault(); setKbdOpen(v => !v); return }
+      if (e.key === 'Escape') { setSidebarOpen(false); setKbdOpen(false); return }
+      if (mod && e.key === 't') { e.preventDefault(); toggleTheme(); return }
+      if (mod && e.key === 'l') { e.preventDefault(); setLocale(locale === 'zh-CN' ? 'en-US' : 'zh-CN'); return }
+      if (mod && e.key === 'ArrowUp') { e.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }); return }
+      // Number keys for quick nav
+      if (!mod) {
+        const navMap: Record<string, string> = { '1': '/chat', '2': '/analysis', '3': '/portfolio', '4': '/tracking', '5': '/funnel' }
+        const dest = navMap[e.key]
+        if (dest) { e.preventDefault(); navigate(dest) }
+      }
+    }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [])
+  }, [navigate, locale, setLocale, toggleTheme])
 
   // ── Sidebar content (shared by desktop + mobile) ──────────────────
   const sidebarContent = (
@@ -167,10 +187,13 @@ export function AppLayout() {
         </div>
         <MarketBar />
         <main className="flex-1 overflow-auto bg-background">
-          <Outlet />
-        </main>
+            <PageTransition key={location.pathname}>
+              <Outlet />
+            </PageTransition>
+          </main>
+        </div>
+        <KbdShortcuts open={kbdOpen} onClose={() => setKbdOpen(false)} />
       </div>
-    </div>
   )
 }
 

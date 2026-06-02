@@ -1,6 +1,6 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router'
-import { useEffect } from 'react'
-import { MessageSquare, Briefcase, TrendingUp, Settings, LogOut, BarChart3, Moon, FileDown, BookOpen, Sun, Languages, Swords, Map, History, Filter, TrendingDown, type LucideIcon } from 'lucide-react'
+import { useEffect, useState, useCallback } from 'react'
+import { MessageSquare, Briefcase, TrendingUp, Settings, LogOut, BarChart3, Moon, FileDown, BookOpen, Sun, Languages, Swords, Map, History, Filter, TrendingDown, Menu, X, type LucideIcon } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
 import { MarketBar } from '@/components/market-bar'
@@ -79,37 +79,92 @@ export function AppLayout() {
   const handleLogout = useLogoutHandler()
   useRouteActivity(user?.id, location)
 
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const closeSidebar = useCallback(() => setSidebarOpen(false), [])
+
+  // Close sidebar on route change (mobile)
+  useEffect(() => { setSidebarOpen(false) }, [location.pathname])
+
+  // Close sidebar on Escape
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSidebarOpen(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
+
+  // ── Sidebar content (shared by desktop + mobile) ──────────────────
+  const sidebarContent = (
+    <>
+      <div className="px-5 py-5">
+        <h2 className="bg-gradient-to-r from-primary to-cyan-500 bg-clip-text text-xl font-bold tracking-tight text-transparent">
+          Wyckoff
+        </h2>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">{t('app.subtitle')}</p>
+      </div>
+      <nav className="flex-1 space-y-0.5 px-3">
+        {navItems.map(({ to, icon: Icon, labelKey }) => (
+          <Link
+            key={to}
+            to={to}
+            className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all ${
+              _navActive(location.pathname, location.hash, to)
+                ? 'bg-primary/10 font-medium text-primary shadow-sm'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+            }`}
+          >
+            <Icon size={18} />
+            {t(labelKey)}
+          </Link>
+        ))}
+      </nav>
+      <SidebarFooter email={user?.email || 'dev@preview'} onLogout={handleLogout} />
+    </>
+  )
+
   return (
     <div className="flex h-screen">
-      <aside className="flex w-56 flex-col border-r border-border bg-sidebar">
-        <div className="px-5 py-5">
-          <h2 className="bg-gradient-to-r from-primary to-cyan-500 bg-clip-text text-xl font-bold tracking-tight text-transparent">
-            Wyckoff
-          </h2>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">{t('app.subtitle')}</p>
-        </div>
+      {/* Desktop sidebar: hidden below lg, visible above */}
+      <aside className="hidden lg:flex w-56 flex-col border-r border-border bg-sidebar">
+        {sidebarContent}
+      </aside>
 
-        <nav className="flex-1 space-y-0.5 px-3">
-          {navItems.map(({ to, icon: Icon, labelKey }) => (
-            <Link
-              key={to}
-              to={to}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all ${
-                _navActive(location.pathname, location.hash, to)
-                  ? 'bg-primary/10 font-medium text-primary shadow-sm'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-              }`}
-            >
-              <Icon size={18} />
-              {t(labelKey)}
-            </Link>
-          ))}
-        </nav>
+      {/* Mobile sidebar overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={closeSidebar}
+        />
+      )}
 
-        <SidebarFooter email={user?.email || 'dev@preview'} onLogout={handleLogout} />
+      {/* Mobile sidebar panel */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 max-w-[85vw] flex-col border-r border-border bg-sidebar transition-transform duration-300 lg:hidden ${
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        {/* Close button */}
+        <button
+          onClick={closeSidebar}
+          className="absolute right-3 top-4 flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+        >
+          <X size={18} />
+        </button>
+        {sidebarContent}
       </aside>
 
       <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Mobile header bar */}
+        <div className="flex items-center gap-3 border-b border-border bg-background px-4 py-2.5 lg:hidden">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+          >
+            <Menu size={20} />
+          </button>
+          <h2 className="bg-gradient-to-r from-primary to-cyan-500 bg-clip-text text-lg font-bold text-transparent">
+            Wyckoff
+          </h2>
+        </div>
         <MarketBar />
         <main className="flex-1 overflow-auto bg-background">
           <Outlet />

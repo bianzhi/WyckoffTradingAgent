@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useRealtimeQuotes, type ConnectionStatus } from '@/lib/realtime-quotes'
 import { usePreferences, type TranslationKey } from '@/lib/preferences'
+import { relativeTime, formatDate, type TimeLocale } from '@/lib/relative-time'
 
 interface MarketSignal {
   benchmark_regime: string
@@ -93,7 +94,7 @@ async function fetchSignal(): Promise<MarketSignal | null> {
 }
 
 export function MarketBar() {
-  const { t } = usePreferences()
+  const { t, locale } = usePreferences()
   const { data: signal } = useQuery({
     queryKey: ['market-signal'],
     queryFn: fetchSignal,
@@ -121,7 +122,9 @@ export function MarketBar() {
   const tone = TONE_META[signal.banner_tone] || TONE_META['谨慎']!
 
   const fmtPct = (v: number) => v ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : '--'
-  const fmtDate = (d: string) => d ? d.slice(5).replace('-', '/') : ''
+  const fmtDate = (d: string) => formatDate(d, locale as TimeLocale) || d?.slice(5).replace('-', '/')
+  const dt = signal.main_index_date || signal.a50_date || signal.vix_date
+  const relTime = relativeTime(dt, locale)
 
   return (
     <div className="border-b border-border bg-background px-6 py-2.5">
@@ -169,6 +172,11 @@ export function MarketBar() {
 
         {signal.banner_title && (
           <span className="ml-auto text-xs font-medium text-foreground">{signal.banner_title}</span>
+        )}
+
+        {/* Relative time badge */}
+        {relTime && (
+          <span className="text-[10px] text-muted-foreground/60" title={dt}>{relTime}</span>
         )}
 
         {/* Phase 1.2: WebSocket connection indicator */}

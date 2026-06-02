@@ -5,7 +5,7 @@
  * 支持一键发起全市场漏斗筛选
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createChart, HistogramSeries, type HistogramData, type Time } from 'lightweight-charts'
 import { fetchFunnelSummary, fetchFunnelDates, fetchSignalQualityStats, fetchFunnelResult, downloadFunnelReport, type FunnelSummary, type SectorStat, type TriggerStat, type FunnelFullResult, type FunnelLayerCondition } from '@/lib/funnel-data'
@@ -598,6 +598,31 @@ function FunnelStockTable({
   activeStocks: FunnelFullResult['stocks']
   exitedStocks: FunnelFullResult['stocks']
 }) {
+  const [sortBy, setSortBy] = useState<'score' | 'price' | 'channel' | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+
+  const sorted = useMemo(() => {
+    if (!sortBy) return activeStocks
+    const dir = sortDir === 'asc' ? 1 : -1
+    return [...activeStocks].sort((a, b) => {
+      if (sortBy === 'score') return (a.score - b.score) * dir
+      if (sortBy === 'price') return ((a.latest_close ?? 0) - (b.latest_close ?? 0)) * dir
+      if (sortBy === 'channel') return a.channel.localeCompare(b.channel) * dir
+      return 0
+    })
+  }, [activeStocks, sortBy, sortDir])
+
+  const toggleSort = (col: 'score' | 'price' | 'channel') => {
+    if (sortBy === col) {
+      setSortDir(prev => prev === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(col); setSortDir('desc')
+    }
+  }
+
+  const sortArrow = (col: 'score' | 'price' | 'channel') =>
+    sortBy === col ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
@@ -606,15 +631,21 @@ function FunnelStockTable({
             <th className="px-2 py-1.5 text-left w-8">#</th>
             <th className="px-2 py-1.5 text-left">{isZh ? '代码' : 'Code'}</th>
             <th className="px-2 py-1.5 text-left">{isZh ? '名称' : 'Name'}</th>
-            <th className="px-2 py-1.5 text-left">{isZh ? 'L2通道' : 'L2 Channel'}</th>
-            <th className="px-2 py-1.5 text-right">{isZh ? '评分' : 'Score'}</th>
-            <th className="px-2 py-1.5 text-right">{isZh ? '最新价' : 'Price'}</th>
+            <th className="px-2 py-1.5 text-left cursor-pointer hover:text-foreground select-none" onClick={() => toggleSort('channel')}>
+              {isZh ? 'L2通道' : 'L2 Channel'}{sortArrow('channel')}
+            </th>
+            <th className="px-2 py-1.5 text-right cursor-pointer hover:text-foreground select-none" onClick={() => toggleSort('score')}>
+              {isZh ? '评分' : 'Score'}{sortArrow('score')}
+            </th>
+            <th className="px-2 py-1.5 text-right cursor-pointer hover:text-foreground select-none" onClick={() => toggleSort('price')}>
+              {isZh ? '最新价' : 'Price'}{sortArrow('price')}
+            </th>
             <th className="px-2 py-1.5 text-left">{isZh ? 'L4信号' : 'L4 Signals'}</th>
             <th className="px-2 py-1.5 text-left">{isZh ? '阶段' : 'Stage'}</th>
           </tr>
         </thead>
         <tbody>
-          {activeStocks.map((s, i) => (
+          {sorted.map((s, i) => (
             <tr key={s.code} className="border-b border-border/50 hover:bg-muted/20">
               <td className="px-2 py-1.5 text-muted-foreground tabular-nums">{i + 1}</td>
               <td className="px-2 py-1.5">

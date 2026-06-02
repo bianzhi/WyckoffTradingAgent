@@ -449,6 +449,23 @@ function currentClockTime(): string {
   return new Date().toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
+function FunnelProgressBar({ pct, isZh }: { pct: number; isZh: boolean }) {
+  return (
+    <div className="mb-3">
+      <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1">
+        <span>{isZh ? '整体进度' : 'Overall'}</span>
+        <span>{pct}%</span>
+      </div>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full bg-primary transition-all duration-700 ease-out"
+          style={{ width: `${Math.max(pct, 2)}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
 function FunnelRunPanel({ isZh, funnelState, logs, error }: {
   isZh: boolean
   funnelState: FunnelState
@@ -458,8 +475,6 @@ function FunnelRunPanel({ isZh, funnelState, logs, error }: {
   if (funnelState === 'idle' && logs.length === 0 && !error) return null
   const isRunning = funnelState === 'running'
   const recent = logs.slice(-15).reverse()
-
-  // 取最新一条的 progress 作为整体进度
   const latestProgress = logs.length > 0 ? logs[logs.length - 1]!.progress : -1
   const overallPct = latestProgress >= 0 ? Math.round(latestProgress * 100) : null
 
@@ -472,21 +487,7 @@ function FunnelRunPanel({ isZh, funnelState, logs, error }: {
         </span>
       </div>
 
-      {/* 整体进度条 */}
-      {isRunning && overallPct !== null && (
-        <div className="mb-3">
-          <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1">
-            <span>{isZh ? '整体进度' : 'Overall'}</span>
-            <span>{overallPct}%</span>
-          </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-primary transition-all duration-700 ease-out"
-              style={{ width: `${Math.max(overallPct, 2)}%` }}
-            />
-          </div>
-        </div>
-      )}
+      {isRunning && overallPct !== null && <FunnelProgressBar pct={overallPct} isZh={isZh} />}
 
       {recent.length > 0 ? (
         <div className="space-y-1.5 max-h-[420px] overflow-y-auto">

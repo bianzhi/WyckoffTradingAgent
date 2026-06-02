@@ -62,6 +62,8 @@
   "integrations/fetch_a_share_csv.py::get_all_stocks": 81,
   "integrations/fetch_a_share_csv.py::_build_export": 52,
   "integrations/fetch_a_share_csv.py::main": 69,
+  "integrations/kline_cache.py::_fetch_tickflow_batch": 53,
+  "integrations/kline_cache.py::refresh_market_klines": 71,
   "integrations/llm_adapter.py::call_llm_via_litellm": 73,
   "integrations/llm_client.py::call_llm": 91,
   "integrations/llm_client.py::_call_gemini": 104,

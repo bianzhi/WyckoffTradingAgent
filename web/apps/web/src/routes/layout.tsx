@@ -1,6 +1,6 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router'
 import { useEffect, useState, useCallback } from 'react'
-import { MessageSquare, Briefcase, TrendingUp, Settings, LogOut, BarChart3, Moon, FileDown, BookOpen, Sun, Languages, Swords, Map, History, Filter, TrendingDown, Activity, Menu, X, type LucideIcon } from 'lucide-react'
+import { MessageSquare, Briefcase, TrendingUp, Settings, LogOut, BarChart3, Moon, FileDown, BookOpen, Sun, Languages, Swords, Map, History, Filter, TrendingDown, Activity, Bell, Menu, X, type LucideIcon } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
 import { MarketBar } from '@/components/market-bar'
@@ -19,6 +19,7 @@ const navItems = [
   { to: '/funnel', icon: Filter, labelKey: 'nav.funnel' },
   { to: '/backtest', icon: TrendingDown, labelKey: 'nav.backtest' },
   { to: '/signal', icon: Activity, labelKey: 'nav.signal' },
+  { to: '/alerts', icon: Bell, labelKey: 'nav.alerts' },
   { to: '/tail-buy', icon: Moon, labelKey: 'nav.tailBuy' },
   { to: '/export', icon: FileDown, labelKey: 'nav.export' },
   { to: '/guide', icon: BookOpen, labelKey: 'nav.guide' },

@@ -23,6 +23,7 @@ const FeatureGuidePage = lazy(() => import('@/routes/feature-guide').then(m => (
 const FunnelPage = lazy(() => import('@/routes/funnel').then(m => ({ default: m.FunnelPage })))
 const BacktestPage = lazy(() => import('@/routes/backtest').then(m => ({ default: m.BacktestPage })))
 const SignalPage = lazy(() => import('@/routes/signal').then(m => ({ default: m.SignalPage })))
+const AlertsPage = lazy(() => import('@/routes/alerts').then(m => ({ default: m.AlertsPage })))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -54,6 +55,7 @@ createRoot(document.getElementById('root')!).render(
                   <Route path="/funnel" element={<FunnelPage />} />
                   <Route path="/backtest" element={<BacktestPage />} />
                   <Route path="/signal" element={<SignalPage />} />
+                  <Route path="/alerts" element={<AlertsPage />} />
                   <Route path="/settings" element={<SettingsPage />} />
                 </Route>
               </Route>

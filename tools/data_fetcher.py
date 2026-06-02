@@ -254,12 +254,12 @@ def _fetch_all_ohlcv_tickflow_batch(
     batch_size: int,
     batch_sleep: float,
 ) -> tuple[dict[str, pd.DataFrame], dict[str, int]] | None:
-    if not _should_use_tickflow_batch():
-        return None
-
     cached = _try_kline_cache(symbols, window, enforce_target_trade_date, batch_size, batch_sleep)
     if cached is not None:
         return cached
+
+    if not _should_use_tickflow_batch():
+        return None
 
     client = TickFlowClient(api_key=os.getenv("TICKFLOW_API_KEY", "").strip())
     start_ms, end_ms, count = _tickflow_window_params(window)
@@ -449,7 +449,11 @@ def fetch_all_ohlcv(
     """批量拉取 OHLCV，TickFlow 可用时先走批量接口，否则退回并行单票链路。"""
     batch_result = _fetch_all_ohlcv_tickflow_batch(symbols, window, enforce_target_trade_date, batch_size, batch_sleep)
     if batch_result is not None:
+        df_map, _stats = batch_result
+        print(f"[funnel] fetch_all_ohlcv 缓存命中: symbols={len(symbols)} result_keys={len(df_map)}")
         return batch_result
+
+    print(f"[funnel] fetch_all_ohlcv 缓存未命中，走并行单票链路 symbols={len(symbols)}")
 
     all_df_map: dict[str, pd.DataFrame] = {}
     fetch_ok = 0

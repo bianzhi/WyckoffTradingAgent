@@ -269,16 +269,18 @@ def _build_stocks(triggers: dict, metrics: dict) -> list[dict]:
     stocks: list[dict] = []
     all_hit_codes = set(stock_signals) | set(l3_symbols)
     for code in sorted(all_hit_codes):
-        stocks.append({
-            "code": code,
-            "name": name_map.get(code, ""),
-            "channel": l2_channel_map.get(code, ""),
-            "score": round(l3_score_map.get(code, stock_score.get(code, 0.0)), 1),
-            "signals": stock_signals.get(code, []),
-            "stage": accum_stage_map.get(code, ""),
-            "latest_close": latest_close_map.get(code),
-            "exit_signal": exit_signals.get(code, {}).get("signal", ""),
-        })
+        stocks.append(
+            {
+                "code": code,
+                "name": name_map.get(code, ""),
+                "channel": l2_channel_map.get(code, ""),
+                "score": round(l3_score_map.get(code, stock_score.get(code, 0.0)), 1),
+                "signals": stock_signals.get(code, []),
+                "stage": accum_stage_map.get(code, ""),
+                "latest_close": latest_close_map.get(code),
+                "exit_signal": exit_signals.get(code, {}).get("signal", ""),
+            }
+        )
     return stocks
 
 
@@ -288,7 +290,8 @@ def _build_layer_conditions(triggers: dict, metrics: dict, stocks: list[dict]) -
     hit_codes = len({code for hits in triggers.values() for code, _ in hits})
     return {
         "L1": {
-            "label": "初筛", "desc": "剔除ST/北交所/小市值/低成交额",
+            "label": "初筛",
+            "desc": "剔除ST/北交所/小市值/低成交额",
             "passed": metrics.get("layer1", 0),
         },
         "L2": {

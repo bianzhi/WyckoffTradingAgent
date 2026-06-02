@@ -100,7 +100,9 @@ def main() -> int:
     stop_loss_pct = float(cfg.get("stop_loss_pct", -7.0) if cfg.get("stop_loss_pct") is not None else -7.0)
     take_profit_pct = float(cfg.get("take_profit_pct", 18.0) if cfg.get("take_profit_pct") is not None else 18.0)
     trailing_stop_pct = float(cfg.get("trailing_stop_pct", 0.0) if cfg.get("trailing_stop_pct") is not None else 0.0)
-    trailing_activate_pct = float(cfg.get("trailing_activate_pct", 0.0) if cfg.get("trailing_activate_pct") is not None else 0.0)
+    trailing_activate_pct = float(
+        cfg.get("trailing_activate_pct", 0.0) if cfg.get("trailing_activate_pct") is not None else 0.0
+    )
     regime_filter = bool(cfg.get("regime_filter", False))
 
     trades_df, summary = run_backtest(

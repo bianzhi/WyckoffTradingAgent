@@ -475,7 +475,7 @@ function FunnelRunPanel({ isZh, funnelState, logs, error }: {
   if (funnelState === 'idle' && logs.length === 0 && !error) return null
   const isRunning = funnelState === 'running'
   const recent = logs.slice(-15).reverse()
-  const latestProgress = logs.length > 0 ? logs[logs.length - 1]!.progress : -1
+  const latestProgress = logs.length > 0 ? (logs[logs.length - 1]!.progress ?? -1) : -1
   const overallPct = latestProgress >= 0 ? Math.round(latestProgress * 100) : null
 
   return (
@@ -492,7 +492,7 @@ function FunnelRunPanel({ isZh, funnelState, logs, error }: {
       {recent.length > 0 ? (
         <div className="space-y-1.5 max-h-[420px] overflow-y-auto">
           {recent.map((log, index) => {
-            const pct = log.progress >= 0 ? Math.round(log.progress * 100) : null
+            const pct = log.progress != null && log.progress >= 0 ? Math.round(log.progress * 100) : null
             return (
               <div key={`${log.ts}-${log.stage}-${index}`} className="flex gap-2 rounded-md bg-muted/30 px-3 py-1.5 text-xs items-center">
                 <span className="w-14 shrink-0 text-[11px] text-muted-foreground tabular-nums">{log.ts || '--:--:--'}</span>

@@ -555,6 +555,35 @@ dataRoutes.get('/signal-quality-stats', async (c) => {
   }
 })
 
+// ── GET /api/data/signal-observations?status=active&limit=50&offset=0 ──
+
+dataRoutes.get('/signal-observations', async (c) => {
+  try {
+    const status = c.req.query('status') || 'all'
+    const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '50', 10) || 50, 1), 200)
+    const offset = Math.max(parseInt(c.req.query('offset') || '0', 10) || 0, 0)
+    const env = (c as any).env || {}
+    const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY)
+
+    let query = supabase
+      .from('signal_observations')
+      .select('*', { count: 'exact' })
+      .order('trade_date', { ascending: false })
+      .order('trigger_score', { ascending: false })
+
+    if (status !== 'all') {
+      query = query.eq('lifecycle_status', status.toUpperCase())
+    }
+
+    const { data, count, error } = await query.range(offset, offset + limit - 1)
+    if (error) return c.json({ error: error.message, observations: [], total: 0 })
+
+    return c.json({ observations: data || [], total: count || 0 })
+  } catch (err: any) {
+    return c.json({ error: `signal_observations: ${err.message}`, observations: [], total: 0 })
+  }
+})
+
 // ── 预警规则 API ───────────────────────────────────────────
 
 dataRoutes.get('/alerts', async (c) => {

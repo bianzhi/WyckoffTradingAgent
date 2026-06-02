@@ -133,6 +133,17 @@ export const dataSkill = {
     }
   },
 
+  /** 信号观察池列表 */
+  async fetchSignalObservations(status: string, limit?: number, offset?: number): Promise<{ observations: Array<Record<string, unknown>>; total: number; error?: string }> {
+    const params = new URLSearchParams({ status, limit: String(limit ?? 50), offset: String(offset ?? 0) })
+    const res = (await authFetch(`/api/data/signal-observations?${params}`)) as unknown as Record<string, unknown>
+    return {
+      observations: (res.observations as Array<Record<string, unknown>>) || [],
+      total: Number(res.total || 0),
+      error: res.error as string | undefined,
+    }
+  },
+
   /** 预警规则列表 */
   async fetchAlerts(): Promise<{ rules: Array<Record<string, unknown>>; error?: string }> {
     const res = (await authFetch('/api/data/alerts')) as unknown as Record<string, unknown>

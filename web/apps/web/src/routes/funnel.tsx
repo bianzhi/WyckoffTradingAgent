@@ -10,7 +10,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createChart, HistogramSeries, type HistogramData, type Time } from 'lightweight-charts'
 import { fetchFunnelSummary, fetchFunnelDates, fetchSignalQualityStats, fetchFunnelResult, downloadFunnelReport, type FunnelSummary, type SectorStat, type TriggerStat, type FunnelFullResult, type FunnelLayerCondition } from '@/lib/funnel-data'
 import { SkeletonChart, SkeletonCard } from '@/components/ux/skeleton'
+import { Breadcrumb } from '@/components/ux/breadcrumb'
+import { ScrollToTop } from '@/components/ux/scroll-top'
 import { relativeTime } from '@/lib/relative-time'
+import { useDocTitle } from '@/lib/doc-title'
 import { usePreferences } from '@/lib/preferences'
 
 type FunnelState = 'idle' | 'running' | 'completed' | 'error'
@@ -149,6 +152,7 @@ export function FunnelPage() {
   }
 
   const isZh = locale === 'zh-CN'
+  useDocTitle(isZh ? '威科夫漏斗 - Wyckoff' : 'Wyckoff Funnel - Wyckoff')
 
   if (isLoading) return <FunnelPageSkeleton />
   if (!summary) {
@@ -171,6 +175,7 @@ export function FunnelPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6">
+      <Breadcrumb items={[{ label: isZh ? '首页' : 'Home', href: '/' }, { label: isZh ? '威科夫漏斗' : 'Wyckoff Funnel' }]} />
       <FunnelHeader
         isZh={isZh}
         summary={summary}
@@ -219,6 +224,7 @@ export function FunnelPage() {
           onDownloadReport={downloadFunnelReport}
         />
       )}
+      <ScrollToTop />
     </div>
   )
 }

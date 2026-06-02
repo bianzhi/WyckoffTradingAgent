@@ -9,7 +9,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createChart, HistogramSeries, type HistogramData, type Time } from 'lightweight-charts'
 import { fetchFunnelSummary, fetchFunnelDates, fetchSignalQualityStats, fetchFunnelResult, downloadFunnelReport, type FunnelSummary, type SectorStat, type TriggerStat, type FunnelFullResult, type FunnelLayerCondition } from '@/lib/funnel-data'
-import { WyckoffLoading } from '@/components/loading'
+import { SkeletonChart, SkeletonCard } from '@/components/ux/skeleton'
+import { relativeTime } from '@/lib/relative-time'
 import { usePreferences } from '@/lib/preferences'
 
 type FunnelState = 'idle' | 'running' | 'completed' | 'error'
@@ -149,7 +150,7 @@ export function FunnelPage() {
 
   const isZh = locale === 'zh-CN'
 
-  if (isLoading) return <WyckoffLoading />
+  if (isLoading) return <FunnelPageSkeleton />
   if (!summary) {
     return (
       <div className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6">
@@ -222,6 +223,29 @@ export function FunnelPage() {
   )
 }
 
+function FunnelPageSkeleton() {
+  return (
+    <div className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className={`${SKEL_PULSE} h-6 w-40`} />
+          <div className={`${SKEL_PULSE} mt-1 h-3 w-64`} />
+        </div>
+      </div>
+      <SkeletonChart height={240} />
+      <div className="grid gap-6 lg:grid-cols-2">
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
+      <SkeletonCard lines={4} />
+      <SkeletonCard />
+      <SkeletonCard />
+    </div>
+  )
+}
+
+const SKEL_PULSE = 'animate-pulse rounded bg-muted/60'
+
 function FunnelHeader(props: {
   isZh: boolean
   summary: FunnelSummary
@@ -234,6 +258,8 @@ function FunnelHeader(props: {
   onTriggerFunnel: () => void
 }) {
   const { isZh, summary, dates, selectedDate, onDateChange, funnelState, funnelError, funnelProgress, onTriggerFunnel } = props
+  const { locale } = usePreferences()
+  const relTime = useMemo(() => summary.date ? relativeTime(summary.date, locale) : null, [summary.date, locale])
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
       <div>
@@ -242,6 +268,7 @@ function FunnelHeader(props: {
           {isZh
             ? `日期: ${summary.date} · 扫描 ${summary.totalScanned} 只 · AI 精选 ${summary.aiCount} 只`
             : `Date: ${summary.date} · Scanned ${summary.totalScanned} · AI picked ${summary.aiCount}`}
+          {relTime && <span className="ml-2 rounded-full bg-muted/50 px-2 py-0.5 text-[11px]">{isZh ? '更新于' : 'updated'} {relTime}</span>}
         </p>
         {funnelError && <p className="text-xs text-red-500 mt-1">{funnelError}</p>}
       </div>

@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Loader2, LayoutDashboard, Plus, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
-import { WyckoffLoading } from '@/components/loading'
+import { SkeletonCard } from '@/components/ux/skeleton'
 import { usePreferences } from '@/lib/preferences'
 import { loadLLMConfig } from '@/lib/chat-agent'
 import { streamLLMResponse } from '@/lib/llm-stream'
@@ -89,7 +89,7 @@ export function PortfolioPage() {
   const source = portfolioData.isWhitelisted ? 'database' : 'manual'
   usePortfolioHistory(user?.id, fullDiag.result, source)
 
-  if (portfolioData.isLoading) return <WyckoffLoading />
+  if (portfolioData.isLoading) return <PortfolioPageSkeleton />
 
   const portfolio = portfolioData.isWhitelisted ? portfolioData.portfolio : manualPortfolio
 
@@ -103,6 +103,16 @@ export function PortfolioPage() {
         <ManualInput portfolio={manualPortfolio} fullLoading={fullDiag.loading} progress={fullDiag.progress} onChange={setManualPortfolio} onDiagnosis={() => fullDiag.run(manualPortfolio)} />
       )}
       {fullDiag.result && <FullDiagnosisPanel result={fullDiag.result} report={fullDiag.streamingReport || fullDiag.result.report} streaming={fullDiag.loading && fullDiag.progress?.step === 'llm'} />}
+    </div>
+  )
+}
+
+function PortfolioPageSkeleton() {
+  return (
+    <div className="mx-auto flex max-w-6xl flex-col gap-5 p-6">
+      <div className={`animate-pulse rounded bg-muted/60 h-8 w-56`} />
+      <SkeletonCard lines={5} />
+      <SkeletonCard lines={4} />
     </div>
   )
 }

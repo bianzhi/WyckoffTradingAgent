@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { createChart, HistogramSeries, type Time } from 'lightweight-charts'
 import { supabase } from '@/lib/supabase'
 import { checkWhitelist } from '@/lib/kline'
-import { WyckoffLoading } from '@/components/loading'
+import { SkeletonTable } from '@/components/ux/skeleton'
 import { usePreferences } from '@/lib/preferences'
 import { useAuthStore } from '@/stores/auth'
 
@@ -144,6 +144,15 @@ function useTrackingData(market: MarketTab, isWhitelisted: boolean, needsGate: b
   return { data, loading, fetchError, latestDates, activeDates, windowRows, visibleData, filtered, stats, latestDate, oldestDate, activeOldestDate }
 }
 
+function TrackingPageSkeleton() {
+  return (
+    <div className="h-full overflow-auto p-6 space-y-4">
+      <div className={`animate-pulse rounded bg-muted/60 h-6 w-40`} />
+      <SkeletonTable rows={12} cols={6} />
+    </div>
+  )
+}
+
 export function TrackingPage() {
   const [market, setMarket] = useState<MarketTab>('cn')
   const [search, setSearch] = useState('')
@@ -164,7 +173,7 @@ export function TrackingPage() {
 
   const { filtered, stats, latestDate, oldestDate, activeDates, activeOldestDate, visibleData, windowRows, loading, fetchError } = useTrackingData(market, isWhitelisted, needsGate, selectedWindow, search, onlyAI, sortBy, sortOrder)
 
-  if (needsGate && whitelist.isLoading) return <WyckoffLoading />
+  if (needsGate && whitelist.isLoading) return <TrackingPageSkeleton />
 
   return (
     <div className="h-full overflow-auto p-6">
@@ -177,7 +186,7 @@ export function TrackingPage() {
           {fetchError.message}
         </div>
       ) : loading ? (
-        <WyckoffLoading />
+        <TrackingPageSkeleton />
       ) : (
         <TrackingReadyContent
           activeDates={activeDates}

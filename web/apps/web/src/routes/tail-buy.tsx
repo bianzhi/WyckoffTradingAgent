@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
-import { WyckoffLoading } from '@/components/loading'
+import { SkeletonTable } from '@/components/ux/skeleton'
 import { usePreferences } from '@/lib/preferences'
 
 interface TailBuyRecord {
@@ -127,6 +127,15 @@ function TailBuyTable({ data }: { data: TailBuyRecord[] }) {
   )
 }
 
+function TailBuyPageSkeleton() {
+  return (
+    <div className="mx-auto max-w-6xl space-y-4 p-6">
+      <div className={`animate-pulse rounded bg-muted/60 h-7 w-48`} />
+      <SkeletonTable rows={8} cols={8} />
+    </div>
+  )
+}
+
 export function TailBuyPage() {
   const { t } = usePreferences()
   const { data = [], isLoading } = useQuery({
@@ -135,7 +144,7 @@ export function TailBuyPage() {
   })
 
   if (isLoading) {
-    return <WyckoffLoading />
+    return <TailBuyPageSkeleton />
   }
 
   return (

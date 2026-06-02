@@ -298,6 +298,31 @@ function FunnelDateSelect({ dates, selectedDate, onDateChange }: {
   )
 }
 
+function FunnelProgress({ stage, detail, progress }: {
+  stage: string
+  detail: string
+  progress: number
+}) {
+  const pct = progress >= 0 ? Math.round(progress * 100) : null
+  return (
+    <div className="flex flex-col items-center gap-0.5">
+      <span className="text-[11px] text-muted-foreground">
+        {stage}
+        {detail ? ` — ${detail}` : ''}
+        {pct !== null ? ` (${pct}%)` : ''}
+      </span>
+      {pct !== null && (
+        <div className="h-1 w-32 overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full rounded-full bg-primary transition-all duration-500"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
 function FunnelTriggerButton({
   isZh,
   funnelState,
@@ -312,7 +337,6 @@ function FunnelTriggerButton({
   onTrigger: () => void
 }) {
   const isRunning = funnelState === 'running'
-  const pct = funnelProgress.progress >= 0 ? Math.round(funnelProgress.progress * 100) : null
 
   return (
     <div className="flex flex-col items-center gap-1">
@@ -334,21 +358,11 @@ function FunnelTriggerButton({
           : (isZh ? '🔍 发起筛选' : '🔍 Run Funnel')}
       </button>
       {isRunning && funnelProgress.stage && (
-        <div className="flex flex-col items-center gap-0.5">
-          <span className="text-[11px] text-muted-foreground">
-            {funnelProgress.stage}
-            {funnelProgress.detail ? ` — ${funnelProgress.detail}` : ''}
-            {pct !== null ? ` (${pct}%)` : ''}
-          </span>
-          {pct !== null && (
-            <div className="h-1 w-32 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-primary transition-all duration-500"
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-          )}
-        </div>
+        <FunnelProgress
+          stage={funnelProgress.stage}
+          detail={funnelProgress.detail}
+          progress={funnelProgress.progress}
+        />
       )}
       {funnelError && <p className="text-xs text-red-500">{funnelError}</p>}
     </div>
@@ -624,13 +638,69 @@ function FunnelStocksSection({
   )
 }
 
-function FunnelStockTable({
-  isZh, activeStocks, exitedStocks,
-}: {
+function FunnelStockRow({ s, i }: { s: FunnelFullResult['stocks'][number]; i: number }) {
+  return (
+    <tr key={s.code} className="border-b border-border/50 hover:bg-muted/20">
+      <td className="px-2 py-1.5 text-muted-foreground tabular-nums">{i + 1}</td>
+      <td className="px-2 py-1.5">
+        <a href={`/analysis?code=${s.code}`} className="font-mono font-medium text-primary hover:underline">
+          {s.code}
+        </a>
+      </td>
+      <td className="px-2 py-1.5 text-muted-foreground max-w-[120px] truncate" title={s.name}>{s.name || '-'}</td>
+      <td className="px-2 py-1.5">
+        <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">{s.channel || '-'}</span>
+      </td>
+      <td className="px-2 py-1.5 text-right font-mono tabular-nums font-semibold">{s.score.toFixed(1)}</td>
+      <td className="px-2 py-1.5 text-right font-mono tabular-nums text-muted-foreground">
+        {s.latest_close != null ? s.latest_close.toFixed(2) : '-'}
+      </td>
+      <td className="px-2 py-1.5">
+        <div className="flex flex-wrap gap-0.5">
+          {s.signals.map(sig => (
+            <span key={sig} className="rounded bg-emerald-500/10 px-1 py-0.5 text-[10px] text-emerald-400">
+              {SIGNAL_LABELS[sig] ?? sig}
+            </span>
+          ))}
+        </div>
+      </td>
+      <td className="px-2 py-1.5 text-muted-foreground">{s.stage || '-'}</td>
+    </tr>
+  )
+}
+
+function FunnelExitedSection({ isZh, exitedStocks }: {
   isZh: boolean
-  activeStocks: FunnelFullResult['stocks']
   exitedStocks: FunnelFullResult['stocks']
 }) {
+  return (
+    <>
+      <tr>
+        <td colSpan={8} className="px-2 py-1.5 text-[11px] text-muted-foreground">
+          {isZh ? `以下 ${exitedStocks.length} 只触发退出信号（已剔除）` : `${exitedStocks.length} stocks triggered exit signals`}
+        </td>
+      </tr>
+      {exitedStocks.map(s => (
+        <tr key={s.code} className="border-b border-border/50 opacity-40 line-through hover:opacity-60">
+          <td className="px-2 py-1.5 text-muted-foreground">·</td>
+          <td className="px-2 py-1.5 font-mono text-muted-foreground">{s.code}</td>
+          <td className="px-2 py-1.5 text-muted-foreground max-w-[120px] truncate">{s.name || '-'}</td>
+          <td className="px-2 py-1.5 text-muted-foreground">{s.channel || '-'}</td>
+          <td className="px-2 py-1.5 text-right font-mono tabular-nums">{s.score.toFixed(1)}</td>
+          <td className="px-2 py-1.5 text-right font-mono tabular-nums">
+            {s.latest_close != null ? s.latest_close.toFixed(2) : '-'}
+          </td>
+          <td className="px-2 py-1.5">
+            <span className="rounded bg-red-500/10 px-1 py-0.5 text-[10px] text-red-400">⚠ {s.exit_signal}</span>
+          </td>
+          <td className="px-2 py-1.5 text-muted-foreground">{s.stage || '-'}</td>
+        </tr>
+      ))}
+    </>
+  )
+}
+
+function useStockSort(activeStocks: FunnelFullResult['stocks']) {
   const [sortBy, setSortBy] = useState<'score' | 'price' | 'channel' | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
@@ -646,15 +716,24 @@ function FunnelStockTable({
   }, [activeStocks, sortBy, sortDir])
 
   const toggleSort = (col: 'score' | 'price' | 'channel') => {
-    if (sortBy === col) {
-      setSortDir(prev => prev === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortBy(col); setSortDir('desc')
-    }
+    if (sortBy === col) { setSortDir(prev => prev === 'asc' ? 'desc' : 'asc') }
+    else { setSortBy(col); setSortDir('desc') }
   }
 
   const sortArrow = (col: 'score' | 'price' | 'channel') =>
     sortBy === col ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''
+
+  return { sorted, toggleSort, sortArrow }
+}
+
+function FunnelStockTable({
+  isZh, activeStocks, exitedStocks,
+}: {
+  isZh: boolean
+  activeStocks: FunnelFullResult['stocks']
+  exitedStocks: FunnelFullResult['stocks']
+}) {
+  const { sorted, toggleSort, sortArrow } = useStockSort(activeStocks)
 
   return (
     <div className="overflow-x-auto">
@@ -679,57 +758,10 @@ function FunnelStockTable({
         </thead>
         <tbody>
           {sorted.map((s, i) => (
-            <tr key={s.code} className="border-b border-border/50 hover:bg-muted/20">
-              <td className="px-2 py-1.5 text-muted-foreground tabular-nums">{i + 1}</td>
-              <td className="px-2 py-1.5">
-                <a href={`/analysis?code=${s.code}`} className="font-mono font-medium text-primary hover:underline">
-                  {s.code}
-                </a>
-              </td>
-              <td className="px-2 py-1.5 text-muted-foreground max-w-[120px] truncate" title={s.name}>{s.name || '-'}</td>
-              <td className="px-2 py-1.5">
-                <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">{s.channel || '-'}</span>
-              </td>
-              <td className="px-2 py-1.5 text-right font-mono tabular-nums font-semibold">{s.score.toFixed(1)}</td>
-              <td className="px-2 py-1.5 text-right font-mono tabular-nums text-muted-foreground">
-                {s.latest_close != null ? s.latest_close.toFixed(2) : '-'}
-              </td>
-              <td className="px-2 py-1.5">
-                <div className="flex flex-wrap gap-0.5">
-                  {s.signals.map(sig => (
-                    <span key={sig} className="rounded bg-emerald-500/10 px-1 py-0.5 text-[10px] text-emerald-400">
-                      {SIGNAL_LABELS[sig] ?? sig}
-                    </span>
-                  ))}
-                </div>
-              </td>
-              <td className="px-2 py-1.5 text-muted-foreground">{s.stage || '-'}</td>
-            </tr>
+            <FunnelStockRow key={s.code} s={s} i={i} />
           ))}
           {exitedStocks.length > 0 && (
-            <>
-              <tr>
-                <td colSpan={8} className="px-2 py-1.5 text-[11px] text-muted-foreground">
-                  {isZh ? `以下 ${exitedStocks.length} 只触发退出信号（已剔除）` : `${exitedStocks.length} stocks triggered exit signals`}
-                </td>
-              </tr>
-              {exitedStocks.map(s => (
-                <tr key={s.code} className="border-b border-border/50 opacity-40 line-through hover:opacity-60">
-                  <td className="px-2 py-1.5 text-muted-foreground">·</td>
-                  <td className="px-2 py-1.5 font-mono text-muted-foreground">{s.code}</td>
-                  <td className="px-2 py-1.5 text-muted-foreground max-w-[120px] truncate">{s.name || '-'}</td>
-                  <td className="px-2 py-1.5 text-muted-foreground">{s.channel || '-'}</td>
-                  <td className="px-2 py-1.5 text-right font-mono tabular-nums">{s.score.toFixed(1)}</td>
-                  <td className="px-2 py-1.5 text-right font-mono tabular-nums">
-                    {s.latest_close != null ? s.latest_close.toFixed(2) : '-'}
-                  </td>
-                  <td className="px-2 py-1.5">
-                    <span className="rounded bg-red-500/10 px-1 py-0.5 text-[10px] text-red-400">⚠ {s.exit_signal}</span>
-                  </td>
-                  <td className="px-2 py-1.5 text-muted-foreground">{s.stage || '-'}</td>
-                </tr>
-              ))}
-            </>
+            <FunnelExitedSection isZh={isZh} exitedStocks={exitedStocks} />
           )}
         </tbody>
       </table>

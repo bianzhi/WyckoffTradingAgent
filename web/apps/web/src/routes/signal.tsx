@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Activity, ChevronLeft, ChevronRight } from 'lucide-react'
 import { usePreferences } from '@/lib/preferences'
-import { useDocTitle } from '@/components/ux/doc-title'
 import { Breadcrumb } from '@/components/ux/breadcrumb'
 import { ScrollToTop } from '@/components/ux/scroll-top'
 import { SkeletonTable } from '@/components/ux/skeleton'
@@ -74,7 +73,7 @@ export function SignalPage() {
   )
 }
 
-function FilterTabs({ filter, onFilter, t }: { filter: StatusFilter; onFilter: (f: StatusFilter) => void; t: (key: string) => string }) {
+function FilterTabs({ filter, onFilter, t }: { filter: StatusFilter; onFilter: (f: StatusFilter) => void; t: ReturnType<typeof usePreferences>['t'] }) {
   return (
     <nav className="mb-4 flex gap-1 overflow-x-auto">
       {STATUS_TABS.map((tab) => (

@@ -324,17 +324,38 @@ def _build_layer_conditions(triggers: dict, metrics: dict, stocks: list[dict]) -
     }
 
 
+def _funnel_progress_callback(stage: str, detail: str, progress: float) -> None:
+    global _funnel_progress
+    _funnel_progress = {"stage": stage, "detail": detail, "progress": progress}
+
+
+def _build_funnel_result(triggers: dict, metrics: dict, elapsed: float, stocks, layer_conditions) -> dict:
+    result = {
+        "ok": True,
+        "elapsed_s": round(elapsed, 1),
+        "total_scanned": len(metrics.get("all_symbols", [])),
+        "total_input": metrics.get("total_symbols", 0),
+        "trigger_hits": sum(len(v) for v in triggers.values()),
+        "hit_codes": len({code for hits in triggers.values() for code, _ in hits}),
+        "triggers": {k: len(v) for k, v in triggers.items()},
+        "stocks": stocks,
+        "layer_conditions": layer_conditions,
+        "top_sectors": metrics.get("top_sectors", []),
+        "date": metrics.get("end_trade_date", ""),
+    }
+    persist = _build_and_persist_funnel(triggers, metrics)
+    result.update(persist)
+    return result
+
+
 def _run_funnel_background() -> dict:
     """后台执行全市场漏斗筛选，返回摘要（含个股结果和层级条件）。"""
-    global _funnel_last_result, _funnel_progress
+    global _funnel_last_result
     import time
 
-    from cli.progress import set_reporter, report_progress
+    from cli.progress import set_reporter
 
-    def _on_progress(stage: str, detail: str, progress: float) -> None:
-        _funnel_progress = {"stage": stage, "detail": detail, "progress": progress}
-
-    set_reporter(_on_progress)
+    set_reporter(_funnel_progress_callback)
 
     start = time.time()
     try:
@@ -345,24 +366,7 @@ def _run_funnel_background() -> dict:
 
         stocks = _build_stocks(triggers, metrics)
         layer_conditions = _build_layer_conditions(triggers, metrics, stocks)
-
-        result = {
-            "ok": True,
-            "elapsed_s": round(elapsed, 1),
-            "total_scanned": len(metrics.get("all_symbols", [])),
-            "total_input": metrics.get("total_symbols", 0),
-            "trigger_hits": sum(len(v) for v in triggers.values()),
-            "hit_codes": len({code for hits in triggers.values() for code, _ in hits}),
-            "triggers": {k: len(v) for k, v in triggers.items()},
-            "stocks": stocks,
-            "layer_conditions": layer_conditions,
-            "top_sectors": metrics.get("top_sectors", []),
-            "date": metrics.get("end_trade_date", ""),
-        }
-
-        persist = _build_and_persist_funnel(triggers, metrics)
-        result.update(persist)
-
+        result = _build_funnel_result(triggers, metrics, elapsed, stocks, layer_conditions)
         _funnel_last_result = result
         return result
     except Exception as e:
@@ -422,14 +426,44 @@ def _get_funnel_report() -> str:
     return _render_report_html(result)
 
 
-def _render_report_html(result: dict) -> str:
+_REPORT_CSS = """\
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, "Noto Sans SC", "PingFang SC", sans-serif; background: #0f1117; color: #e4e8f1; padding: 24px; }
+h1 { font-size: 20px; margin-bottom: 4px; }
+.sub { font-size: 13px; color: #6b7394; margin-bottom: 20px; }
+.layers { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-bottom: 24px; }
+.layer-card { background: #1a1d2e; border: 1px solid #2a2f45; border-radius: 10px; padding: 14px 16px; }
+.layer-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.layer-id { font-size: 11px; font-weight: 700; color: #22c55e; background: #22c55e15; padding: 2px 8px; border-radius: 4px; }
+.layer-label { font-weight: 600; font-size: 14px; }
+.layer-count { margin-left: auto; font-size: 12px; color: #6b7394; }
+.layer-count b { color: #e4e8f1; }
+.layer-desc { font-size: 12px; color: #6b7394; margin-bottom: 6px; }
+.layer-detail { display: flex; flex-wrap: wrap; gap: 4px; }
+.layer-tag { font-size: 11px; background: #2a2f45; border-radius: 4px; padding: 2px 8px; color: #9ca3b8; }
+.sector-tag { font-size: 12px; background: #2563eb15; color: #60a5fa; border-radius: 4px; padding: 2px 10px; }
+.sectors { margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; padding: 8px 10px; background: #1a1d2e; color: #6b7394; font-weight: 500; border-bottom: 1px solid #2a2f45; font-size: 12px; position: sticky; top: 0; }
+td { padding: 8px 10px; border-bottom: 1px solid #1a1d2e; }
+tr:hover { background: #1a1d2e40; }
+.exit-row { opacity: 0.5; text-decoration: line-through; }
+.exit-row:hover { opacity: 0.7; }
+.num { text-align: right; font-variant-numeric: tabular-nums; font-family: "SF Mono", "JetBrains Mono", monospace; }
+.price { text-align: right; font-variant-numeric: tabular-nums; font-family: "SF Mono", "JetBrains Mono", monospace; color: #9ca3b8; }
+.code a { color: #60a5fa; text-decoration: none; font-family: "SF Mono", "JetBrains Mono", monospace; font-weight: 500; }
+.code a:hover { text-decoration: underline; }
+.sig { font-size: 10px; background: #22c55e10; color: #4ade80; border-radius: 3px; padding: 1px 6px; margin-right: 3px; }
+.exit { font-size: 10px; background: #ef444410; color: #f87171; border-radius: 3px; padding: 1px 6px; }
+.footer { margin-top: 24px; font-size: 12px; color: #6b7394; text-align: center; }
+.name { color: #9ca3b8; }
+.channel { color: #f59e0b; }
+.stage { font-size: 12px; color: #a78bfa; }
+.idx { color: #6b7394; font-size: 11px; width: 30px; }
+"""
 
-    stocks = result.get("stocks", []) or []
-    layers = result.get("layer_conditions", {}) or {}
-    date = result.get("date", "") or ""
-    elapsed = result.get("elapsed_s", 0) or 0
-    top_sectors = result.get("top_sectors", []) or []
 
+def _render_report_rows(stocks: list[dict]) -> str:
     rows = ""
     for i, s in enumerate(stocks):
         code = s.get("code", "")
@@ -457,7 +491,10 @@ def _render_report_html(result: dict) -> str:
 <td class="stage">{stage}</td>
 <td>{exit_badge}</td>
 </tr>"""
+    return rows
 
+
+def _render_report_layer_cards(layers: dict) -> str:
     layer_cards = ""
     for layer_key in ["L1", "L2", "L3", "L4", "L5"]:
         l = layers.get(layer_key, {})
@@ -480,7 +517,19 @@ def _render_report_html(result: dict) -> str:
 <div class="layer-desc">{desc}</div>
 <div class="layer-detail">{detail_html}</div>
 </div>"""
+    return layer_cards
 
+
+def _render_report_html(result: dict) -> str:
+
+    stocks = result.get("stocks", []) or []
+    layers = result.get("layer_conditions", {}) or {}
+    date = result.get("date", "") or ""
+    elapsed = result.get("elapsed_s", 0) or 0
+    top_sectors = result.get("top_sectors", []) or []
+
+    rows = _render_report_rows(stocks)
+    layer_cards = _render_report_layer_cards(layers)
     sector_tags = "".join(f'<span class="sector-tag">{s}</span>' for s in top_sectors[:10])
 
     return f"""<!DOCTYPE html>
@@ -488,41 +537,7 @@ def _render_report_html(result: dict) -> str:
 <head>
 <meta charset="utf-8">
 <title>威科夫漏斗报告 — {date}</title>
-<style>
-* {{ box-sizing: border-box; margin: 0; padding: 0; }}
-body {{ font-family: -apple-system, "Noto Sans SC", "PingFang SC", sans-serif; background: #0f1117; color: #e4e8f1; padding: 24px; }}
-h1 {{ font-size: 20px; margin-bottom: 4px; }}
-.sub {{ font-size: 13px; color: #6b7394; margin-bottom: 20px; }}
-.layers {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-bottom: 24px; }}
-.layer-card {{ background: #1a1d2e; border: 1px solid #2a2f45; border-radius: 10px; padding: 14px 16px; }}
-.layer-head {{ display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }}
-.layer-id {{ font-size: 11px; font-weight: 700; color: #22c55e; background: #22c55e15; padding: 2px 8px; border-radius: 4px; }}
-.layer-label {{ font-weight: 600; font-size: 14px; }}
-.layer-count {{ margin-left: auto; font-size: 12px; color: #6b7394; }}
-.layer-count b {{ color: #e4e8f1; }}
-.layer-desc {{ font-size: 12px; color: #6b7394; margin-bottom: 6px; }}
-.layer-detail {{ display: flex; flex-wrap: wrap; gap: 4px; }}
-.layer-tag {{ font-size: 11px; background: #2a2f45; border-radius: 4px; padding: 2px 8px; color: #9ca3b8; }}
-.sector-tag {{ font-size: 12px; background: #2563eb15; color: #60a5fa; border-radius: 4px; padding: 2px 10px; }}
-.sectors {{ margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 6px; }}
-table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
-th {{ text-align: left; padding: 8px 10px; background: #1a1d2e; color: #6b7394; font-weight: 500; border-bottom: 1px solid #2a2f45; font-size: 12px; position: sticky; top: 0; }}
-td {{ padding: 8px 10px; border-bottom: 1px solid #1a1d2e; }}
-tr:hover {{ background: #1a1d2e40; }}
-.exit-row {{ opacity: 0.5; text-decoration: line-through; }}
-.exit-row:hover {{ opacity: 0.7; }}
-.num {{ text-align: right; font-variant-numeric: tabular-nums; font-family: "SF Mono", "JetBrains Mono", monospace; }}
-.price {{ text-align: right; font-variant-numeric: tabular-nums; font-family: "SF Mono", "JetBrains Mono", monospace; color: #9ca3b8; }}
-.code a {{ color: #60a5fa; text-decoration: none; font-family: "SF Mono", "JetBrains Mono", monospace; font-weight: 500; }}
-.code a:hover {{ text-decoration: underline; }}
-.sig {{ font-size: 10px; background: #22c55e10; color: #4ade80; border-radius: 3px; padding: 1px 6px; margin-right: 3px; }}
-.exit {{ font-size: 10px; background: #ef444410; color: #f87171; border-radius: 3px; padding: 1px 6px; }}
-.footer {{ margin-top: 24px; font-size: 12px; color: #6b7394; text-align: center; }}
-.name {{ color: #9ca3b8; }}
-.channel {{ color: #f59e0b; }}
-.stage {{ font-size: 12px; color: #a78bfa; }}
-.idx {{ color: #6b7394; font-size: 11px; width: 30px; }}
-</style>
+<style>{_REPORT_CSS}</style>
 </head>
 <body>
 <h1>🔍 威科夫漏斗报告</h1>

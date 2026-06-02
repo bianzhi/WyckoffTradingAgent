@@ -339,6 +339,52 @@ function ChatEmptyState(props: {
   )
 }
 
+function ChatLoadingIndicator(props: {
+  liveSteps: StepInfo[]
+  liveProgress: Record<string, string>
+  streamingText: string
+  t: (key: TranslationKey) => string
+}) {
+  return (
+    <div className="flex justify-start">
+      <div className="max-w-[80%] rounded-2xl bg-muted px-4 py-2.5 text-sm text-foreground">
+        {props.liveSteps.length > 0 && (
+          <div className="mb-2 space-y-1">
+            {props.liveSteps.map((step, i) => (
+              <div key={i} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                {step.type === 'tool_call' ? (
+                  <>
+                    <Wrench size={10} className="text-amber-500" />
+                    <span>✓ {formatToolName(step.toolName, props.t)}</span>
+                    {props.liveProgress[step.toolName ?? ''] && (
+                      <span className="ml-1 animate-pulse text-[10px] text-blue-500">
+                        — {props.liveProgress[step.toolName ?? '']}
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <Brain size={10} className="text-blue-500" />
+                    <span className="line-clamp-1">{step.text?.slice(0, 60)}…</span>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {props.streamingText ? (
+          <MarkdownContent content={props.streamingText} />
+        ) : (
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
+            <span>{props.liveSteps.length > 0 ? props.t('chat.generating') : props.t('chat.thinking')}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function ChatMessageList(props: {
   messages: Message[]
   loading: boolean
@@ -354,42 +400,12 @@ function ChatMessageList(props: {
       ))}
 
       {props.loading && (
-        <div className="flex justify-start">
-          <div className="max-w-[80%] rounded-2xl bg-muted px-4 py-2.5 text-sm text-foreground">
-            {props.liveSteps.length > 0 && (
-              <div className="mb-2 space-y-1">
-                {props.liveSteps.map((step, i) => (
-                  <div key={i} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                    {step.type === 'tool_call' ? (
-                      <>
-                        <Wrench size={10} className="text-amber-500" />
-                        <span>✓ {formatToolName(step.toolName, props.t)}</span>
-                        {props.liveProgress[step.toolName ?? ''] && (
-                          <span className="ml-1 animate-pulse text-[10px] text-blue-500">
-                            — {props.liveProgress[step.toolName ?? '']}
-                          </span>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <Brain size={10} className="text-blue-500" />
-                        <span className="line-clamp-1">{step.text?.slice(0, 60)}…</span>
-                      </>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-            {props.streamingText ? (
-              <MarkdownContent content={props.streamingText} />
-            ) : (
-              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
-                <span>{props.liveSteps.length > 0 ? props.t('chat.generating') : props.t('chat.thinking')}</span>
-              </div>
-            )}
-          </div>
-        </div>
+        <ChatLoadingIndicator
+          liveSteps={props.liveSteps}
+          liveProgress={props.liveProgress}
+          streamingText={props.streamingText}
+          t={props.t}
+        />
       )}
     </div>
   )

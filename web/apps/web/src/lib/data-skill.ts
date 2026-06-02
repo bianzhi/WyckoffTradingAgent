@@ -269,6 +269,17 @@ export const dataSkill = {
     return resp.json()
   },
 
+  /** 运行回测 (Python 引擎) */
+  async fetchRunBacktest(params: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const { supabase } = await import('./supabase')
+    const { data: { session } } = await supabase.auth.getSession()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+    const resp = await fetch('/api/data/backtest/run', { method: 'POST', headers, body: JSON.stringify(params) })
+    if (!resp.ok) throw new Error(`Backtest API: ${resp.status}`)
+    return resp.json()
+  },
+
   /** 数据源健康状态快照 */
   async fetchDataSourceHealth(): Promise<Record<string, unknown>> {
     const { supabase } = await import('./supabase')

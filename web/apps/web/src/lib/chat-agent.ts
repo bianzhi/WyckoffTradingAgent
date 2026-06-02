@@ -13,7 +13,7 @@ import {
   execHeadlessAnalysis, execManageAlerts, execPortfolioRisk, execTuneParameters,
   execWalkForwardOptimize, execMonteCarloSimulate,
   execBenchmarkExitStrategies, execAnalyzeExitQuality,
-  execDataSourceHealth, execTriggerFunnel,
+  execDataSourceHealth, execTriggerFunnel, execRunBacktest,
  } from './chat-tools'
 
 const SYSTEM_PROMPT = `# 角色设定
@@ -731,6 +731,22 @@ function buildTools(userId: string, config: LLMConfig, reasoningCache: string[])
       description: '数据源健康状态：查询所有数据源（TickFlow、Tushare、AKShare、BaoStock、EFinance）的调用成功率、平均延迟、熔断状态、最后错误信息。用于诊断数据拉取问题。',
       inputSchema: z.object({}),
       execute: () => execDataSourceHealth(),
+    }),
+
+    run_backtest: tool({
+      description: '运行回测：调用 Python 引擎执行日线级量化回测。参数 start, end (YYYY-MM-DD), hold_days, top_n, board, exit_mode, stop_loss_pct, take_profit_pct。通常需要 30-120 秒。',
+      inputSchema: z.object({
+        start: z.string().describe('起始日期 YYYY-MM-DD'),
+        end: z.string().describe('结束日期 YYYY-MM-DD'),
+        hold_days: z.number().default(30).optional().describe('持有交易日数'),
+        top_n: z.number().default(10).optional().describe('每日候选上限'),
+        board: z.enum(['main_chinext', 'main', 'chinext', 'us', 'all']).default('main_chinext').optional(),
+        exit_mode: z.enum(['close_only', 'sltp']).default('sltp').optional(),
+        stop_loss_pct: z.number().default(-7).optional(),
+        take_profit_pct: z.number().default(18).optional(),
+        regime_filter: z.boolean().default(false).optional(),
+      }),
+      execute: (params) => execRunBacktest(progressDeps('run_backtest'), params as Record<string, unknown>),
     }),
   }
 }

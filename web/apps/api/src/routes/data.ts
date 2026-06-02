@@ -890,7 +890,34 @@ dataRoutes.post('/analyze-exit-quality', async (c) => {
   }
 })
 
-// ═══ POST /api/data/data-source-health ═══════════════════
+// ── POST /api/data/backtest/run ──────────────────────────
+
+dataRoutes.post('/backtest/run', async (c) => {
+  try {
+    const body = await c.req.json()
+    const { spawnSync } = await import('node:child_process')
+    const proc = spawnSync('python3', [
+      'scripts/backtest_web.py',
+    ], {
+      timeout: 180_000, encoding: 'utf-8',
+      env: { ...process.env, PYTHONPATH: process.env.PYTHONPATH || process.cwd() },
+      cwd: process.cwd(),
+      input: JSON.stringify(body),
+    })
+    if (proc.error) return c.json({ error: proc.error.message }, 500)
+    try {
+      const result = JSON.parse(proc.stdout?.trim() || '{}')
+      if (result.error) return c.json(result, 500)
+      return c.json(result)
+    } catch {
+      return c.json({ error: 'parse error', raw: proc.stdout?.slice(0, 500) || '' }, 500)
+    }
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500)
+  }
+})
+
+// ═══ GET /api/data/data-source-health ═══════════════════
 
 dataRoutes.get('/data-source-health', async (c) => {
   try {

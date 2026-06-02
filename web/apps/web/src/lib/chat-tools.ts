@@ -991,10 +991,8 @@ function computeStrength(vwapPos: number, closePos: number, m30: number, _m15: n
 export async function execDataSourceHealth(): Promise<string> {
   const health = await dataSkill.fetchDataSourceHealth()
   if (health.error) return `⚠️ 获取数据源健康状态失败: ${health.error}`
-
   const entries = Object.entries(health).filter(([k]) => k !== 'baostock_circuit' && k !== 'error')
   if (entries.length === 0) return '📡 数据源健康：暂无数据（尚未有数据源被调用）'
-
   const lines = ['📡 **数据源健康快照**\n']
   for (const [name, m] of entries) {
     const meta = m as Record<string, unknown>
@@ -1007,14 +1005,40 @@ export async function execDataSourceHealth(): Promise<string> {
       `最后错误: ${meta.last_error || '无'}`
     )
   }
-
-  // 熔断器状态
   const bao = health.baostock_circuit as Record<string, unknown> | undefined
   if (bao) {
     const open = bao.open as boolean
     const note = bao.note as string || ''
     if (open) lines.push(`\n⚠️ **BaoStock 熔断**：${note}`)
   }
+  return lines.join('\n')
+}
 
+// ── backtest_runner ──────────────────────────────────────────
+
+export async function execRunBacktest(deps: ToolDeps, params: Record<string, unknown>): Promise<string> {
+  deps.onProgress?.('🧪 正在运行回测… 通常需要 30-120 秒')
+  const result = await dataSkill.fetchRunBacktest(params)
+  if (result.error) return `❌ 回测失败: ${result.error}`
+  const m = result.metrics as Record<string, unknown> | undefined
+  if (!m) return '回测完成但未返回指标。'
+  const fmt = (v: unknown, d = 2) => {
+    const n = Number(v)
+    return isNaN(n) ? '-' : n.toFixed(d)
+  }
+  const lines = [
+    '## 📊 回测结果',
+    '',
+    '| 指标 | 数值 |',
+    '|------|------|',
+    `| 胜率 | ${fmt(m.win_rate_pct)}% |`,
+    `| 平均收益 | ${fmt(m.avg_ret_pct, 3)}% |`,
+    `| 夏普比 | ${fmt(m.sharpe_ratio, 3)} |`,
+    `| 最大回撤 | ${fmt(m.max_drawdown_pct)}% |`,
+    `| 卡玛比 | ${fmt(m.calmar_ratio, 3)} |`,
+    `| 成交笔数 | ${m.trades ?? '-'} |`,
+    '',
+    '> 打开 [回测页面](/backtest) 查看完整资金曲线、月度收益热力图和回撤分布。',
+  ]
   return lines.join('\n')
 }

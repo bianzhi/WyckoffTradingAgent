@@ -13,6 +13,7 @@ import os
 import threading
 import time
 import webbrowser
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse
 
@@ -219,7 +220,7 @@ _funnel_logs: list[dict] = []
 
 def _build_and_persist_funnel(triggers: dict, metrics: dict) -> dict:
     """从漏斗结果构建 symbols_info 并持久化到 Supabase。返回持久化摘要。"""
-    import time
+    from utils.trading_clock import CN_TZ
 
     result: dict = {}
     try:
@@ -230,9 +231,9 @@ def _build_and_persist_funnel(triggers: dict, metrics: dict) -> dict:
             try:
                 recommend_date = int(end_date.replace("-", ""))
             except ValueError:
-                recommend_date = int(time.strftime("%Y%m%d"))
+                recommend_date = int(datetime.now(CN_TZ).strftime("%Y%m%d"))
         else:
-            recommend_date = int(time.strftime("%Y%m%d"))
+            recommend_date = int(datetime.now(CN_TZ).strftime("%Y%m%d"))
 
         seen: dict[str, float] = {}
         for hits in triggers.values():
@@ -332,15 +333,17 @@ def _build_layer_conditions(triggers: dict, metrics: dict, stocks: list[dict]) -
 
 def _funnel_progress_callback(stage: str, detail: str, progress: float) -> None:
     global _funnel_progress, _funnel_logs
+    from utils.trading_clock import CN_TZ
+
     _funnel_progress = {"stage": stage, "detail": detail, "progress": progress}
     item = {
-        "ts": time.strftime("%H:%M:%S"),
+        "ts": datetime.now(CN_TZ).strftime("%H:%M:%S"),
         "stage": str(stage or ""),
         "detail": str(detail or ""),
         "progress": float(progress) if isinstance(progress, (int, float)) else -1.0,
     }
     if not _funnel_logs or _funnel_logs[-1] != item:
-        _funnel_logs = [*_funnel_logs[-79:], item]
+        _funnel_logs.append(item)
 
 
 def _build_funnel_result(triggers: dict, metrics: dict, elapsed: float, stocks, layer_conditions) -> dict:

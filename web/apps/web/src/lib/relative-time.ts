@@ -31,10 +31,20 @@ const EN_UNITS = {
 }
 
 export function relativeTime(dateStr: string | undefined | null, locale: TimeLocale = 'zh-CN'): string | null {
-  if (!dateStr) return null
+  if (dateStr == null) return null
   const u = locale === 'en-US' ? EN_UNITS : ZH_UNITS
-  const d = new Date(dateStr)
-  if (isNaN(d.getTime())) return dateStr
+
+  // 兼容 Supabase int 格式 (20260601) 和标准格式 (2026-06-01)
+  let normalized = String(dateStr).trim()
+  if (/^\d{8}$/.test(normalized)) {
+    const y = normalized.slice(0, 4)
+    const m = normalized.slice(4, 6)
+    const d = normalized.slice(6, 8)
+    normalized = `${y}-${m}-${d}`
+  }
+
+  const d = new Date(normalized)
+  if (isNaN(d.getTime())) return String(dateStr)
   const now = Date.now()
   const delta = Math.floor((now - d.getTime()) / 1000)
 

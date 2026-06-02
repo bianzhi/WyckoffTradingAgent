@@ -93,6 +93,28 @@ async function fetchSignal(): Promise<MarketSignal | null> {
   }
 }
 
+function LivePrice({ price, pct, symbol }: { price: number; pct: number; symbol: string }) {
+  const fmtPct = (v: number) => v ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : '--'
+  return (
+    <>
+      <span className="text-sm font-medium tabular-nums">{price.toFixed(symbol === 'vix' ? 1 : 0)}</span>
+      <span className={`text-xs font-medium tabular-nums ${pct >= 0 ? 'text-up' : 'text-down'}`}>
+        {fmtPct(pct)}
+      </span>
+      <span className="text-[9px] bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300 px-1 py-0.5 rounded animate-pulse">⚡ LIVE</span>
+    </>
+  )
+}
+
+const WS_LABEL: Record<ConnectionStatus, string> = {
+  connecting: '🔄',
+  connected: '🟢',
+  reconnecting: '🔄',
+  polling: '📡',
+  error: '🔴',
+  closed: '⏸️',
+}
+
 export function MarketBar() {
   const { t, locale } = usePreferences()
   const { data: signal } = useQuery({
@@ -101,20 +123,10 @@ export function MarketBar() {
     refetchInterval: 60_000,
   })
 
-  // Phase 1.2: realtime WebSocket quotes for main indices
   const { quotes: rtQuotes, status: wsStatus } = useRealtimeQuotes({
     symbols: ['000001.SH', '399001.SZ', '399006.SZ', '000688.SH'],
     enabled: true,
   })
-
-  const wsStatusLabel: Record<ConnectionStatus, string> = {
-    connecting: '🔄',
-    connected: '🟢',
-    reconnecting: '🔄',
-    polling: '📡',
-    error: '🔴',
-    closed: '⏸️',
-  }
 
   if (!signal) return null
 
@@ -125,6 +137,13 @@ export function MarketBar() {
   const fmtDate = (d: string) => formatDate(d, locale as TimeLocale) || d?.slice(5).replace('-', '/')
   const dt = signal.main_index_date || signal.a50_date || signal.vix_date
   const relTime = relativeTime(dt, locale)
+
+  // Merge live quotes into display: WebSocket data overrides Supabase snapshots
+  const mainQuote = rtQuotes.get('000001.SH')
+  const isLive = !!mainQuote && wsStatus === 'connected'
+
+  const mainPrice = isLive ? mainQuote.price : signal.main_index_close
+  const mainPct = isLive ? mainQuote.changePct : signal.main_index_today_pct
 
   return (
     <div className="border-b border-border bg-background px-6 py-2.5">
@@ -140,11 +159,18 @@ export function MarketBar() {
         {signal.main_index_close > 0 && (
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-muted-foreground">{t('market.mainIndex')}</span>
-            <span className="text-sm font-medium">{signal.main_index_close.toFixed(0)}</span>
-            <span className={`text-xs font-medium ${signal.main_index_today_pct >= 0 ? 'text-up' : 'text-down'}`}>
-              {fmtPct(signal.main_index_today_pct)}
-            </span>
-            {signal.main_index_date && <span className="text-[10px] text-muted-foreground">{fmtDate(signal.main_index_date)}</span>}
+            {isLive ? (
+              <LivePrice price={mainPrice} pct={mainPct} symbol="index" />
+            ) : (
+              <>
+                <span className="text-sm font-medium">{signal.main_index_close.toFixed(0)}</span>
+                <span className={`text-xs font-medium ${signal.main_index_today_pct >= 0 ? 'text-up' : 'text-down'}`}>
+                  {fmtPct(signal.main_index_today_pct)}
+                </span>
+                {signal.main_index_date && <span className="text-[10px] text-muted-foreground">{fmtDate(signal.main_index_date)}</span>}
+                <span className="text-xs" title={`WebSocket: ${wsStatus}`}>{WS_LABEL[wsStatus] || '🔌'}</span>
+              </>
+            )}
           </div>
         )}
 
@@ -174,29 +200,30 @@ export function MarketBar() {
           <span className="ml-auto text-xs font-medium text-foreground">{signal.banner_title}</span>
         )}
 
-        {/* Relative time badge */}
         {relTime && (
           <span className="text-[10px] text-muted-foreground/60" title={dt}>{relTime}</span>
         )}
 
-        {/* Phase 1.2: WebSocket connection indicator */}
-        <span className="text-xs text-muted-foreground" title={`WebSocket: ${wsStatus}`}>
-          {wsStatusLabel[wsStatus] || '🔌'}
-        </span>
+        {/* Connection status shown in main row only when NOT live (live mode has its own indicator) */}
+        {!isLive && (
+          <span className="text-xs" title={`WebSocket: ${wsStatus}`}>{WS_LABEL[wsStatus] || '🔌'}</span>
+        )}
       </div>
 
-      {/* Phase 1.2: Realtime quote ticker */}
+      {/* Realtime ticker: show non-main-index symbols */}
       {rtQuotes.size > 0 && (
         <div className="mt-1 flex flex-wrap gap-3 border-t border-border/30 pt-1">
-          {Array.from(rtQuotes.values()).map((q) => (
-            <span key={q.symbol} className="text-[11px]">
-              <span className="text-muted-foreground">{q.symbol.replace(/\.(SH|SZ)$/, '')}</span>{' '}
-              <span className="font-medium">{q.price.toFixed(2)}</span>{' '}
-              <span className={q.changePct >= 0 ? 'text-up' : 'text-down'}>
-                {q.changePct >= 0 ? '+' : ''}{q.changePct.toFixed(2)}%
+          {Array.from(rtQuotes.values())
+            .filter((q) => q.symbol !== '000001.SH')
+            .map((q) => (
+              <span key={q.symbol} className="text-[11px]">
+                <span className="text-muted-foreground">{q.symbol.replace(/\.(SH|SZ)$/, '')}</span>{' '}
+                <span className="font-medium tabular-nums">{q.price.toFixed(2)}</span>{' '}
+                <span className={q.changePct >= 0 ? 'text-up' : 'text-down'}>
+                  {q.changePct >= 0 ? '+' : ''}{q.changePct.toFixed(2)}%
+                </span>
               </span>
-            </span>
-          ))}
+            ))}
         </div>
       )}
 

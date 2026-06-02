@@ -100,7 +100,7 @@ export function BacktestPage() {
   const form = useBacktestRunForm(setError, setResult, setRunning)
 
   const monthlyReturns = useMemo(() => {
-    if (!result || result.dates.length < 2) return []
+    if (!result || !result.dates || result.dates.length < 2) return []
     return computeMonthlyReturns(result.dates, result.nav)
   }, [result])
 
@@ -113,7 +113,7 @@ export function BacktestPage() {
         <PasteTab input={pasteInput} setInput={setPasteInput} isZh={isZh} setResult={setResult} setError={setError} />
       )}
       {running && <LoadingIndicator isZh={isZh} />}
-      {result && result.dates.length > 0 && !running && (
+      {result && result.dates?.length > 0 && !running && (
         <BacktestResults result={result} monthlyReturns={monthlyReturns} isZh={isZh} />
       )}
     </div>

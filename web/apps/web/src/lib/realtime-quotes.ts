@@ -40,6 +40,7 @@ const DEFAULT_WS_URL = (() => {
 
 const RECONNECT_BASE_MS = 2_000
 const RECONNECT_MAX_MS = 60_000
+const MAX_RETRIES = 5
 const POLL_INTERVAL_MS = 120_000
 
 // ─── useWebSocket ────────────────────────────────────────────────────────────
@@ -72,6 +73,7 @@ function useWebSocket(
 
       ws.onopen = () => {
         setStatus('connected')
+        setFailed(false)
         reconnectAttemptRef.current = 0
         ws.send(JSON.stringify({ type: 'watchlist', symbols: symbolsRef.current }))
       }
@@ -107,6 +109,11 @@ function useWebSocket(
   const reconnect = useCallback(() => {
     const attempt = reconnectAttemptRef.current + 1
     reconnectAttemptRef.current = attempt
+    if (attempt > MAX_RETRIES) {
+      setFailed(true)
+      setStatus('closed')
+      return
+    }
     setStatus('reconnecting')
     const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, attempt - 1), RECONNECT_MAX_MS)
     timerRef.current = setTimeout(() => connectWs(), delay)

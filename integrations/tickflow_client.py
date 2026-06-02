@@ -118,6 +118,10 @@ def _success_payload(
     return resp.json()
 
 
+class TickFlowFatalError(RuntimeError):
+    """不可重试的错误（权限不足、参数非法等 4xx 状态码）。"""
+
+
 def _retry_or_raise_http(
     resp: requests.Response,
     *,
@@ -153,6 +157,15 @@ def _retry_or_raise_http(
         )
         time.sleep(retry_backoff_seconds * attempt)
         return
+
+    # 4xx 客户端错误（权限、参数等）不可重试
+    if resp.status_code >= 400 and resp.status_code < 500:
+        _tf_log(
+            f"http_fatal path={path} status={resp.status_code} "
+            f"attempt={attempt}/{max_retries} params={params_summary} body={body[:160]}",
+            always=True,
+        )
+        raise TickFlowFatalError(f"TickFlow HTTP {resp.status_code}: {body[:200]}")
 
     _tf_log(
         f"http_fail path={path} status={resp.status_code} "
@@ -312,6 +325,8 @@ class TickFlowClient:
                     retry_backoff_seconds=self.retry_backoff_seconds,
                 )
                 continue
+            except TickFlowFatalError:
+                raise  # 4xx 权限/参数错误，不重试，直接抛出
             except Exception as e:  # requests.Timeout / requests.ConnectionError / RuntimeError
                 if is_tickflow_rate_limited_error(e):
                     record_tickflow_limit_event(e)

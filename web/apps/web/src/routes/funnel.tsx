@@ -527,7 +527,7 @@ function FunnelTriggerButton({
 
 function normalizeProgressLogs(value: unknown): FunnelProgressLog[] {
   if (!Array.isArray(value)) return []
-  return value.slice(-80).map((item) => {
+  return value.map((item) => {
     const row = (item && typeof item === 'object' && !Array.isArray(item)) ? item as Record<string, unknown> : {}
     return {
       ts: String(row.ts || ''),

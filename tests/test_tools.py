@@ -200,6 +200,7 @@ class TestDataFetcher:
 
         window = SimpleNamespace(start_trade_date=date(2025, 1, 1), end_trade_date=date(2025, 1, 2))
         monkeypatch.setenv("TICKFLOW_API_KEY", "dummy")
+        monkeypatch.setenv("KLINE_CACHE_ENABLED", "0")
         monkeypatch.setattr(dfetcher, "TICKFLOW_BATCH_ENABLED", True)
         monkeypatch.setattr(dfetcher, "TickFlowClient", FakeTickFlowClient)
 

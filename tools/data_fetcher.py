@@ -236,6 +236,8 @@ def _try_kline_cache(
     """非严格对齐模式下尝试走本地 K 线缓存，返回 None 表示缓存未命中。"""
     if enforce_target_trade_date:
         return None
+    if os.getenv("KLINE_CACHE_ENABLED", "1").strip().lower() in ("0", "false", "no", "off"):
+        return None
     from integrations.kline_cache import refresh_market_klines
 
     day_span = (window.end_trade_date - window.start_trade_date).days + 1

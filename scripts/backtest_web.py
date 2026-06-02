@@ -73,6 +73,28 @@ def _clean_metrics(d: dict) -> dict:
     return out
 
 
+def _parse_backtest_config(cfg: dict) -> dict:
+    """从 JSON 配置中提取回测参数，返回规范化的参数字典。"""
+    return {
+        "start_dt": _parse_date(cfg.get("start", "")),
+        "end_dt": _parse_date(cfg.get("end", "")),
+        "hold_days": int(cfg.get("hold_days", 30) or 30),
+        "top_n": int(cfg.get("top_n", 0) or 0),
+        "board": str(cfg.get("board", "main_chinext") or "main_chinext").strip().lower(),
+        "sample_size": int(cfg.get("sample_size", 0) or 0),
+        "trading_days": int(cfg.get("trading_days", 320) or 320),
+        "max_workers": int(cfg.get("max_workers", 8) or 8),
+        "exit_mode": str(cfg.get("exit_mode", "sltp") or "sltp").strip().lower(),
+        "stop_loss_pct": float(cfg.get("stop_loss_pct", -7.0) if cfg.get("stop_loss_pct") is not None else -7.0),
+        "take_profit_pct": float(cfg.get("take_profit_pct", 18.0) if cfg.get("take_profit_pct") is not None else 18.0),
+        "trailing_stop_pct": float(cfg.get("trailing_stop_pct", 0.0) if cfg.get("trailing_stop_pct") is not None else 0.0),
+        "trailing_activate_pct": float(
+            cfg.get("trailing_activate_pct", 0.0) if cfg.get("trailing_activate_pct") is not None else 0.0
+        ),
+        "regime_filter": bool(cfg.get("regime_filter", False)),
+    }
+
+
 def main() -> int:
     try:
         raw = sys.stdin.read()
@@ -83,44 +105,13 @@ def main() -> int:
         return 1
 
     try:
-        start_dt = _parse_date(cfg.get("start", ""))
-        end_dt = _parse_date(cfg.get("end", ""))
+        params = _parse_backtest_config(cfg)
     except (ValueError, TypeError) as exc:
         result = {"error": f"Invalid date format (use YYYY-MM-DD): {exc}"}
         print(json.dumps(result, ensure_ascii=False))
         return 1
 
-    hold_days = int(cfg.get("hold_days", 30) or 30)
-    top_n = int(cfg.get("top_n", 0) or 0)
-    board = str(cfg.get("board", "main_chinext") or "main_chinext").strip().lower()
-    sample_size = int(cfg.get("sample_size", 0) or 0)
-    trading_days = int(cfg.get("trading_days", 320) or 320)
-    max_workers = int(cfg.get("max_workers", 8) or 8)
-    exit_mode = str(cfg.get("exit_mode", "sltp") or "sltp").strip().lower()
-    stop_loss_pct = float(cfg.get("stop_loss_pct", -7.0) if cfg.get("stop_loss_pct") is not None else -7.0)
-    take_profit_pct = float(cfg.get("take_profit_pct", 18.0) if cfg.get("take_profit_pct") is not None else 18.0)
-    trailing_stop_pct = float(cfg.get("trailing_stop_pct", 0.0) if cfg.get("trailing_stop_pct") is not None else 0.0)
-    trailing_activate_pct = float(
-        cfg.get("trailing_activate_pct", 0.0) if cfg.get("trailing_activate_pct") is not None else 0.0
-    )
-    regime_filter = bool(cfg.get("regime_filter", False))
-
-    trades_df, summary = run_backtest(
-        start_dt=start_dt,
-        end_dt=end_dt,
-        hold_days=hold_days,
-        top_n=top_n,
-        board=board,
-        sample_size=sample_size,
-        trading_days=trading_days,
-        max_workers=max_workers,
-        exit_mode=exit_mode,
-        stop_loss_pct=stop_loss_pct,
-        take_profit_pct=take_profit_pct,
-        trailing_stop_pct=trailing_stop_pct,
-        trailing_activate_pct=trailing_activate_pct,
-        regime_filter=regime_filter,
-    )
+    trades_df, summary = run_backtest(**params)
 
     result = build_web_json(trades_df, summary)
     print(json.dumps(result, ensure_ascii=False, default=str))

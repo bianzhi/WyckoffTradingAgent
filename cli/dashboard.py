@@ -249,8 +249,83 @@ def _build_and_persist_funnel(triggers: dict, metrics: dict) -> dict:
     return result
 
 
+def _build_stocks(triggers: dict, metrics: dict) -> list[dict]:
+    """从触发信号和 metrics 构建个股维度的结果列表。"""
+    l2_channel_map = metrics.get("layer2_channel_map", {}) or {}
+    l3_score_map = metrics.get("layer3_score_map", {}) or {}
+    l3_symbols = metrics.get("layer3_symbols", []) or []
+    accum_stage_map = metrics.get("accum_stage_map", {}) or {}
+    latest_close_map = metrics.get("latest_close_map", {}) or {}
+    exit_signals = metrics.get("exit_signals", {}) or {}
+    name_map = metrics.get("name_map", {}) or {}
+
+    stock_signals: dict[str, list[str]] = {}
+    stock_score: dict[str, float] = {}
+    for sig_type, hits in triggers.items():
+        for code, score in hits:
+            stock_signals.setdefault(code, []).append(sig_type)
+            stock_score[code] = max(stock_score.get(code, 0.0), score)
+
+    stocks: list[dict] = []
+    all_hit_codes = set(stock_signals) | set(l3_symbols)
+    for code in sorted(all_hit_codes):
+        stocks.append({
+            "code": code,
+            "name": name_map.get(code, ""),
+            "channel": l2_channel_map.get(code, ""),
+            "score": round(l3_score_map.get(code, stock_score.get(code, 0.0)), 1),
+            "signals": stock_signals.get(code, []),
+            "stage": accum_stage_map.get(code, ""),
+            "latest_close": latest_close_map.get(code),
+            "exit_signal": exit_signals.get(code, {}).get("signal", ""),
+        })
+    return stocks
+
+
+def _build_layer_conditions(triggers: dict, metrics: dict, stocks: list[dict]) -> dict:
+    """从 metrics 构建各层筛选条件的描述字典。"""
+    top_sectors = metrics.get("top_sectors", []) or []
+    hit_codes = len({code for hits in triggers.values() for code, _ in hits})
+    return {
+        "L1": {
+            "label": "初筛", "desc": "剔除ST/北交所/小市值/低成交额",
+            "passed": metrics.get("layer1", 0),
+        },
+        "L2": {
+            "label": "通道甄别",
+            "desc": "RS强弱对比+均线结构+成交量验证 → 主升/潜伏/吸筹/点火破局等通道",
+            "passed": metrics.get("layer2", 0),
+            "detail": {
+                "主升通道": metrics.get("layer2_momentum", 0),
+                "潜伏通道": metrics.get("layer2_ambush", 0),
+                "吸筹通道": metrics.get("layer2_accum", 0),
+                "地量蓄势": metrics.get("layer2_dry_vol", 0),
+                "暗中护盘": metrics.get("layer2_rs_div", 0),
+                "趋势延续": metrics.get("layer2_trend_cont", 0),
+                "点火破局": metrics.get("layer2_sos", 0),
+            },
+        },
+        "L3": {
+            "label": "板块共振",
+            "desc": "概念/行业热度共振筛选，Top板块: " + ", ".join(top_sectors[:5]),
+            "passed": metrics.get("layer3", 0),
+        },
+        "L4": {
+            "label": "威科夫触发",
+            "desc": "Spring/LPS/EVR/SOS/Compression/TrendPullback 信号检测",
+            "passed": hit_codes,
+            "detail": {k: len(v) for k, v in triggers.items()},
+        },
+        "L5": {
+            "label": "退出信号",
+            "desc": "止损触发+派发预警过滤",
+            "passed": sum(1 for s in stocks if not s["exit_signal"]),
+        },
+    }
+
+
 def _run_funnel_background() -> dict:
-    """后台执行全市场漏斗筛选，返回摘要。"""
+    """后台执行全市场漏斗筛选，返回摘要（含个股结果和层级条件）。"""
     global _funnel_last_result, _funnel_progress
     import time
 
@@ -267,14 +342,22 @@ def _run_funnel_background() -> dict:
 
         triggers, metrics = run_funnel_job()
         elapsed = time.time() - start
-        codes = sorted({code for hits in triggers.values() for code, _ in hits})
+
+        stocks = _build_stocks(triggers, metrics)
+        layer_conditions = _build_layer_conditions(triggers, metrics, stocks)
+
         result = {
             "ok": True,
             "elapsed_s": round(elapsed, 1),
             "total_scanned": len(metrics.get("all_symbols", [])),
+            "total_input": metrics.get("total_symbols", 0),
             "trigger_hits": sum(len(v) for v in triggers.values()),
-            "hit_codes": len(codes),
+            "hit_codes": len({code for hits in triggers.values() for code, _ in hits}),
             "triggers": {k: len(v) for k, v in triggers.items()},
+            "stocks": stocks,
+            "layer_conditions": layer_conditions,
+            "top_sectors": metrics.get("top_sectors", []),
+            "date": metrics.get("end_trade_date", ""),
         }
 
         persist = _build_and_persist_funnel(triggers, metrics)
@@ -322,6 +405,148 @@ def _get_funnel_status() -> dict:
     if _funnel_last_result:
         return {"status": "idle", "last_result": _funnel_last_result}
     return {"status": "idle", "last_result": None}
+
+
+def _get_funnel_result() -> dict:
+    """返回最近一次漏斗完整结果（含个股和层级条件）。"""
+    if not _funnel_last_result or not _funnel_last_result.get("ok"):
+        return {"ok": False, "error": "暂无漏斗结果"}
+    return _funnel_last_result
+
+
+def _get_funnel_report() -> str:
+    """生成漏斗 HTML 报告。"""
+    result = _funnel_last_result or {}
+    if not result.get("ok"):
+        return _report_html_empty()
+    return _render_report_html(result)
+
+
+def _render_report_html(result: dict) -> str:
+
+    stocks = result.get("stocks", []) or []
+    layers = result.get("layer_conditions", {}) or {}
+    date = result.get("date", "") or ""
+    elapsed = result.get("elapsed_s", 0) or 0
+    top_sectors = result.get("top_sectors", []) or []
+
+    rows = ""
+    for i, s in enumerate(stocks):
+        code = s.get("code", "")
+        channel = s.get("channel", "")
+        score = s.get("score", 0)
+        stage = s.get("stage", "")
+        signals = s.get("signals", [])
+        sname = s.get("name", "") or ""
+        latest = s.get("latest_close")
+        exit_s = s.get("exit_signal", "")
+
+        sig_badges = "".join(f'<span class="sig">{sig}</span>' for sig in signals)
+        exit_badge = f'<span class="exit">⚠ {exit_s}</span>' if exit_s else ""
+        price_str = f"{latest:.2f}" if isinstance(latest, (int, float)) else "-"
+        row_class = "exit-row" if exit_s else ""
+
+        rows += f"""<tr class="{row_class}">
+<td class="idx">{i + 1}</td>
+<td class="code"><a href="/analysis?code={code}" target="_blank">{code}</a></td>
+<td class="name">{sname}</td>
+<td class="channel">{channel}</td>
+<td class="num">{score}</td>
+<td class="price">{price_str}</td>
+<td class="signals">{sig_badges}</td>
+<td class="stage">{stage}</td>
+<td>{exit_badge}</td>
+</tr>"""
+
+    layer_cards = ""
+    for layer_key in ["L1", "L2", "L3", "L4", "L5"]:
+        l = layers.get(layer_key, {})
+        if not l:
+            continue
+        label = l.get("label", layer_key)
+        desc = l.get("desc", "")
+        passed = l.get("passed", 0)
+        detail = l.get("detail", {}) or {}
+        detail_html = ""
+        for k, v in detail.items():
+            detail_html += f'<span class="layer-tag">{k}: <b>{v}</b></span>'
+
+        layer_cards += f"""<div class="layer-card">
+<div class="layer-head">
+  <span class="layer-id">{layer_key}</span>
+  <span class="layer-label">{label}</span>
+  <span class="layer-count">通过 <b>{passed}</b> 只</span>
+</div>
+<div class="layer-desc">{desc}</div>
+<div class="layer-detail">{detail_html}</div>
+</div>"""
+
+    sector_tags = "".join(f'<span class="sector-tag">{s}</span>' for s in top_sectors[:10])
+
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>威科夫漏斗报告 — {date}</title>
+<style>
+* {{ box-sizing: border-box; margin: 0; padding: 0; }}
+body {{ font-family: -apple-system, "Noto Sans SC", "PingFang SC", sans-serif; background: #0f1117; color: #e4e8f1; padding: 24px; }}
+h1 {{ font-size: 20px; margin-bottom: 4px; }}
+.sub {{ font-size: 13px; color: #6b7394; margin-bottom: 20px; }}
+.layers {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-bottom: 24px; }}
+.layer-card {{ background: #1a1d2e; border: 1px solid #2a2f45; border-radius: 10px; padding: 14px 16px; }}
+.layer-head {{ display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }}
+.layer-id {{ font-size: 11px; font-weight: 700; color: #22c55e; background: #22c55e15; padding: 2px 8px; border-radius: 4px; }}
+.layer-label {{ font-weight: 600; font-size: 14px; }}
+.layer-count {{ margin-left: auto; font-size: 12px; color: #6b7394; }}
+.layer-count b {{ color: #e4e8f1; }}
+.layer-desc {{ font-size: 12px; color: #6b7394; margin-bottom: 6px; }}
+.layer-detail {{ display: flex; flex-wrap: wrap; gap: 4px; }}
+.layer-tag {{ font-size: 11px; background: #2a2f45; border-radius: 4px; padding: 2px 8px; color: #9ca3b8; }}
+.sector-tag {{ font-size: 12px; background: #2563eb15; color: #60a5fa; border-radius: 4px; padding: 2px 10px; }}
+.sectors {{ margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 6px; }}
+table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
+th {{ text-align: left; padding: 8px 10px; background: #1a1d2e; color: #6b7394; font-weight: 500; border-bottom: 1px solid #2a2f45; font-size: 12px; position: sticky; top: 0; }}
+td {{ padding: 8px 10px; border-bottom: 1px solid #1a1d2e; }}
+tr:hover {{ background: #1a1d2e40; }}
+.exit-row {{ opacity: 0.5; text-decoration: line-through; }}
+.exit-row:hover {{ opacity: 0.7; }}
+.num {{ text-align: right; font-variant-numeric: tabular-nums; font-family: "SF Mono", "JetBrains Mono", monospace; }}
+.price {{ text-align: right; font-variant-numeric: tabular-nums; font-family: "SF Mono", "JetBrains Mono", monospace; color: #9ca3b8; }}
+.code a {{ color: #60a5fa; text-decoration: none; font-family: "SF Mono", "JetBrains Mono", monospace; font-weight: 500; }}
+.code a:hover {{ text-decoration: underline; }}
+.sig {{ font-size: 10px; background: #22c55e10; color: #4ade80; border-radius: 3px; padding: 1px 6px; margin-right: 3px; }}
+.exit {{ font-size: 10px; background: #ef444410; color: #f87171; border-radius: 3px; padding: 1px 6px; }}
+.footer {{ margin-top: 24px; font-size: 12px; color: #6b7394; text-align: center; }}
+.name {{ color: #9ca3b8; }}
+.channel {{ color: #f59e0b; }}
+.stage {{ font-size: 12px; color: #a78bfa; }}
+.idx {{ color: #6b7394; font-size: 11px; width: 30px; }}
+</style>
+</head>
+<body>
+<h1>🔍 威科夫漏斗报告</h1>
+<p class="sub">日期: {date} · 总耗时 {elapsed:.1f}s · 筛选出 {len(stocks)} 只股票</p>
+
+<div class="sectors"><span style="color:#6b7394;font-size:12px;">热门板块:</span> {sector_tags}</div>
+<div class="layers">{layer_cards}</div>
+
+<table>
+<thead><tr>
+  <th>#</th><th>代码</th><th>名称</th><th>L2通道</th><th>评分</th><th>最新价</th><th>L4信号</th><th>阶段</th><th>退出</th>
+</tr></thead>
+<tbody>{rows}</tbody>
+</table>
+
+<div class="footer">Wyckoff Funnel Agent · {date}</div>
+</body>
+</html>"""
+
+
+def _report_html_empty() -> str:
+    return """<!DOCTYPE html><html><head><meta charset="utf-8"><title>漏斗报告</title></head>
+<body style="font-family:sans-serif;padding:40px;text-align:center;">
+<h2>暂无漏斗数据</h2><p>请先执行一次漏斗筛选。</p></body></html>"""
 
 
 # ---------------------------------------------------------------------------
@@ -379,6 +604,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(_get_background_task(task_id))
         elif path == "/api/funnel/status":
             self._json(_get_funnel_status())
+        elif path == "/api/funnel/result":
+            self._json(_get_funnel_result())
+        elif path == "/api/funnel/report":
+            self._html(_get_funnel_report())
         else:
             self._html(_DASHBOARD_HTML)
 

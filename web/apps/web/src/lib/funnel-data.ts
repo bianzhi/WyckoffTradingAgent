@@ -39,6 +39,43 @@ export interface FunnelSummary {
   aiCount: number
 }
 
+// ── Phase 4.0: 漏斗完整结果类型 ──────────────────────────────────────────────
+
+export interface FunnelStockResult {
+  code: string
+  name: string
+  channel: string          // L2 通道标签
+  score: number            // 综合评分
+  signals: string[]        // L4 触发信号列表
+  stage: string            // 威科夫阶段
+  latest_close: number | null
+  exit_signal: string      // 退出信号（空=正常）
+}
+
+export interface FunnelLayerCondition {
+  label: string
+  desc: string
+  passed: number
+  detail?: Record<string, number>  // 各通道/信号细分统计
+}
+
+export interface FunnelFullResult {
+  ok: boolean
+  error?: string
+  elapsed_s: number
+  total_scanned: number
+  total_input: number
+  trigger_hits: number
+  hit_codes: number
+  triggers: Record<string, number>
+  stocks: FunnelStockResult[]
+  layer_conditions: Record<string, FunnelLayerCondition>
+  top_sectors: string[]
+  date: string
+  persisted?: boolean
+  persisted_count?: number
+}
+
 const TRIGGER_KEYWORDS: Record<string, string> = {
   '点火破局': 'sos_bypass',
   '吸筹通道': 'accum',
@@ -240,4 +277,39 @@ export async function fetchSignalQualityStats(): Promise<SignalQualityStats> {
 
 function safePct(count: number, total: number): number {
   return total > 0 ? Math.round((count / total) * 1000) / 10 : 0
+}
+
+// ── Phase 4.0: 漏斗完整结果 & 报告下载 ─────────────────────────────────────
+
+export async function fetchFunnelResult(): Promise<FunnelFullResult | null> {
+  try {
+    const { supabase: s } = await import('./supabase')
+    const { data: { session } } = await s.auth.getSession()
+    const headers: Record<string, string> = {}
+    if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+    const resp = await fetch('/api/funnel/result', { headers })
+    if (!resp.ok) return null
+    return resp.json()
+  } catch { return null }
+}
+
+export async function downloadFunnelReport(): Promise<void> {
+  try {
+    const { supabase: s } = await import('./supabase')
+    const { data: { session } } = await s.auth.getSession()
+    const headers: Record<string, string> = {}
+    if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+    const resp = await fetch('/api/funnel/report', { headers })
+    if (!resp.ok) throw new Error(`Report: ${resp.status}`)
+    const html = await resp.text()
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `funnel-report-${new Date().toISOString().slice(0, 10)}.html`
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    console.error('downloadFunnelReport:', e)
+  }
 }

@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createChart, HistogramSeries, type HistogramData, type Time } from 'lightweight-charts'
-import { fetchFunnelSummary, fetchFunnelDates, fetchSignalQualityStats, type FunnelSummary, type SectorStat, type TriggerStat } from '@/lib/funnel-data'
+import { fetchFunnelSummary, fetchFunnelDates, fetchSignalQualityStats, fetchFunnelResult, downloadFunnelReport, type FunnelSummary, type SectorStat, type TriggerStat, type FunnelFullResult, type FunnelLayerCondition } from '@/lib/funnel-data'
 import { WyckoffLoading } from '@/components/loading'
 import { usePreferences } from '@/lib/preferences'
 
@@ -50,6 +50,14 @@ export function FunnelPage() {
     staleTime: 300_000,
   })
 
+  // ── Phase 4.0: 漏斗完整结果（个股+层级条件） ──────────────────────
+  const { data: funnelResult } = useQuery({
+    queryKey: ['funnel-result'],
+    queryFn: fetchFunnelResult,
+    staleTime: 300_000,
+    retry: 1,
+  })
+
   useEffect(() => {
     if (dates && dates.length > 0 && !selectedDate) {
       setSelectedDate(dates[0]!)
@@ -89,6 +97,7 @@ export function FunnelPage() {
             await refetchSummary()
             queryClient.invalidateQueries({ queryKey: ['funnel-summary'] })
             queryClient.invalidateQueries({ queryKey: ['funnel-dates'] })
+            queryClient.invalidateQueries({ queryKey: ['funnel-result'] })
           } else if (body.last_result) {
             const lr = body.last_result as Record<string, unknown>
             setFunnelState('error')
@@ -194,6 +203,21 @@ export function FunnelPage() {
 
       {/* Phase 2.4: 信号质量面板 */}
       <SignalQualitySection isZh={isZh} />
+
+      {/* Phase 4.0: 层级筛选条件 */}
+      {funnelResult?.ok && funnelResult.layer_conditions && (
+        <FunnelLayerConditions isZh={isZh} layers={funnelResult.layer_conditions} />
+      )}
+
+      {/* Phase 4.0: 筛选结果个股列表 + 报告下载 */}
+      {funnelResult?.ok && funnelResult.stocks && funnelResult.stocks.length > 0 && (
+        <FunnelStocksSection
+          isZh={isZh}
+          stocks={funnelResult.stocks}
+          date={funnelResult.date}
+          onDownloadReport={downloadFunnelReport}
+        />
+      )}
     </div>
   )
 }
@@ -485,6 +509,167 @@ function SignalQualitySection({ isZh }: { isZh: boolean }) {
         </table>
       </div>
     </section>
+  )
+}
+
+// ── Phase 4.0: 层级筛选条件组件 ──────────────────────────────────────────────
+
+const SIGNAL_LABELS: Record<string, string> = {
+  sos: '点火突破', spring: 'Spring', lps: 'LPS',
+  evr: 'EVR', compression: '压缩', trend_pullback: '趋势回调',
+}
+
+function FunnelLayerConditions({ isZh, layers }: { isZh: boolean; layers: Record<string, FunnelLayerCondition> }) {
+  return (
+    <section className="rounded-xl border border-border bg-card/50 p-4">
+      <h2 className="mb-3 text-sm font-semibold">{isZh ? '各层筛选条件' : 'Layer Conditions'}</h2>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {(['L1', 'L2', 'L3', 'L4', 'L5'] as const).map(key => {
+          const l = layers[key]
+          if (!l) return null
+          return (
+            <div key={key} className="rounded-lg border border-border/60 bg-background/50 p-3">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold text-emerald-400">{key}</span>
+                <span className="text-xs font-semibold">{l.label}</span>
+                <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">
+                  {isZh ? '通过' : 'Passed'} <b className="text-foreground">{l.passed}</b>
+                </span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">{l.desc}</p>
+              {l.detail && Object.keys(l.detail).length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {Object.entries(l.detail).map(([tag, count]) => (
+                    <span key={tag} className="rounded bg-muted px-1.5 py-0.5 text-[10px] tabular-nums">
+                      {key === 'L4' ? (SIGNAL_LABELS[tag] ?? tag) : tag}: <b>{count}</b>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+// ── Phase 4.0: 个股结果表格 + 报告下载 ───────────────────────────────────────
+
+function FunnelStocksSection({
+  isZh, stocks, date, onDownloadReport,
+}: {
+  isZh: boolean
+  stocks: FunnelFullResult['stocks']
+  date: string
+  onDownloadReport: () => void
+}) {
+  const [downloading, setDownloading] = useState(false)
+  const activeStocks = stocks.filter(s => !s.exit_signal)
+  const exitedStocks = stocks.filter(s => s.exit_signal)
+
+  return (
+    <section className="rounded-xl border border-border bg-card/50 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <h2 className="text-sm font-semibold">
+          {isZh ? '筛选结果' : 'Screened Stocks'}
+          <span className="ml-2 text-xs font-normal text-muted-foreground">
+            {stocks.length} {isZh ? '只' : ''} · {date}
+          </span>
+        </h2>
+        <button
+          type="button"
+          onClick={async () => { setDownloading(true); await onDownloadReport(); setDownloading(false) }}
+          disabled={downloading}
+          className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition-colors disabled:opacity-50"
+        >
+          {downloading ? '⏳' : '📥'} {isZh ? '下载报告' : 'Download Report'}
+        </button>
+      </div>
+      <FunnelStockTable isZh={isZh} activeStocks={activeStocks} exitedStocks={exitedStocks} />
+    </section>
+  )
+}
+
+function FunnelStockTable({
+  isZh, activeStocks, exitedStocks,
+}: {
+  isZh: boolean
+  activeStocks: FunnelFullResult['stocks']
+  exitedStocks: FunnelFullResult['stocks']
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-border text-muted-foreground">
+            <th className="px-2 py-1.5 text-left w-8">#</th>
+            <th className="px-2 py-1.5 text-left">{isZh ? '代码' : 'Code'}</th>
+            <th className="px-2 py-1.5 text-left">{isZh ? '名称' : 'Name'}</th>
+            <th className="px-2 py-1.5 text-left">{isZh ? 'L2通道' : 'L2 Channel'}</th>
+            <th className="px-2 py-1.5 text-right">{isZh ? '评分' : 'Score'}</th>
+            <th className="px-2 py-1.5 text-right">{isZh ? '最新价' : 'Price'}</th>
+            <th className="px-2 py-1.5 text-left">{isZh ? 'L4信号' : 'L4 Signals'}</th>
+            <th className="px-2 py-1.5 text-left">{isZh ? '阶段' : 'Stage'}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {activeStocks.map((s, i) => (
+            <tr key={s.code} className="border-b border-border/50 hover:bg-muted/20">
+              <td className="px-2 py-1.5 text-muted-foreground tabular-nums">{i + 1}</td>
+              <td className="px-2 py-1.5">
+                <a href={`/analysis?code=${s.code}`} className="font-mono font-medium text-primary hover:underline">
+                  {s.code}
+                </a>
+              </td>
+              <td className="px-2 py-1.5 text-muted-foreground max-w-[120px] truncate" title={s.name}>{s.name || '-'}</td>
+              <td className="px-2 py-1.5">
+                <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">{s.channel || '-'}</span>
+              </td>
+              <td className="px-2 py-1.5 text-right font-mono tabular-nums font-semibold">{s.score.toFixed(1)}</td>
+              <td className="px-2 py-1.5 text-right font-mono tabular-nums text-muted-foreground">
+                {s.latest_close != null ? s.latest_close.toFixed(2) : '-'}
+              </td>
+              <td className="px-2 py-1.5">
+                <div className="flex flex-wrap gap-0.5">
+                  {s.signals.map(sig => (
+                    <span key={sig} className="rounded bg-emerald-500/10 px-1 py-0.5 text-[10px] text-emerald-400">
+                      {SIGNAL_LABELS[sig] ?? sig}
+                    </span>
+                  ))}
+                </div>
+              </td>
+              <td className="px-2 py-1.5 text-muted-foreground">{s.stage || '-'}</td>
+            </tr>
+          ))}
+          {exitedStocks.length > 0 && (
+            <>
+              <tr>
+                <td colSpan={8} className="px-2 py-1.5 text-[11px] text-muted-foreground">
+                  {isZh ? `以下 ${exitedStocks.length} 只触发退出信号（已剔除）` : `${exitedStocks.length} stocks triggered exit signals`}
+                </td>
+              </tr>
+              {exitedStocks.map(s => (
+                <tr key={s.code} className="border-b border-border/50 opacity-40 line-through hover:opacity-60">
+                  <td className="px-2 py-1.5 text-muted-foreground">·</td>
+                  <td className="px-2 py-1.5 font-mono text-muted-foreground">{s.code}</td>
+                  <td className="px-2 py-1.5 text-muted-foreground max-w-[120px] truncate">{s.name || '-'}</td>
+                  <td className="px-2 py-1.5 text-muted-foreground">{s.channel || '-'}</td>
+                  <td className="px-2 py-1.5 text-right font-mono tabular-nums">{s.score.toFixed(1)}</td>
+                  <td className="px-2 py-1.5 text-right font-mono tabular-nums">
+                    {s.latest_close != null ? s.latest_close.toFixed(2) : '-'}
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <span className="rounded bg-red-500/10 px-1 py-0.5 text-[10px] text-red-400">⚠ {s.exit_signal}</span>
+                  </td>
+                  <td className="px-2 py-1.5 text-muted-foreground">{s.stage || '-'}</td>
+                </tr>
+              ))}
+            </>
+          )}
+        </tbody>
+      </table>
+    </div>
   )
 }
 

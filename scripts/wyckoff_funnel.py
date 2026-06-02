@@ -1568,6 +1568,7 @@ def run_funnel_job(
         "exit_signals": exit_signals,
         "all_df_map": all_df_map,
         "financial_map": financial_map,
+        "name_map": dict(name_map),
     }
     if include_debug_context:
         metrics["_debug"] = {

@@ -226,6 +226,25 @@ def _tickflow_fetch_stats(
     }
 
 
+def _try_kline_cache(
+    symbols: list[str],
+    window,
+    enforce_target_trade_date: bool,
+    batch_size: int,
+    batch_sleep: float,
+) -> tuple[dict[str, pd.DataFrame], dict[str, int]] | None:
+    """非严格对齐模式下尝试走本地 K 线缓存，返回 None 表示缓存未命中。"""
+    if enforce_target_trade_date:
+        return None
+    from integrations.kline_cache import refresh_market_klines
+
+    day_span = (window.end_trade_date - window.start_trade_date).days + 1
+    kline_count = min(max(day_span * 2 + 16, 64), 10000)
+    return refresh_market_klines(
+        symbols, window, batch_size=batch_size, batch_sleep=batch_sleep, kline_count=kline_count
+    )
+
+
 def _fetch_all_ohlcv_tickflow_batch(
     symbols: list[str],
     window,
@@ -235,6 +254,11 @@ def _fetch_all_ohlcv_tickflow_batch(
 ) -> tuple[dict[str, pd.DataFrame], dict[str, int]] | None:
     if not _should_use_tickflow_batch():
         return None
+
+    cached = _try_kline_cache(symbols, window, enforce_target_trade_date, batch_size, batch_sleep)
+    if cached is not None:
+        return cached
+
     client = TickFlowClient(api_key=os.getenv("TICKFLOW_API_KEY", "").strip())
     start_ms, end_ms, count = _tickflow_window_params(window)
     total_batches = (len(symbols) + batch_size - 1) // batch_size if symbols else 0
@@ -263,16 +287,11 @@ def _fetch_all_ohlcv_tickflow_batch(
         return None
     missing = max(len(symbols) - len(df_map), 0)
     stats = _tickflow_fetch_stats(len(symbols), df_map, fetch_spot_patched, started)
-    if failed_batches or missing:
-        missing_sample = ",".join([s for s in symbols if s not in df_map][:8])
-        print(
-            f"[funnel] TickFlow 批量日K部分完成: 成功={stats['fetch_ok']}, 缺失={missing}, "
-            f"失败批次={failed_batches}, sample_missing={missing_sample or '-'}, 耗时={stats['fetch_elapsed_s']}s"
-        )
-    else:
-        print(
-            f"[funnel] TickFlow 批量日K完成: 成功={stats['fetch_ok']}, 失败={stats['fetch_fail']}, 耗时={stats['fetch_elapsed_s']}s"
-        )
+    detail = f"缺失={missing}, 失败批次={failed_batches}" if (failed_batches or missing) else ""
+    print(
+        f"[funnel] TickFlow 批量日K{'部分' if detail else ''}完成: "
+        f"成功={stats['fetch_ok']}, {detail}耗时={stats['fetch_elapsed_s']}s"
+    )
     return df_map, stats
 
 

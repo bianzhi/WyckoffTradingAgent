@@ -222,7 +222,7 @@ function RuleForm({ rule, isZh, onCancel, onSuccess, setError }: { rule: AlertRu
   const addCond = () => setConditions([...conditions, { ...DEFAULT_COND }])
   const rmCond = (i: number) => setConditions(conditions.filter((_, ix) => ix !== i))
   const updCond = (i: number, f: string, v: string | number) => {
-    const next = [...conditions]; next[i] = { ...next[i], [f]: v }; setConditions(next)
+    const next = [...conditions]; next[i] = { ...next[i], [f]: v } as AlertCondition; setConditions(next)
   }
 
   const handleSave = async () => {

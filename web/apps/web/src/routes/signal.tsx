@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Activity, ChevronLeft, ChevronRight } from 'lucide-react'
 import { usePreferences } from '@/lib/preferences'
+import { useDocTitle } from '@/lib/doc-title'
 import { Breadcrumb } from '@/components/ux/breadcrumb'
 import { ScrollToTop } from '@/components/ux/scroll-top'
 import { SkeletonTable } from '@/components/ux/skeleton'
@@ -67,7 +68,7 @@ export function SignalPage() {
       <SignalContent
         observations={observations} total={total} totalPages={totalPages}
         page={page} onPage={setPage} isLoading={isLoading}
-        error={error ? String(error) : null} isZh={isZh} t={t}
+        error={error ? String(error) : null} isZh={isZh} t={t as (key: string) => string}
       />
     </div>
   )
@@ -92,7 +93,7 @@ function FilterTabs({ filter, onFilter, t }: { filter: StatusFilter; onFilter: (
 }
 
 function SignalContent({
-  observations, total, totalPages, page, onPage, isLoading, error, isZh, t,
+  observations, total: _total, totalPages, page, onPage, isLoading, error, isZh, t,
 }: {
   observations: Array<Record<string, unknown>>
   total: number; totalPages: number; page: number
@@ -209,7 +210,7 @@ function Pagination({ page, totalPages, onPage }: { page: number; totalPages: nu
   )
 }
 
-function EmptyState({ isZh, t }: { isZh: boolean; t: (key: string) => string }) {
+function EmptyState({ isZh: _isZh, t }: { isZh: boolean; t: (key: string) => string }) {
   return (
     <div className="rounded-xl border border-border bg-card p-12 text-center">
       <Activity size={40} className="mx-auto mb-3 opacity-20" />

@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   createChart, LineSeries, HistogramSeries,
-  type LineData, type HistogramData, type Time, LineStyle,
+  type Time, LineStyle,
 } from 'lightweight-charts'
 import { usePreferences } from '@/lib/preferences'
 import { dataSkill } from '@/lib/data-skill'
@@ -73,7 +73,7 @@ function useBacktestRunForm(
         take_profit_pct: takeProfit, regime_filter: regimeFilter,
       })
       if (data.error) { setError(String(data.error)); setResult(null) }
-      else { setResult(data as BacktestResult) }
+      else { setResult(data as unknown as BacktestResult) }
     } catch (e: any) {
       setError(e.message)
       setResult(null)

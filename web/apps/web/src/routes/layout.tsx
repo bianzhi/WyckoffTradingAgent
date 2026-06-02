@@ -4,7 +4,7 @@ import { MessageSquare, Briefcase, TrendingUp, Settings, LogOut, BarChart3, Moon
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
 import { MarketBar } from '@/components/market-bar'
-import { usePreferences, type TranslationKey } from '@/lib/preferences'
+import { usePreferences, type Locale, type TranslationKey } from '@/lib/preferences'
 import { trackRouteActivity } from '@/lib/activity'
 import { PageTransition } from '@/components/ux/page-transition'
 import { KbdShortcuts } from '@/components/ux/kbd-shortcuts'
@@ -112,7 +112,7 @@ function SidebarNav({ pathname, hash, email, onLogout }: {
 function useGlobalShortcuts(opts: {
   setKbdOpen: (v: boolean | ((prev: boolean) => boolean)) => void
   setSidebarOpen: (v: boolean) => void
-  locale: string; setLocale: (l: string) => void; toggleTheme: () => void
+  locale: string; setLocale: (_: Locale) => void; toggleTheme: () => void
   navigate: ReturnType<typeof useNavigate>
 }) {
   const { setKbdOpen, setSidebarOpen, locale, setLocale, toggleTheme, navigate } = opts

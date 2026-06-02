@@ -110,7 +110,10 @@ export function FunnelPage() {
           if (body.last_result && (body.last_result as Record<string, unknown>).ok) {
             setFunnelState('completed')
             // 刷新数据
-            await refetchDates()
+            const freshDates = (await refetchDates()).data
+            if (freshDates && freshDates.length > 0) {
+              setSelectedDate(freshDates[0]!)
+            }
             await refetchSummary()
             queryClient.invalidateQueries({ queryKey: ['funnel-summary'] })
             queryClient.invalidateQueries({ queryKey: ['funnel-dates'] })
@@ -333,30 +336,34 @@ function FunnelHeader(props: {
         <h1 className="text-lg font-bold">{isZh ? '威科夫漏斗' : 'Wyckoff Funnel'}</h1>
         <p className="text-xs text-muted-foreground">
           {isZh
-            ? `日期: ${summary.date} · 扫描 ${summary.totalScanned} 只 · AI 精选 ${summary.aiCount} 只`
-            : `Date: ${summary.date} · Scanned ${summary.totalScanned} · AI picked ${summary.aiCount}`}
-          {relTime && <span className="ml-2 rounded-full bg-muted/50 px-2 py-0.5 text-[11px]">{isZh ? '更新于' : 'updated'} {relTime}</span>}
+            ? `数据日期: ${summary.date} · 扫描 ${summary.totalScanned} 只 · AI 精选 ${summary.aiCount} 只`
+            : `Data date: ${summary.date} · Scanned ${summary.totalScanned} · AI picked ${summary.aiCount}`}
+          {relTime && <span className="ml-2 rounded-full bg-muted/50 px-2 py-0.5 text-[11px]">{relTime}</span>}
         </p>
         {funnelError && <p className="text-xs text-red-500 mt-1">{funnelError}</p>}
       </div>
         <FunnelTriggerButton isZh={isZh} funnelState={funnelState} funnelError={funnelError} funnelProgress={funnelProgress} funnelLogs={funnelLogs} onTrigger={onTriggerFunnel} />
-        <FunnelDateSelect dates={dates} selectedDate={selectedDate} onDateChange={onDateChange} />
+        <FunnelDateSelect dates={dates} selectedDate={selectedDate} onDateChange={onDateChange} isZh={isZh} />
       </div>
     </div>
   )
 }
 
-function FunnelDateSelect({ dates, selectedDate, onDateChange }: {
+function FunnelDateSelect({ dates, selectedDate, onDateChange, isZh }: {
   dates: string[] | undefined
   selectedDate: string
   onDateChange: (d: string) => void
+  isZh: boolean
 }) {
   if (!dates || dates.length === 0) return null
   return (
-    <select value={selectedDate} onChange={(e) => onDateChange(e.target.value)}
-      className="rounded-md border border-border bg-background px-3 py-1.5 text-xs">
-      {dates.map((d) => (<option key={d} value={d}>{d}</option>))}
-    </select>
+    <div className="flex items-center gap-1.5">
+      <span className="text-[11px] text-muted-foreground">{isZh ? '查看历史' : 'History'}</span>
+      <select value={selectedDate} onChange={(e) => onDateChange(e.target.value)}
+        className="rounded-md border border-border bg-background px-2 py-1.5 text-xs">
+        {dates.map((d) => (<option key={d} value={d}>{d}</option>))}
+      </select>
+    </div>
   )
 }
 

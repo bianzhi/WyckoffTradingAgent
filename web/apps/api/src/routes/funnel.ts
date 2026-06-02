@@ -68,6 +68,34 @@ funnelRoutes.get('/status', async (c) => {
   }
 })
 
+// GET /api/funnel/result — 获取漏斗完整结果
+funnelRoutes.get('/result', async (c) => {
+  try {
+    const resp = await fetch(`${AGENT_URL}/api/funnel/result`, {
+      signal: AbortSignal.timeout(10_000),
+    })
+    const body = await resp.json() as Record<string, unknown>
+    return c.json(body)
+  } catch (err) {
+    const { msg, detail } = classifyFetchError(err)
+    return c.json({ ok: false, error: msg, detail, agent_url: AGENT_URL }, 502)
+  }
+})
+
+// GET /api/funnel/report — 获取漏斗 HTML 报告
+funnelRoutes.get('/report', async (c) => {
+  try {
+    const resp = await fetch(`${AGENT_URL}/api/funnel/report`, {
+      signal: AbortSignal.timeout(10_000),
+    })
+    const html = await resp.text()
+    return c.html(html)
+  } catch (err) {
+    const { msg, detail } = classifyFetchError(err)
+    return c.json({ ok: false, error: msg, detail, agent_url: AGENT_URL }, 502)
+  }
+})
+
 // GET /api/funnel/agent-health — Agent 可达性诊断
 funnelRoutes.get('/agent-health', async (c) => {
   const result: Record<string, unknown> = { agent_url: AGENT_URL }

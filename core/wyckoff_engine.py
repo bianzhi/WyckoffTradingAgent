@@ -468,13 +468,20 @@ def layer1_filter(
     cap_available = bool(market_cap_map)
     fin_available = bool(financial_map)
     passed: list[str] = []
+    l1_no_board = 0
+    l1_st = 0
+    l1_low_cap = 0
+    l1_no_df = 0
+    l1_low_amt = 0
     l1_roe_negative = 0
     l1_high_debt = 0
     for sym in symbols:
         if cfg.require_cn_main_or_chinext and not _is_main_or_chinext(sym, cfg.board_allowlist):
+            l1_no_board += 1
             continue
         name = name_map.get(sym, "")
         if "ST" in name.upper():
+            l1_st += 1
             continue
         if cap_available:
             cap = market_cap_map.get(sym, 0.0)
@@ -483,16 +490,20 @@ def layer1_filter(
                 if df_tmp is not None and not df_tmp.empty and "amount" in df_tmp.columns:
                     avg_a = _sorted_if_needed(df_tmp)["amount"].tail(cfg.amount_avg_window).mean()
                     if not (pd.notna(avg_a) and avg_a >= cfg.l1_cap_bypass_amount_wan * 10000):
+                        l1_low_cap += 1
                         continue
                 else:
+                    l1_low_cap += 1
                     continue
         df = df_map.get(sym)
         if df is None or df.empty:
+            l1_no_df += 1
             continue
         df_sorted = _sorted_if_needed(df)
         if "amount" in df_sorted.columns:
             avg_amt = df_sorted["amount"].tail(cfg.amount_avg_window).mean()
             if pd.notna(avg_amt) and avg_amt < cfg.min_avg_amount_wan * 10000:
+                l1_low_amt += 1
                 continue
         if fin_available:
             metrics = financial_map.get(sym)
@@ -506,6 +517,10 @@ def layer1_filter(
                     l1_high_debt += 1
                     continue
         passed.append(sym)
+    print(
+        f"[L1] 输入={len(symbols)} 通过={len(passed)} "
+        f"非主板/科创/创业板={l1_no_board} ST={l1_st} 低市值={l1_low_cap} 无K线={l1_no_df} 低成交额={l1_low_amt}"
+    )
     if fin_available and (l1_roe_negative or l1_high_debt):
         print(f"[L1] 财务过滤: ROE<-10%={l1_roe_negative}, 负债率>85%={l1_high_debt}")
     return passed

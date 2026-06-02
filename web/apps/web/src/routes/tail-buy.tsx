@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { SkeletonTable } from '@/components/ux/skeleton'
+import { Breadcrumb } from '@/components/ux/breadcrumb'
+import { ScrollToTop } from '@/components/ux/scroll-top'
 import { usePreferences } from '@/lib/preferences'
 import { useDocTitle } from '@/lib/doc-title'
 
@@ -138,7 +140,8 @@ function TailBuyPageSkeleton() {
 }
 
 export function TailBuyPage() {
-  const { t } = usePreferences()
+  const { locale, t } = usePreferences()
+  const isZh = locale === 'zh-CN'
   useDocTitle(t('tailBuy.title') + ' - Wyckoff')
   const { data = [], isLoading } = useQuery({
     queryKey: ['tail-buy'],
@@ -151,6 +154,7 @@ export function TailBuyPage() {
 
   return (
     <div className="flex h-full flex-col p-6">
+      <Breadcrumb items={[{ label: isZh ? '首页' : 'Home', href: '/' }, { label: t('tailBuy.title') }]} />
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-xl font-semibold">{t('tailBuy.title')}</h1>
         <span className="text-xs text-muted-foreground">{t('tailBuy.total', { count: data.length })}</span>
@@ -167,6 +171,7 @@ export function TailBuyPage() {
       ) : (
         <TailBuyTable data={data} />
       )}
+      <ScrollToTop />
     </div>
   )
 }

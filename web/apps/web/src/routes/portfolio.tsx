@@ -4,6 +4,8 @@ import { Loader2, LayoutDashboard, Plus, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
 import { SkeletonCard } from '@/components/ux/skeleton'
+import { Breadcrumb } from '@/components/ux/breadcrumb'
+import { ScrollToTop } from '@/components/ux/scroll-top'
 import { usePreferences } from '@/lib/preferences'
 import { loadLLMConfig } from '@/lib/chat-agent'
 import { streamLLMResponse } from '@/lib/llm-stream'
@@ -85,7 +87,8 @@ async function fetchPortfolio(userId: string): Promise<Portfolio> {
 export function PortfolioPage() {
   const user = useAuthStore((s) => s.user)
   const portfolioData = usePortfolioData(user?.id)
-  const { t } = usePreferences()
+  const { locale, t } = usePreferences()
+  const isZh = locale === 'zh-CN'
   useDocTitle(t('portfolio.title') + ' - Wyckoff')
   const fullDiag = useFullDiagnosisRunner()
   const [manualPortfolio, setManualPortfolio] = useState<Portfolio>({ free_cash: 0, positions: [] })
@@ -98,6 +101,7 @@ export function PortfolioPage() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-5 p-6">
+      <Breadcrumb items={[{ label: isZh ? '首页' : 'Home', href: '/' }, { label: t('portfolio.title') }]} />
       <PageHeader />
       {fullDiag.error && <UpgradeNotice message={fullDiag.error} />}
       {portfolioData.isWhitelisted ? (
@@ -106,6 +110,7 @@ export function PortfolioPage() {
         <ManualInput portfolio={manualPortfolio} fullLoading={fullDiag.loading} progress={fullDiag.progress} onChange={setManualPortfolio} onDiagnosis={() => fullDiag.run(manualPortfolio)} />
       )}
       {fullDiag.result && <FullDiagnosisPanel result={fullDiag.result} report={fullDiag.streamingReport || fullDiag.result.report} streaming={fullDiag.loading && fullDiag.progress?.step === 'llm'} />}
+      <ScrollToTop />
     </div>
   )
 }

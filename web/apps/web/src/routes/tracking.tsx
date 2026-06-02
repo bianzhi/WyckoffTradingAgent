@@ -4,8 +4,10 @@ import { createChart, HistogramSeries, type Time } from 'lightweight-charts'
 import { supabase } from '@/lib/supabase'
 import { checkWhitelist } from '@/lib/kline'
 import { SkeletonTable } from '@/components/ux/skeleton'
-import { usePreferences } from '@/lib/preferences'
+import { usePreferences, type TranslationKey } from '@/lib/preferences'
 import { useAuthStore } from '@/stores/auth'
+import { Breadcrumb } from '@/components/ux/breadcrumb'
+import { ScrollToTop } from '@/components/ux/scroll-top'
 import { useDocTitle } from '@/lib/doc-title'
 
 type MarketTab = 'cn' | 'us' | 'hk'
@@ -156,7 +158,8 @@ function TrackingPageSkeleton() {
 
 export function TrackingPage() {
   const [market, setMarket] = useState<MarketTab>('cn')
-  const { t } = usePreferences()
+  const { locale, t } = usePreferences()
+  const isZh = locale === 'zh-CN'
   useDocTitle(t('tracking.title') + ' - Wyckoff')
   const [search, setSearch] = useState('')
   const [onlyAI, setOnlyAI] = useState(false)
@@ -179,41 +182,70 @@ export function TrackingPage() {
   if (needsGate && whitelist.isLoading) return <TrackingPageSkeleton />
 
   return (
+    <TrackingPageLayout
+      isZh={isZh} t={t}
+      market={market} onMarketChange={setMarket}
+      needsGate={needsGate} isWhitelisted={isWhitelisted}
+      fetchError={fetchError} loading={loading}
+      latestDate={latestDate} oldestDate={oldestDate}
+      fc={{
+        activeDates, activeOldestDate, filtered, latestDate, market,
+        onlyAI, search, selectedWindow, sortBy, sortOrder,
+        stats, visibleData, windowRows,
+        onOnlyAIChange: setOnlyAI, onSearchChange: setSearch,
+        onSelectedWindowChange: setSelectedWindow,
+        onSortByChange: setSortBy, onSortOrderChange: setSortOrder,
+      }}
+    />
+  )
+}
+
+function TrackingPageLayout(props: {
+  isZh: boolean
+  t: (key: TranslationKey, vars?: Record<string, string | number | null | undefined>) => string
+  market: MarketTab
+  onMarketChange: (m: MarketTab) => void
+  needsGate: boolean
+  isWhitelisted: boolean
+  fetchError: Error | null
+  loading: boolean
+  latestDate: number | null
+  oldestDate: number | null
+  fc: TrackingReadyContentProps
+}) {
+  const { isZh, t, market, onMarketChange, needsGate, isWhitelisted, fetchError,
+    loading, latestDate, oldestDate, fc } = props
+
+  return (
     <div className="h-full overflow-auto p-6">
+      <Breadcrumb items={[{ label: isZh ? '首页' : 'Home', href: '/' }, { label: t('tracking.title') }]} />
       <TrackingHeader latestDate={latestDate} oldestDate={oldestDate} />
-      <MarketTabs market={market} onMarketChange={setMarket} />
-      {needsGate && !isWhitelisted ? (
-        <BetaLocked />
-      ) : fetchError ? (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-4 text-sm text-destructive">
-          {fetchError.message}
-        </div>
-      ) : loading ? (
-        <TrackingPageSkeleton />
-      ) : (
-        <TrackingReadyContent
-          activeDates={activeDates}
-          activeOldestDate={activeOldestDate}
-          filtered={filtered}
-          latestDate={latestDate}
-          market={market}
-          onlyAI={onlyAI}
-          search={search}
-          selectedWindow={selectedWindow}
-          sortBy={sortBy}
-          sortOrder={sortOrder}
-          stats={stats}
-          visibleData={visibleData}
-          windowRows={windowRows}
-          onOnlyAIChange={setOnlyAI}
-          onSearchChange={setSearch}
-          onSelectedWindowChange={setSelectedWindow}
-          onSortByChange={setSortBy}
-          onSortOrderChange={setSortOrder}
-        />
-      )}
+      <MarketTabs market={market} onMarketChange={onMarketChange} />
+      <TrackingBody
+        needsGate={needsGate} isWhitelisted={isWhitelisted}
+        fetchError={fetchError} loading={loading} fc={fc}
+      />
+      <ScrollToTop />
     </div>
   )
+}
+
+function TrackingBody(props: {
+  needsGate: boolean; isWhitelisted: boolean
+  fetchError: Error | null; loading: boolean
+  fc: TrackingReadyContentProps
+}) {
+  const { needsGate, isWhitelisted, fetchError, loading, fc } = props
+
+  if (needsGate && !isWhitelisted) return <BetaLocked />
+  if (fetchError) return (
+    <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-4 text-sm text-destructive">
+      {fetchError.message}
+    </div>
+  )
+  if (loading) return <TrackingPageSkeleton />
+
+  return (<TrackingReadyContent {...fc} />)
 }
 
 function TrackingReadyContent(props: TrackingReadyContentProps) {

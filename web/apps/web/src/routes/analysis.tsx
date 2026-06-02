@@ -9,6 +9,8 @@ import { MarkdownContent } from '@/components/markdown'
 import { KlineChart } from '@/components/kline-chart'
 import { usePreferences } from '@/lib/preferences'
 import { AIDisclaimer } from '@/components/ai-disclaimer'
+import { Breadcrumb } from '@/components/ux/breadcrumb'
+import { ScrollToTop } from '@/components/ux/scroll-top'
 import { detectWyckoffAnnotations } from '@/lib/wyckoff-detect'
 import { TICKFLOW_PURCHASE, fetchKline, fetchValueSnapshot, getUserDataKeys, checkWhitelist, isCnSymbol, isSupportedKlineCode, type KlineData, type ValueSnapshot } from '@/lib/kline'
 import { avg } from '@/lib/math'
@@ -27,7 +29,8 @@ interface AnalysisResult {
 
 export function AnalysisPage() {
   const user = useAuthStore((s) => s.user)
-  const { t } = usePreferences()
+  const { locale, t } = usePreferences()
+  const isZh = locale === 'zh-CN'
   useDocTitle(t('analysis.title') + ' - Wyckoff')
   const search = useStockSearch()
   const prerequisites = usePrerequisites(user?.id)
@@ -37,6 +40,7 @@ export function AnalysisPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden px-6 py-5">
+      <Breadcrumb items={[{ label: isZh ? '首页' : 'Home', href: '/' }, { label: t('analysis.title') }]} />
       <div className="shrink-0 border-b border-border/70 pb-4">
         <h1 className="mb-4 text-xl font-semibold">{t('analysis.title')}</h1>
         <MissingConfigBanner prerequisites={prerequisites} />
@@ -44,6 +48,7 @@ export function AnalysisPage() {
         {runner.error && <div className="mt-3 rounded-lg bg-red-50 px-4 py-2.5 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-200">{runner.error}</div>}
       </div>
       <AnalysisContent runner={runner} />
+      <ScrollToTop />
     </div>
   )
 }

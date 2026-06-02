@@ -16,6 +16,7 @@
   "cli/__main__.py::_cmd_tui": 134,
   "cli/__main__.py::main": 133,
   "cli/compaction.py::_summarize_tool_result": 73,
+  "cli/dashboard.py::_run_funnel_background": 69,
   "cli/dashboard.py::do_PUT": 51,
   "cli/loop_guard.py::resolve_turn_expectation": 53,
   "cli/providers/claude.py::chat_stream": 78,
@@ -150,6 +151,7 @@
   "web/apps/web/src/routes/export.tsx::ExportPage": 130,
   "web/apps/web/src/routes/feature-guide.tsx::FeatureGuidePage": 90,
   "web/apps/web/src/routes/funnel.tsx::FunnelPage": 64,
+  "web/apps/web/src/routes/funnel.tsx::FunnelTriggerButton": 56,
   "web/apps/web/src/routes/funnel.tsx::SignalQualitySection": 68,
   "web/apps/web/src/routes/settings.tsx::SettingsPage": 99
 }

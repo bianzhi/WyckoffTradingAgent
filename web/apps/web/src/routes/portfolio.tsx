@@ -23,6 +23,7 @@ import {
 import { avg } from '@/lib/math'
 import { saveAnalysisHistory } from '@/lib/local-history'
 import { buildValueDigest, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, sourceLabel, valueScoreClass, valueUnavailableText, type ValueScore, type ValueTone, type ValueView } from '@/lib/value-analysis'
+import { useDocTitle } from '@/lib/doc-title'
 
 interface Position {
   code: string | number
@@ -84,6 +85,8 @@ async function fetchPortfolio(userId: string): Promise<Portfolio> {
 export function PortfolioPage() {
   const user = useAuthStore((s) => s.user)
   const portfolioData = usePortfolioData(user?.id)
+  const { t } = usePreferences()
+  useDocTitle(t('portfolio.title') + ' - Wyckoff')
   const fullDiag = useFullDiagnosisRunner()
   const [manualPortfolio, setManualPortfolio] = useState<Portfolio>({ free_cash: 0, positions: [] })
   const source = portfolioData.isWhitelisted ? 'database' : 'manual'

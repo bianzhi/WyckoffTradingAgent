@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { SkeletonTable } from '@/components/ux/skeleton'
 import { usePreferences } from '@/lib/preferences'
+import { useDocTitle } from '@/lib/doc-title'
 
 interface TailBuyRecord {
   code: string
@@ -138,6 +139,7 @@ function TailBuyPageSkeleton() {
 
 export function TailBuyPage() {
   const { t } = usePreferences()
+  useDocTitle(t('tailBuy.title') + ' - Wyckoff')
   const { data = [], isLoading } = useQuery({
     queryKey: ['tail-buy'],
     queryFn: fetchTailBuy,

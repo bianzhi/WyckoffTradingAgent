@@ -15,6 +15,7 @@ import { avg } from '@/lib/math'
 import { marketLabel, resolveStockQuery, searchStocks, type StockSearchResult } from '@/lib/market-search'
 import { buildValuePrompt, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, sourceLabel, valueScoreClass, valueUnavailableText, type ValueTone, type ValueView } from '@/lib/value-analysis'
 import { saveAnalysisHistory } from '@/lib/local-history'
+import { useDocTitle } from '@/lib/doc-title'
 
 interface AnalysisResult {
   report: string
@@ -27,6 +28,7 @@ interface AnalysisResult {
 export function AnalysisPage() {
   const user = useAuthStore((s) => s.user)
   const { t } = usePreferences()
+  useDocTitle(t('analysis.title') + ' - Wyckoff')
   const search = useStockSearch()
   const prerequisites = usePrerequisites(user?.id)
   const runner = useAnalysisRunner(search, prerequisites.setHasModelConfig)

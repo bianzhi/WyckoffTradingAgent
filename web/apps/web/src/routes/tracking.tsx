@@ -6,6 +6,7 @@ import { checkWhitelist } from '@/lib/kline'
 import { SkeletonTable } from '@/components/ux/skeleton'
 import { usePreferences } from '@/lib/preferences'
 import { useAuthStore } from '@/stores/auth'
+import { useDocTitle } from '@/lib/doc-title'
 
 type MarketTab = 'cn' | 'us' | 'hk'
 
@@ -155,6 +156,8 @@ function TrackingPageSkeleton() {
 
 export function TrackingPage() {
   const [market, setMarket] = useState<MarketTab>('cn')
+  const { t } = usePreferences()
+  useDocTitle(t('tracking.title') + ' - Wyckoff')
   const [search, setSearch] = useState('')
   const [onlyAI, setOnlyAI] = useState(false)
   const [sortBy, setSortBy] = useState<SortBy>('date')

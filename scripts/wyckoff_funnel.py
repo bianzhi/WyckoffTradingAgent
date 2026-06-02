@@ -1250,13 +1250,15 @@ def run_funnel_job(
     all_symbols, pool_name_map, pool_stats = _resolve_symbol_pool_from_env()
     main_items = [None] * int(pool_stats.get("pool_main", 0) or 0)
     chinext_items = [None] * int(pool_stats.get("pool_chinext", 0) or 0)
+    star_items = [None] * int(pool_stats.get("pool_star", 0) or 0)
     merged_symbols = list(pool_name_map.keys())
     st_symbols = [None] * int(pool_stats.get("pool_st_excluded", 0) or 0)
     total_batches = (len(all_symbols) + BATCH_SIZE - 1) // BATCH_SIZE if all_symbols else 0
     print(
         "[funnel] 股票池统计: "
         f"mode={pool_stats.get('pool_mode')}, main={len(main_items)}, chinext={len(chinext_items)}, "
-        f"merged={len(merged_symbols)}, st_excluded={len(st_symbols)}, "
+        f"star={len(star_items)}, merged={len(merged_symbols)}, "
+        f"st_excluded={len(st_symbols)}, "
         f"final={len(all_symbols)}, limit={pool_stats.get('pool_limit', 0)}, batches={total_batches} (batch_size={BATCH_SIZE})"
     )
     from cli.progress import report_progress
@@ -1265,6 +1267,7 @@ def run_funnel_job(
 
     # 批量元数据
     print("[funnel] 加载行业映射...")
+    report_progress("准备数据", "加载行业、概念、市值映射", 0.08)
     try:
         sector_map = fetch_sector_map()
     except Exception as e:
@@ -1322,6 +1325,7 @@ def run_funnel_job(
         name_map = {}
 
     bench_df, smallcap_df = _load_benchmark_indices(start_s, end_s)
+    report_progress("读取K线", "读取本地缓存或刷新缺口", 0.18)
     all_df_map, fetch_stats = fetch_all_ohlcv(
         symbols=all_symbols,
         window=window,
@@ -1332,6 +1336,11 @@ def run_funnel_job(
         batch_sleep=BATCH_SLEEP,
         executor_mode=EXECUTOR_MODE,
         direct_source=direct_source,
+    )
+    report_progress(
+        "K线就绪",
+        f"可用 {len(all_df_map)}/{len(all_symbols)}，缺失 {max(len(all_symbols) - len(all_df_map), 0)}",
+        0.38,
     )
     snapshot_dir = _dump_full_fetch_snapshot(
         df_map=all_df_map,
@@ -1373,11 +1382,12 @@ def run_funnel_job(
         print(f"[funnel] 漏斗阈值已按 regime={regime} 自适应调整")
 
     print("[funnel] 开始执行全量漏斗筛选...")
-    report_progress("漏斗筛选", "L1~L4 计算中", 0.85)
 
     l1_input = list(all_df_map.keys())
+    report_progress("L1 初筛", f"输入 {len(l1_input)} 只", 0.46)
     l1_passed = layer1_filter(l1_input, name_map, market_cap_map, all_df_map, cfg, financial_map=financial_map)
 
+    report_progress("L2 通道甄别", f"L1 通过 {len(l1_passed)} 只", 0.58)
     l2_passed, l2_channel_map, l2_pre_ignition = layer2_strength_detailed(
         l1_passed,
         all_df_map,
@@ -1396,6 +1406,7 @@ def run_funnel_job(
 
     # Layer 3 (Sector Resonance) — ETF L2 结果注入板块热度
     _etf_codes = set(etf_sector_map)
+    report_progress("L3 板块共振", f"L2 通过 {len(l2_passed)} 只", 0.68)
     l3_raw, top_sectors = layer3_sector_resonance(
         l2_passed + etf_l2_passed,
         sector_map,
@@ -1417,6 +1428,7 @@ def run_funnel_job(
 
     # Layer 4 (Wyckoff Triggers)
     # L4 需要 l2_df_map，这里直接用 all_df_map 即可，因为 key 都在里面
+    report_progress("L4 威科夫触发", f"L3 通过 {len(l3_passed)} 只", 0.78)
     triggers = layer4_triggers(l3_passed, all_df_map, cfg, channel_map=l2_channel_map, market_cap_map=market_cap_map)
     theme_radar_current = _safe_build_theme_radar(
         trade_date=window.end_trade_date.isoformat(),
@@ -1475,6 +1487,7 @@ def run_funnel_job(
         )
 
     # Markup 阶段、Accumulation ABC 细化、Exit 信号
+    report_progress("L5 风险过滤", "识别阶段与退出信号", 0.88)
     markup_symbols = sorted(
         set(detect_markup_stage(l3_passed, all_df_map, cfg)) | set(strategic_l2_bypass_markup_symbols)
     )
@@ -1522,6 +1535,10 @@ def run_funnel_job(
         "fetch_fail": int(fetch_stats.get("fetch_fail", 0) or 0),
         "fetch_date_mismatch": int(fetch_stats.get("fetch_date_mismatch", 0) or 0),
         "fetch_spot_patched": int(fetch_stats.get("fetch_spot_patched", 0) or 0),
+        "cache_mode": str(fetch_stats.get("cache_mode", "") or ""),
+        "cache_hit": int(fetch_stats.get("cache_hit", len(all_df_map)) or 0),
+        "cache_missing": int(fetch_stats.get("cache_missing", max(len(all_symbols) - len(all_df_map), 0)) or 0),
+        "cache_latest_date": str(fetch_stats.get("cache_latest_date", "") or ""),
         "snapshot_dir": snapshot_dir,
         "layer1": len(l1_passed),
         "layer2": len(l2_passed),
@@ -1592,7 +1609,7 @@ def run_funnel_job(
         f"战略旁路={len(strategic_l2_bypass_pool)}, 各触发={metrics['by_trigger']}"
     )
     print(f"[funnel] 主题雷达({theme_radar_source}): {summarize_theme_radar(theme_radar)}")
-    report_progress("筛选完成", f"命中={total_hits}只", 1.0)
+    report_progress("筛选完成", f"L4命中={total_hits}，候选={len(ranked_l3_symbols or l3_passed)}", 1.0)
 
     return triggers, metrics
 

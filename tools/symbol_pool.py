@@ -84,9 +84,9 @@ def resolve_symbol_pool_from_env() -> tuple[list[str], dict[str, str], dict[str,
         )
 
     board_name = str(os.getenv("FUNNEL_POOL_BOARD", "") or "").strip().lower()
-    if pool_mode == "board" and board_name in {"main", "chinext", "all"}:
+    if pool_mode == "board" and board_name in {"main", "chinext", "star", "all"}:
         if board_name == "all":
-            items = get_stocks_by_board("main") + get_stocks_by_board("chinext")
+            items = get_stocks_by_board("main") + get_stocks_by_board("chinext") + get_stocks_by_board("star")
         else:
             items = get_stocks_by_board(board_name)
         merged_code_to_name: dict[str, str] = {}
@@ -122,8 +122,9 @@ def resolve_symbol_pool_from_env() -> tuple[list[str], dict[str, str], dict[str,
 
     main_items = get_stocks_by_board("main")
     chinext_items = get_stocks_by_board("chinext")
+    star_items = get_stocks_by_board("star")
     merged_code_to_name: dict[str, str] = {}
-    for item in main_items + chinext_items:
+    for item in main_items + chinext_items + star_items:
         code = str(item.get("code", "")).strip()
         if not code:
             continue
@@ -142,6 +143,7 @@ def resolve_symbol_pool_from_env() -> tuple[list[str], dict[str, str], dict[str,
             "pool_mode": "default",
             "pool_main": len(main_items),
             "pool_chinext": len(chinext_items),
+            "pool_star": len(star_items),
             "pool_merged": len(merged_symbols),
             "pool_st_excluded": len(st_symbols),
             "pool_limit": limit_count,

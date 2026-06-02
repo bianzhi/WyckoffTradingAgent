@@ -386,36 +386,23 @@ function FunnelTriggerButton({
 }) {
   const isRunning = funnelState === 'running'
   const isAgentDown = agentOnline === false
+  const btnClass = isAgentDown
+    ? 'cursor-not-allowed bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400'
+    : isRunning
+      ? 'cursor-not-allowed bg-muted text-muted-foreground'
+      : 'bg-primary text-primary-foreground hover:bg-primary/90'
 
   return (
     <div className="flex flex-col items-center gap-1">
-      <button
-        type="button"
-        onClick={onTrigger}
-        disabled={isRunning || isAgentDown}
-        className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-          isAgentDown
-            ? 'cursor-not-allowed bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400'
-            : isRunning
-              ? 'cursor-not-allowed bg-muted text-muted-foreground'
-              : 'bg-primary text-primary-foreground hover:bg-primary/90'
-        }`}
-      >
-        {isRunning ? (
-          <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
-        ) : null}
+      <button type="button" onClick={onTrigger} disabled={isRunning || isAgentDown}
+        className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${btnClass}`}>
+        {isRunning && <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />}
         {isAgentDown
           ? (isZh ? '⚠️ Agent 离线' : '⚠️ Agent Offline')
-          : isRunning
-            ? (isZh ? '筛选中...' : 'Running...')
-            : (isZh ? '🔍 发起筛选' : '🔍 Run Funnel')}
+          : isRunning ? (isZh ? '筛选中...' : 'Running...') : (isZh ? '🔍 发起筛选' : '🔍 Run Funnel')}
       </button>
       {isRunning && funnelProgress.stage && (
-        <FunnelProgress
-          stage={funnelProgress.stage}
-          detail={funnelProgress.detail}
-          progress={funnelProgress.progress}
-        />
+        <FunnelProgress stage={funnelProgress.stage} detail={funnelProgress.detail} progress={funnelProgress.progress} />
       )}
       {funnelError && <p className="text-xs text-red-500">{funnelError}</p>}
     </div>

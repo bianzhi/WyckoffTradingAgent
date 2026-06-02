@@ -615,7 +615,7 @@ function buildTools(userId: string, config: LLMConfig, reasoningCache: string[])
     }),
 
     trigger_funnel_screening: tool({
-      description: '发起一次全市场漏斗选股。将请求加入后台队列，系统完成筛选后结果可通过 screen_stocks 查看。通常需要1-2分钟。',
+      description: '发起一次全市场漏斗选股。加入后台队列后开始拉取全市场日线数据（首次约10-12分钟），完成后结果可通过 screen_stocks 查看。',
       inputSchema: z.object({}),
       execute: () => execTriggerFunnel(progressDeps('trigger_funnel_screening'), userId),
     }),

@@ -357,6 +357,15 @@ async function savePortfolioPosition(
 
 // ── funnel ─────────────────────────────────────────────────
 
+async function _funnelStatus(): Promise<Record<string, unknown>> {
+  const { supabase: s } = await import('./supabase')
+  const { data: { session } } = await s.auth.getSession()
+  const headers: Record<string, string> = {}
+  if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+  const resp = await fetch('/api/funnel/status', { headers })
+  return (await resp.json()) as Record<string, unknown>
+}
+
 export async function execTriggerFunnel(deps: ToolDeps, _userId: string): Promise<string> {
   try {
     const { data: { session } } = await deps.supabase.auth.getSession()
@@ -364,11 +373,28 @@ export async function execTriggerFunnel(deps: ToolDeps, _userId: string): Promis
     if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
     const resp = await fetch('/api/funnel/trigger', { method: 'POST', headers })
     const body = await resp.json() as Record<string, unknown>
-    if (resp.ok && body.ok) {
-      return '✅ 漏斗筛选已启动，系统正在处理（通常需要30-60秒）。完成后请使用 screen_stocks 查看最新选股结果。'
+    if (!resp.ok || !body.ok) {
+      const err = (body.error as string) || (body.message as string) || resp.statusText
+      return `⛔ 漏斗触发失败：${err}`
     }
-    const err = (body.error as string) || (body.message as string) || resp.statusText
-    return `⛔ 漏斗触发失败：${err}`
+
+    // 轮询真实进度（最多等 5 轮 × 2s = 10s）
+    for (let i = 0; i < 5; i++) {
+      await new Promise(r => setTimeout(r, 2000))
+      const status = await _funnelStatus()
+      const st = String(status.status || 'idle')
+      if (st === 'running') {
+        const detail = String(status.current_detail || '')
+        const pct = Number(status.current_progress ?? -1)
+        const pctStr = pct >= 0 ? ` (${Math.round(pct * 100)}%)` : ''
+        return `🔄 漏斗正在运行中 — ${detail}${pctStr}。数据拉取可能需要几分钟，完成后通过 screen_stocks 查看结果。`
+      }
+      if (st !== 'idle') {
+        return `⏳ 漏斗状态: ${st}。等待完成后再用 screen_stocks 查看。`
+      }
+    }
+
+    return '📋 漏斗已加入后台队列（可能需要几分钟拉取全市场日线数据）。完成后用 screen_stocks 查看选股结果。'
   } catch (e) {
     return `⛔ 漏斗触发失败：${e instanceof Error ? e.message : '网络错误'}`
   }

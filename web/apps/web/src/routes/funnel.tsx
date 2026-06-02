@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createChart, HistogramSeries, type HistogramData, type Time } from 'lightweight-charts'
-import { fetchFunnelSummary, fetchFunnelDates, fetchSignalQualityStats, fetchFunnelResult, downloadFunnelReport, type FunnelSummary, type SectorStat, type TriggerStat, type FunnelFullResult, type FunnelLayerCondition } from '@/lib/funnel-data'
+import { fetchFunnelSummary, fetchFunnelDates, fetchSignalQualityStats, fetchFunnelResult, downloadFunnelReport, fetchAgentHealth, type FunnelSummary, type SectorStat, type TriggerStat, type FunnelFullResult, type FunnelLayerCondition } from '@/lib/funnel-data'
 import { SkeletonChart, SkeletonCard } from '@/components/ux/skeleton'
 import { Breadcrumb } from '@/components/ux/breadcrumb'
 import { ScrollToTop } from '@/components/ux/scroll-top'
@@ -59,6 +59,14 @@ export function FunnelPage() {
     queryKey: ['funnel-result'],
     queryFn: fetchFunnelResult,
     staleTime: 300_000,
+    retry: 1,
+  })
+
+  const { data: agentHealth } = useQuery({
+    queryKey: ['agent-health'],
+    queryFn: fetchAgentHealth,
+    staleTime: 30_000,
+    refetchInterval: 30_000,
     retry: 1,
   })
 
@@ -156,17 +164,30 @@ export function FunnelPage() {
 
   if (isLoading) return <FunnelPageSkeleton />
   if (!summary) {
+    const agentOnline = agentHealth?.reachable
     return (
       <div className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6">
-        <div className="flex flex-col items-center justify-center gap-4 py-20">
-          <div className="text-lg font-semibold">{isZh ? '暂无漏斗数据' : 'No funnel data yet'}</div>
-          <p className="text-sm text-muted-foreground">{isZh ? '点击下方按钮启动全市场漏斗筛选' : 'Click the button below to start a funnel screening'}</p>
+        <AgentStatusBar agentHealth={agentHealth} isZh={isZh} />
+        <div className="flex flex-col items-center justify-center gap-4 py-16">
+          <div className="text-3xl">📡</div>
+          <div className="text-lg font-semibold">
+            {isZh ? '暂无漏斗数据' : 'No funnel data yet'}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {agentOnline
+              ? (isZh ? '点击下方按钮启动全市场漏斗筛选' : 'Click the button below to start a funnel screening')
+              : (isZh ? 'Agent 服务不可用，请检查服务状态' : 'Agent is unreachable — check service status')}
+          </p>
+          {!agentOnline && agentHealth?.detail && (
+            <p className="max-w-md text-xs text-muted-foreground text-center">{agentHealth.detail}</p>
+          )}
           <FunnelTriggerButton
             isZh={isZh}
             funnelState={funnelState}
             funnelError={funnelError}
             funnelProgress={funnelProgress}
             onTrigger={triggerFunnel}
+            agentOnline={agentOnline}
           />
         </div>
       </div>
@@ -186,6 +207,7 @@ export function FunnelPage() {
         funnelError={funnelError}
         funnelProgress={funnelProgress}
         onTriggerFunnel={triggerFunnel}
+        agentHealth={agentHealth}
       />
 
       {/* Layer pass rate chart */}
@@ -252,6 +274,26 @@ function FunnelPageSkeleton() {
 
 const SKEL_PULSE = 'animate-pulse rounded bg-muted/60'
 
+function AgentStatusBar({ agentHealth, isZh }: { agentHealth?: { reachable: boolean; error?: string; detail?: string } | undefined; isZh: boolean }) {
+  if (!agentHealth) return null
+  const online = agentHealth.reachable
+  return (
+    <div
+      className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-xs ${
+        online ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-300'
+      }`}
+    >
+      <span className={`inline-block h-2 w-2 rounded-full ${online ? 'bg-emerald-500' : 'bg-red-500'}`} />
+      <span className="font-medium">
+        {online ? (isZh ? '🧠 Agent 在线' : '🧠 Agent Online') : (isZh ? '⚠️ Agent 离线' : '⚠️ Agent Offline')}
+      </span>
+      {!online && agentHealth.error && (
+        <span className="opacity-80">— {agentHealth.error}</span>
+      )}
+    </div>
+  )
+}
+
 function FunnelHeader(props: {
   isZh: boolean
   summary: FunnelSummary
@@ -262,12 +304,15 @@ function FunnelHeader(props: {
   funnelError: string
   funnelProgress: { stage: string; detail: string; progress: number }
   onTriggerFunnel: () => void
+  agentHealth?: { reachable: boolean; error?: string; detail?: string }
 }) {
-  const { isZh, summary, dates, selectedDate, onDateChange, funnelState, funnelError, funnelProgress, onTriggerFunnel } = props
+  const { isZh, summary, dates, selectedDate, onDateChange, funnelState, funnelError, funnelProgress, onTriggerFunnel, agentHealth } = props
   const { locale } = usePreferences()
   const relTime = useMemo(() => summary.date ? relativeTime(summary.date, locale) : null, [summary.date, locale])
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2">
+    <div className="space-y-2">
+      <AgentStatusBar agentHealth={agentHealth} isZh={isZh} />
+      <div className="flex flex-wrap items-center justify-between gap-2">
       <div>
         <h1 className="text-lg font-bold">{isZh ? '威科夫漏斗' : 'Wyckoff Funnel'}</h1>
         <p className="text-xs text-muted-foreground">
@@ -281,6 +326,7 @@ function FunnelHeader(props: {
         <FunnelTriggerButton isZh={isZh} funnelState={funnelState} funnelError={funnelError} funnelProgress={funnelProgress} onTrigger={onTriggerFunnel} />
         <FunnelDateSelect dates={dates} selectedDate={selectedDate} onDateChange={onDateChange} />
       </div>
+    </div>
   )
 }
 
@@ -329,33 +375,40 @@ function FunnelTriggerButton({
   funnelError,
   funnelProgress,
   onTrigger,
+  agentOnline,
 }: {
   isZh: boolean
   funnelState: FunnelState
   funnelError: string
   funnelProgress: { stage: string; detail: string; progress: number }
   onTrigger: () => void
+  agentOnline?: boolean
 }) {
   const isRunning = funnelState === 'running'
+  const isAgentDown = agentOnline === false
 
   return (
     <div className="flex flex-col items-center gap-1">
       <button
         type="button"
         onClick={onTrigger}
-        disabled={isRunning}
+        disabled={isRunning || isAgentDown}
         className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-          isRunning
-            ? 'cursor-not-allowed bg-muted text-muted-foreground'
-            : 'bg-primary text-primary-foreground hover:bg-primary/90'
+          isAgentDown
+            ? 'cursor-not-allowed bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400'
+            : isRunning
+              ? 'cursor-not-allowed bg-muted text-muted-foreground'
+              : 'bg-primary text-primary-foreground hover:bg-primary/90'
         }`}
       >
         {isRunning ? (
           <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
         ) : null}
-        {isRunning
-          ? (isZh ? '筛选中...' : 'Running...')
-          : (isZh ? '🔍 发起筛选' : '🔍 Run Funnel')}
+        {isAgentDown
+          ? (isZh ? '⚠️ Agent 离线' : '⚠️ Agent Offline')
+          : isRunning
+            ? (isZh ? '筛选中...' : 'Running...')
+            : (isZh ? '🔍 发起筛选' : '🔍 Run Funnel')}
       </button>
       {isRunning && funnelProgress.stage && (
         <FunnelProgress

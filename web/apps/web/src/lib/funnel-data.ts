@@ -279,6 +279,29 @@ function safePct(count: number, total: number): number {
   return total > 0 ? Math.round((count / total) * 1000) / 10 : 0
 }
 
+// ── Agent 连通性检查 ──────────────────────────────────────────────────────
+
+export interface AgentHealth {
+  reachable: boolean
+  error?: string
+  detail?: string
+  agent_url?: string
+}
+
+export async function fetchAgentHealth(): Promise<AgentHealth> {
+  try {
+    const { supabase: s } = await import('./supabase')
+    const { data: { session } } = await s.auth.getSession()
+    const headers: Record<string, string> = {}
+    if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+    const resp = await fetch('/api/funnel/agent-health', { headers })
+    if (!resp.ok) return { reachable: false, error: `API ${resp.status}` }
+    return resp.json()
+  } catch (e) {
+    return { reachable: false, error: e instanceof Error ? e.message : '网络错误' }
+  }
+}
+
 // ── Phase 4.0: 漏斗完整结果 & 报告下载 ─────────────────────────────────────
 
 export async function fetchFunnelResult(): Promise<FunnelFullResult | null> {

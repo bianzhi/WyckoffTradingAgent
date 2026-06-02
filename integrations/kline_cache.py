@@ -163,23 +163,24 @@ def load_klines(
     unique_syms = list(dict.fromkeys(str(s).strip() for s in symbols if str(s).strip()))
     if not unique_syms:
         return {}
+    conn = get_db()
+    MAX_IN = 900
+    rows: list[dict] = []
+    for i in range(0, len(unique_syms), MAX_IN):
+        chunk = unique_syms[i : i + MAX_IN]
+        ph = ",".join("?" for _ in chunk)
+        params: list[Any] = [market] + chunk + [min_date]
+        sql = (
+            "SELECT symbol, trade_date, open, high, low, close, volume, amount, pct_chg, turnover "
+            f"FROM kline_daily WHERE market=? AND symbol IN ({ph}) AND trade_date >= ?"
+        )
+        if max_date:
+            sql += " AND trade_date <= ?"
+            params.append(max_date)
+        sql += " ORDER BY symbol, trade_date"
+        cur = conn.execute(sql, params)
+        rows.extend(dict(r) for r in cur.fetchall())
 
-    params: list[Any] = [market]
-    ph = ",".join("?" for _ in unique_syms)
-    params.extend(unique_syms)
-    params.append(min_date)
-
-    sql = (
-        "SELECT symbol, trade_date, open, high, low, close, volume, amount, pct_chg, turnover "
-        f"FROM kline_daily WHERE market=? AND symbol IN ({ph}) AND trade_date >= ?"
-    )
-    if max_date:
-        sql += " AND trade_date <= ?"
-        params.append(max_date)
-    sql += " ORDER BY symbol, trade_date"
-
-    cur = get_db().execute(sql, params)
-    rows = cur.fetchall()
     if not rows:
         return {}
 
@@ -258,12 +259,16 @@ def _find_uncached_symbols(market: str, symbols: list[str]) -> list[str]:
     if not unique:
         return []
     conn = get_db()
-    ph = ",".join("?" for _ in unique)
-    cur = conn.execute(
-        f"SELECT DISTINCT symbol FROM kline_daily WHERE market=? AND symbol IN ({ph})",
-        [market] + unique,
-    )
-    cached_set = {row[0] for row in cur.fetchall()}
+    MAX_IN = 900  # SQLite 默认 SQLITE_MAX_VARIABLE_NUMBER=999，留余量
+    cached_set: set[str] = set()
+    for i in range(0, len(unique), MAX_IN):
+        chunk = unique[i : i + MAX_IN]
+        ph = ",".join("?" for _ in chunk)
+        cur = conn.execute(
+            f"SELECT DISTINCT symbol FROM kline_daily WHERE market=? AND symbol IN ({ph})",
+            [market] + chunk,
+        )
+        cached_set.update(row[0] for row in cur.fetchall())
     return [s for s in unique if s not in cached_set]
 
 
@@ -427,6 +432,8 @@ def refresh_market_klines(
         if uncached:
             report_progress("检测缓存缺口", f"新标的{len(uncached)}只，开始全量拉取", 0.12)
             _fetch_full_klines(market, client, uncached, end_date, kline_count, batch_size, batch_sleep, "新标的")
+            # 重新读取最新日期，避免 step 2 误判为冷缓存
+            latest_cached = get_market_latest_date(market)
 
     # Step 2: 全量冷缓存 或 增量拉取
     if mode == "network" or latest_cached is None:

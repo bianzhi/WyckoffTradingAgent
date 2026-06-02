@@ -207,6 +207,8 @@ def _fetch_tickflow_batch(
     batch_sleep: float,
 ) -> dict[str, pd.DataFrame]:
     """从 TickFlow 批量拉取日线 raw DataFrame，返回 {symbol: DataFrame}。"""
+    from cli.progress import report_progress
+
     out: dict[str, pd.DataFrame] = {}
     total = (len(symbols) + batch_size - 1) // batch_size if symbols else 0
 
@@ -226,6 +228,7 @@ def _fetch_tickflow_batch(
         params["adjust"] = "forward"
 
         print(f"[kline-cache] 日K批次 {batch_no}/{total} symbols={len(clean)}")
+        report_progress("拉取K线缓存", f"批次{batch_no}/{total} ({len(clean)}只)", batch_no / total if total else 0)
         try:
             fetched = client.get_klines_batch(
                 clean,
@@ -297,12 +300,16 @@ def _fetch_full_klines(
     label: str,
 ) -> None:
     """冷缓存/新标的：全量拉取 kline_count 天数据并写入缓存。"""
+    from cli.progress import report_progress
+
     print(f"[kline-cache] {label}: 全量拉取 {len(symbols)} 只标的 {kline_count} 天日K")
+    report_progress("拉取K线缓存", f"全量拉取{len(symbols)}只 ({kline_count}天)", 0.10)
     raw_map = _fetch_tickflow_batch(
         client, symbols, None, _end_of_day_ms(end_date), kline_count, batch_size, batch_sleep
     )
     saved = _save_raw_map(market, raw_map)
     print(f"[kline-cache] {label}: 缓存已写入 {saved} 行")
+    report_progress("写入K线缓存", f"已写入{saved}行到本地库", 0.25)
 
 
 def _fetch_incremental_klines(
@@ -315,14 +322,18 @@ def _fetch_incremental_klines(
     batch_sleep: float,
 ) -> None:
     """增量拉取：从 from_date 到 end_date 的数据并写入缓存。"""
+    from cli.progress import report_progress
+
     days_behind = (end_date - from_date).days + 1
     count = max(days_behind * 2 + 8, 16)
     print(f"[kline-cache] 增量拉取 {from_date} ~ {end_date} ({days_behind}天预期) count={count} symbols={len(symbols)}")
+    report_progress("拉取K线缓存", f"增量更新{len(symbols)}只 ({from_date}~{end_date})", 0.10)
     raw_map = _fetch_tickflow_batch(
         client, symbols, _start_of_day_ms(from_date), _end_of_day_ms(end_date), count, batch_size, batch_sleep
     )
     saved = _save_raw_map(market, raw_map)
     print(f"[kline-cache] 增量缓存已写入 {saved} 行")
+    report_progress("写入K线缓存", f"增量写入{saved}行", 0.25)
 
 
 def _build_fetch_stats(df_map: dict, symbols: list[str], started: float) -> dict[str, int]:
@@ -338,6 +349,47 @@ def _build_fetch_stats(df_map: dict, symbols: list[str], started: float) -> dict
     }
 
 
+def _cache_mode() -> str:
+    raw = os.getenv("KLINE_CACHE_MODE", "cache_first").strip().lower()
+    aliases = {
+        "readonly": "cache_only",
+        "read_only": "cache_only",
+        "offline": "cache_only",
+        "local": "cache_only",
+        "refresh": "network",
+    }
+    mode = aliases.get(raw, raw)
+    return mode if mode in {"cache_only", "cache_first", "network"} else "cache_first"
+
+
+def _cache_only_result(market: str, symbols: list[str], start_date: date, end_date: date, started: float) -> tuple:
+    from cli.progress import report_progress
+
+    df_map = load_klines(market, symbols, start_date.isoformat(), end_date.isoformat())
+    stats = _build_fetch_stats(df_map, symbols, started)
+    latest_cached = get_market_latest_date(market)
+    stats.update(
+        {
+            "cache_mode": "cache_only",
+            "cache_hit": len(df_map),
+            "cache_missing": max(len(symbols) - len(df_map), 0),
+            "cache_latest_date": latest_cached.isoformat() if latest_cached else "",
+            "cache_window_start": start_date.isoformat(),
+            "cache_window_end": end_date.isoformat(),
+        }
+    )
+    print(
+        f"[kline-cache] 只读缓存: 命中={stats['cache_hit']}/{len(symbols)}, "
+        f"缺失={stats['cache_missing']}, 最新={stats['cache_latest_date'] or '-'}"
+    )
+    report_progress(
+        "读取本地K线",
+        f"命中 {stats['cache_hit']}/{len(symbols)}，缺失 {stats['cache_missing']}",
+        0.32,
+    )
+    return df_map, stats
+
+
 def refresh_market_klines(
     symbols: list[str],
     window: Any,
@@ -350,35 +402,60 @@ def refresh_market_klines(
     确保本地 K 线缓存覆盖请求窗口，返回窗口内的 {symbol: DataFrame}。
     返回 None 表示 TickFlow 不可用（让调用方走 fallback 路径）。
     """
-    if not bool(os.getenv("TICKFLOW_API_KEY", "").strip()):
-        return None
-
     ensure_kline_schema()
     market = _infer_market(symbols)
-    client = TickFlowClient(api_key=os.getenv("TICKFLOW_API_KEY", "").strip())
     start_date: date = window.start_trade_date
     end_date: date = window.end_trade_date
-    latest_cached = get_market_latest_date(market)
     started = time.monotonic()
+    mode = _cache_mode()
+
+    if mode == "cache_only":
+        return _cache_only_result(market, symbols, start_date, end_date, started)
+
+    api_key = os.getenv("TICKFLOW_API_KEY", "").strip()
+    if not api_key:
+        cached = _cache_only_result(market, symbols, start_date, end_date, started)
+        return cached if cached[0] else None
+
+    client = TickFlowClient(api_key=api_key)
+    latest_cached = get_market_latest_date(market)
+    from cli.progress import report_progress
 
     # Step 1: 缓存中完全缺失的标的 → 全量拉取
-    uncached = _find_uncached_symbols(market, symbols)
-    if uncached:
-        _fetch_full_klines(market, client, uncached, end_date, kline_count, batch_size, batch_sleep, "新标的")
+    if mode != "network":
+        uncached = _find_uncached_symbols(market, symbols)
+        if uncached:
+            report_progress("检测缓存缺口", f"新标的{len(uncached)}只，开始全量拉取", 0.12)
+            _fetch_full_klines(market, client, uncached, end_date, kline_count, batch_size, batch_sleep, "新标的")
 
     # Step 2: 全量冷缓存 或 增量拉取
-    if latest_cached is None:
+    if mode == "network" or latest_cached is None:
+        report_progress("拉取K线缓存", f"冷缓存模式，全量拉取{len(symbols)}只", 0.15)
         _fetch_full_klines(market, client, symbols, end_date, kline_count, batch_size, batch_sleep, "冷缓存")
     elif latest_cached < end_date:
+        report_progress("检测缓存缺口", f"缓存滞后{latest_cached}，增量更新至{end_date}", 0.15)
         _fetch_incremental_klines(
             market, client, symbols, latest_cached + timedelta(days=1), end_date, batch_size, batch_sleep
         )
     else:
         print(f"[kline-cache] {market} 缓存已是最新 ({latest_cached})，直接读取")
+        report_progress("读取本地K线", f"缓存已是最新({latest_cached})，直接加载", 0.28)
 
     # Step 3: 从缓存加载完整窗口数据
+    report_progress("加载K线数据", f"从本地库加载{len(symbols)}只日线数据", 0.30)
     df_map = load_klines(market, symbols, start_date.isoformat(), end_date.isoformat())
     stats = _build_fetch_stats(df_map, symbols, started)
+    latest_after = get_market_latest_date(market)
+    stats.update(
+        {
+            "cache_mode": mode,
+            "cache_hit": len(df_map),
+            "cache_missing": max(len(symbols) - len(df_map), 0),
+            "cache_latest_date": latest_after.isoformat() if latest_after else "",
+            "cache_window_start": start_date.isoformat(),
+            "cache_window_end": end_date.isoformat(),
+        }
+    )
     print(
         f"[kline-cache] 完成: 请求={len(symbols)}, 缓存命中={len(df_map)}, "
         f"耗时={stats['fetch_elapsed_s']}s, qps={stats['fetch_qps']}"

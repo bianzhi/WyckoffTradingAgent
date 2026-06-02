@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse
@@ -212,6 +214,7 @@ _funnel_progress: dict = {
     "detail": "",
     "progress": -1.0,
 }
+_funnel_logs: list[dict] = []
 
 
 def _build_and_persist_funnel(triggers: dict, metrics: dict) -> dict:
@@ -328,8 +331,16 @@ def _build_layer_conditions(triggers: dict, metrics: dict, stocks: list[dict]) -
 
 
 def _funnel_progress_callback(stage: str, detail: str, progress: float) -> None:
-    global _funnel_progress
+    global _funnel_progress, _funnel_logs
     _funnel_progress = {"stage": stage, "detail": detail, "progress": progress}
+    item = {
+        "ts": time.strftime("%H:%M:%S"),
+        "stage": str(stage or ""),
+        "detail": str(detail or ""),
+        "progress": float(progress) if isinstance(progress, (int, float)) else -1.0,
+    }
+    if not _funnel_logs or _funnel_logs[-1] != item:
+        _funnel_logs = [*_funnel_logs[-79:], item]
 
 
 def _build_funnel_result(triggers: dict, metrics: dict, elapsed: float, stocks, layer_conditions) -> dict:
@@ -351,14 +362,24 @@ def _build_funnel_result(triggers: dict, metrics: dict, elapsed: float, stocks, 
     return result
 
 
-def _run_funnel_background() -> dict:
+def _run_funnel_background(payload: dict | None = None) -> dict:
     """后台执行全市场漏斗筛选，返回摘要（含个股结果和层级条件）。"""
-    global _funnel_last_result
-    import time
+    global _funnel_last_result, _funnel_logs
 
     from cli.progress import set_reporter
 
+    payload = payload or {}
+    cache_mode = str(payload.get("kline_cache_mode", "cache_first") or "cache_first").strip().lower()
+    if cache_mode not in {"cache_only", "cache_first", "network"}:
+        cache_mode = "cache_first"
+    previous_cache_mode = os.environ.get("KLINE_CACHE_MODE")
+    os.environ["KLINE_CACHE_MODE"] = cache_mode
+    _funnel_logs = []
     set_reporter(_funnel_progress_callback)
+    mode_label = {"cache_only": "仅本地缓存", "cache_first": "缓存优先+网络补齐", "network": "强制网络拉取"}.get(
+        cache_mode, cache_mode
+    )
+    _funnel_progress_callback("启动漏斗", f"K线模式: {mode_label}", 0.02)
 
     start = time.time()
     try:
@@ -370,30 +391,35 @@ def _run_funnel_background() -> dict:
         stocks = _build_stocks(triggers, metrics)
         layer_conditions = _build_layer_conditions(triggers, metrics, stocks)
         result = _build_funnel_result(triggers, metrics, elapsed, stocks, layer_conditions)
+        result["cache_mode"] = cache_mode
+        result["progress_logs"] = list(_funnel_logs)
         _funnel_last_result = result
         return result
     except Exception as e:
         elapsed = time.time() - start
-        result = {"ok": False, "error": str(e), "elapsed_s": round(elapsed, 1)}
+        result = {"ok": False, "error": str(e), "elapsed_s": round(elapsed, 1), "progress_logs": list(_funnel_logs)}
         _funnel_last_result = result
         return result
     finally:
         set_reporter(None)
-        _funnel_progress = {"stage": "", "detail": "", "progress": -1.0}
+        if previous_cache_mode is None:
+            os.environ.pop("KLINE_CACHE_MODE", None)
+        else:
+            os.environ["KLINE_CACHE_MODE"] = previous_cache_mode
         if _funnel_run_lock.locked():
             _funnel_run_lock.release()
 
 
-def _trigger_funnel_async() -> dict:
+def _trigger_funnel_async(payload: dict | None = None) -> dict:
     """触发漏斗筛选（非阻塞），返回立即状态。"""
     acquired = _funnel_run_lock.acquire(blocking=False)
     if not acquired:
         return {"ok": False, "error": "漏斗正在运行中，请稍后再试", "last_result": _funnel_last_result}
 
     try:
-        thread = threading.Thread(target=_run_funnel_background, daemon=True)
+        thread = threading.Thread(target=_run_funnel_background, args=(payload or {},), daemon=True)
         thread.start()
-        return {"ok": True, "status": "running", "message": "漏斗筛选已在后台启动，通常需要30-60秒"}
+        return {"ok": True, "status": "running", "message": "漏斗筛选已在后台启动，正在读取本地K线缓存"}
     except Exception as e:
         _funnel_run_lock.release()
         return {"ok": False, "error": str(e)}
@@ -408,10 +434,11 @@ def _get_funnel_status() -> dict:
             "current_stage": _funnel_progress.get("stage", ""),
             "current_detail": _funnel_progress.get("detail", ""),
             "current_progress": _funnel_progress.get("progress", -1.0),
+            "progress_logs": list(_funnel_logs),
         }
     if _funnel_last_result:
-        return {"status": "idle", "last_result": _funnel_last_result}
-    return {"status": "idle", "last_result": None}
+        return {"status": "idle", "last_result": _funnel_last_result, "progress_logs": list(_funnel_logs)}
+    return {"status": "idle", "last_result": None, "progress_logs": list(_funnel_logs)}
 
 
 def _get_funnel_result() -> dict:
@@ -648,7 +675,7 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 400)
         elif path == "/api/funnel/run":
-            result = _trigger_funnel_async()
+            result = _trigger_funnel_async(self._read_body())
             status = 200 if result.get("ok") else 409
             self._json(result, status)
         else:

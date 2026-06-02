@@ -17,6 +17,8 @@ import { useDocTitle } from '@/lib/doc-title'
 import { usePreferences } from '@/lib/preferences'
 
 type FunnelState = 'idle' | 'running' | 'completed' | 'error'
+type FunnelProgressState = { stage: string; detail: string; progress: number }
+type FunnelProgressLog = { ts?: string; stage: string; detail: string; progress?: number }
 
 const SECTOR_COLORS = [
   '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#22c55e', '#06b6d4',
@@ -39,7 +41,8 @@ export function FunnelPage() {
   const [funnelState, setFunnelState] = useState<FunnelState>('idle')
   const [funnelError, setFunnelError] = useState('')
   const [funnelRunning, setFunnelRunning] = useState(false)
-  const [funnelProgress, setFunnelProgress] = useState({ stage: '', detail: '', progress: -1 })
+  const [funnelProgress, setFunnelProgress] = useState<FunnelProgressState>({ stage: '', detail: '', progress: -1 })
+  const [funnelLogs, setFunnelLogs] = useState<FunnelProgressLog[]>([])
   const queryClient = useQueryClient()
 
   const { data: dates, refetch: refetchDates } = useQuery({
@@ -99,9 +102,11 @@ export function FunnelPage() {
             detail: String(body.current_detail || ''),
             progress: Number(body.current_progress ?? -1),
           })
+          setFunnelLogs(normalizeProgressLogs(body.progress_logs))
           setTimeout(poll, 2000)
         } else {
           setFunnelRunning(false)
+          setFunnelLogs(normalizeProgressLogs(body.progress_logs))
           if (body.last_result && (body.last_result as Record<string, unknown>).ok) {
             setFunnelState('completed')
             // 刷新数据
@@ -136,12 +141,18 @@ export function FunnelPage() {
     setFunnelState('running')
     setFunnelRunning(true)
     setFunnelError('')
+    setFunnelLogs([{ ts: currentClockTime(), stage: isZh ? '启动漏斗' : 'Starting funnel', detail: isZh ? '优先本地缓存，缺失时自动拉取' : 'Cache-first, fetching missing data as needed', progress: 0.02 }])
     try {
       const { supabase } = await import('@/lib/supabase')
       const { data: { session } } = await supabase.auth.getSession()
       const headers: Record<string, string> = {}
       if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
-      const resp = await fetch('/api/funnel/trigger', { method: 'POST', headers })
+      headers['Content-Type'] = 'application/json'
+      const resp = await fetch('/api/funnel/trigger', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ kline_cache_mode: 'cache_first' }),
+      })
       const text = await resp.text()
       let body: Record<string, unknown> = {}
       try { body = JSON.parse(text) } catch { /* non-JSON response */ }
@@ -186,10 +197,12 @@ export function FunnelPage() {
             funnelState={funnelState}
             funnelError={funnelError}
             funnelProgress={funnelProgress}
+            funnelLogs={funnelLogs}
             onTrigger={triggerFunnel}
             agentOnline={agentOnline}
           />
         </div>
+        <FunnelRunPanel isZh={isZh} funnelState={funnelState} logs={funnelLogs} error={funnelError} />
       </div>
     )
   }
@@ -206,9 +219,11 @@ export function FunnelPage() {
         funnelState={funnelState}
         funnelError={funnelError}
         funnelProgress={funnelProgress}
+        funnelLogs={funnelLogs}
         onTriggerFunnel={triggerFunnel}
         agentHealth={agentHealth}
       />
+      <FunnelRunPanel isZh={isZh} funnelState={funnelState} logs={funnelLogs} error={funnelError} />
 
       {/* Layer pass rate chart */}
       <section className="rounded-xl border border-border bg-card/50 p-4">
@@ -303,10 +318,11 @@ function FunnelHeader(props: {
   funnelState: FunnelState
   funnelError: string
   funnelProgress: { stage: string; detail: string; progress: number }
+  funnelLogs: FunnelProgressLog[]
   onTriggerFunnel: () => void
   agentHealth?: { reachable: boolean; error?: string; detail?: string }
 }) {
-  const { isZh, summary, dates, selectedDate, onDateChange, funnelState, funnelError, funnelProgress, onTriggerFunnel, agentHealth } = props
+  const { isZh, summary, dates, selectedDate, onDateChange, funnelState, funnelError, funnelProgress, funnelLogs, onTriggerFunnel, agentHealth } = props
   const { locale } = usePreferences()
   const relTime = useMemo(() => summary.date ? relativeTime(summary.date, locale) : null, [summary.date, locale])
   return (
@@ -323,7 +339,7 @@ function FunnelHeader(props: {
         </p>
         {funnelError && <p className="text-xs text-red-500 mt-1">{funnelError}</p>}
       </div>
-        <FunnelTriggerButton isZh={isZh} funnelState={funnelState} funnelError={funnelError} funnelProgress={funnelProgress} onTrigger={onTriggerFunnel} />
+        <FunnelTriggerButton isZh={isZh} funnelState={funnelState} funnelError={funnelError} funnelProgress={funnelProgress} funnelLogs={funnelLogs} onTrigger={onTriggerFunnel} />
         <FunnelDateSelect dates={dates} selectedDate={selectedDate} onDateChange={onDateChange} />
       </div>
     </div>
@@ -374,6 +390,7 @@ function FunnelTriggerButton({
   funnelState,
   funnelError,
   funnelProgress,
+  funnelLogs,
   onTrigger,
   agentOnline,
 }: {
@@ -381,6 +398,7 @@ function FunnelTriggerButton({
   funnelState: FunnelState
   funnelError: string
   funnelProgress: { stage: string; detail: string; progress: number }
+  funnelLogs: FunnelProgressLog[]
   onTrigger: () => void
   agentOnline?: boolean
 }) {
@@ -404,8 +422,93 @@ function FunnelTriggerButton({
       {isRunning && funnelProgress.stage && (
         <FunnelProgress stage={funnelProgress.stage} detail={funnelProgress.detail} progress={funnelProgress.progress} />
       )}
+      {isRunning && funnelLogs.length > 0 && (
+        <span className="text-[11px] text-muted-foreground">
+          {isZh ? `已记录 ${funnelLogs.length} 条过程` : `${funnelLogs.length} progress events`}
+        </span>
+      )}
       {funnelError && <p className="text-xs text-red-500">{funnelError}</p>}
     </div>
+  )
+}
+
+function normalizeProgressLogs(value: unknown): FunnelProgressLog[] {
+  if (!Array.isArray(value)) return []
+  return value.slice(-80).map((item) => {
+    const row = (item && typeof item === 'object' && !Array.isArray(item)) ? item as Record<string, unknown> : {}
+    return {
+      ts: String(row.ts || ''),
+      stage: String(row.stage || ''),
+      detail: String(row.detail || ''),
+      progress: Number(row.progress ?? -1),
+    }
+  }).filter((row) => row.stage || row.detail)
+}
+
+function currentClockTime(): string {
+  return new Date().toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+function FunnelRunPanel({ isZh, funnelState, logs, error }: {
+  isZh: boolean
+  funnelState: FunnelState
+  logs: FunnelProgressLog[]
+  error: string
+}) {
+  if (funnelState === 'idle' && logs.length === 0 && !error) return null
+  const isRunning = funnelState === 'running'
+  const recent = logs.slice(-15).reverse()
+
+  // 取最新一条的 progress 作为整体进度
+  const latestProgress = logs.length > 0 ? logs[logs.length - 1]!.progress : -1
+  const overallPct = latestProgress >= 0 ? Math.round(latestProgress * 100) : null
+
+  return (
+    <section className="rounded-lg border border-border bg-background p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold">{isZh ? '运行过程' : 'Run Progress'}</h2>
+        <span className={`rounded-full px-2.5 py-1 text-[11px] ${isRunning ? 'bg-primary/10 text-primary animate-pulse' : funnelState === 'error' ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-600'}`}>
+          {isRunning ? (isZh ? '运行中' : 'Running') : funnelState === 'error' ? (isZh ? '异常' : 'Error') : (isZh ? '已完成' : 'Done')}
+        </span>
+      </div>
+
+      {/* 整体进度条 */}
+      {isRunning && overallPct !== null && (
+        <div className="mb-3">
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1">
+            <span>{isZh ? '整体进度' : 'Overall'}</span>
+            <span>{overallPct}%</span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary transition-all duration-700 ease-out"
+              style={{ width: `${Math.max(overallPct, 2)}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {recent.length > 0 ? (
+        <div className="space-y-1.5 max-h-[420px] overflow-y-auto">
+          {recent.map((log, index) => {
+            const pct = log.progress >= 0 ? Math.round(log.progress * 100) : null
+            return (
+              <div key={`${log.ts}-${log.stage}-${index}`} className="flex gap-2 rounded-md bg-muted/30 px-3 py-1.5 text-xs items-center">
+                <span className="w-14 shrink-0 text-[11px] text-muted-foreground tabular-nums">{log.ts || '--:--:--'}</span>
+                <span className="min-w-[7rem] font-medium text-foreground">{log.stage}</span>
+                <span className="min-w-0 flex-1 text-muted-foreground truncate">{log.detail}</span>
+                {pct !== null && (
+                  <span className="w-9 shrink-0 text-right tabular-nums text-[11px] text-muted-foreground">{pct}%</span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">{isZh ? '等待后端返回运行过程。' : 'Waiting for backend progress.'}</p>
+      )}
+      {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
+    </section>
   )
 }
 

@@ -412,13 +412,21 @@ def _run_funnel_background(payload: dict | None = None) -> dict:
         from utils.trading_clock import CN_TZ
 
         _funnel_progress = {"stage": "已停止", "detail": "用户手动停止漏斗", "progress": 1.0}
-        _funnel_logs.append({
-            "ts": datetime.now(CN_TZ).strftime("%H:%M:%S"),
-            "stage": "已停止",
-            "detail": "用户手动停止漏斗",
-            "progress": 1.0,
-        })
-        result = {"ok": False, "stopped": True, "error": "漏斗已被用户停止", "elapsed_s": round(elapsed, 1), "progress_logs": list(_funnel_logs)}
+        _funnel_logs.append(
+            {
+                "ts": datetime.now(CN_TZ).strftime("%H:%M:%S"),
+                "stage": "已停止",
+                "detail": "用户手动停止漏斗",
+                "progress": 1.0,
+            }
+        )
+        result = {
+            "ok": False,
+            "stopped": True,
+            "error": "漏斗已被用户停止",
+            "elapsed_s": round(elapsed, 1),
+            "progress_logs": list(_funnel_logs),
+        }
         _funnel_last_result = result
         return result
     except Exception as e:

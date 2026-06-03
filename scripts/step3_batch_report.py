@@ -797,26 +797,23 @@ def run(
     sector_map = fetch_sector_map()
     market_cap_map = fetch_market_cap_map()
     financial_map: dict[str, dict] = {}
-    tickflow_api_key = os.getenv("TICKFLOW_API_KEY", "").strip()
-    if tickflow_api_key:
-        try:
-            from integrations.tickflow_client import TickFlowClient
+    try:
+        from integrations.data_source import fetch_financial_map
 
-            _tf = TickFlowClient(api_key=tickflow_api_key)
-            codes = [str(i["code"]) for i in items if i.get("code")]
-            print(f"[step3] TickFlow 财务指标请求: symbols={len(codes)}")
-            raw_fin = _tf.get_financial_metrics(codes, latest=True)
-            for sym, records in raw_fin.items():
-                if records:
-                    financial_map[sym] = records[0]
-            missing = max(len(codes) - len(financial_map), 0)
-            sample_missing = ",".join(sorted([s for s in codes if s not in financial_map])[:8])
-            print(
-                f"[step3] TickFlow 财务指标: {len(financial_map)}/{len(codes)}, "
-                f"missing={missing}, sample_missing={sample_missing or '-'}"
-            )
-        except Exception as e:
-            print(f"[step3] TickFlow 财务指标加载失败: {e}")
+        codes = [str(i["code"]) for i in items if i.get("code")]
+        print(f"[step3] Tushare 财务指标请求: symbols={len(codes)}")
+        all_fin = fetch_financial_map()
+        for code in codes:
+            if code in all_fin:
+                financial_map[code] = all_fin[code]
+        missing = max(len(codes) - len(financial_map), 0)
+        sample_missing = ",".join(sorted([s for s in codes if s not in financial_map])[:8])
+        print(
+            f"[step3] Tushare 财务指标: {len(financial_map)}/{len(codes)}, "
+            f"missing={missing}, sample_missing={sample_missing or '-'}"
+        )
+    except Exception as e:
+        print(f"[step3] Tushare 财务指标加载失败: {e}")
     benchmark_ret_10: float | None = None
     try:
         bench_df = fetch_index_hist("000001", window.start_trade_date, window.end_trade_date)

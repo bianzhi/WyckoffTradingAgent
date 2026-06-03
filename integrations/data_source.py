@@ -1126,6 +1126,7 @@ _MARKET_CAP_CACHE = _DATA_CACHE_DIR / "market_cap_cache.json"
 _CONCEPT_CACHE = _DATA_CACHE_DIR / "concept_map_cache.json"
 _CONCEPT_HEAT_CACHE = _DATA_CACHE_DIR / "concept_heat_cache.json"
 _CONCEPT_HEAT_HISTORY = _DATA_CACHE_DIR / "concept_heat_history.json"
+_FINANCIAL_CACHE = _DATA_CACHE_DIR / "financial_map_cache.json"
 _CACHE_TTL = 24 * 60 * 60
 _CONCEPT_HEAT_TTL = 4 * 60 * 60
 
@@ -1268,6 +1269,109 @@ def fetch_market_cap_map() -> dict[str, float]:
             _atomic_write_json(_MARKET_CAP_CACHE, mapping)
         except Exception as e:
             _debug_source_fail("market_cap_cache_write", e)
+
+    return mapping
+
+
+def fetch_financial_map(*, force_refresh: bool = False) -> dict[str, dict]:
+    """
+    全市场 code -> {roe, debt_to_asset_ratio} 映射。
+    通过 tushare fina_indicator 逐只获取最新季度数据，缓存 24 小时。
+
+    返回格式: {"000001": {"roe": 12.5, "debt_to_asset_ratio": 45.2}, ...}
+    """
+    if not force_refresh:
+        try:
+            if _FINANCIAL_CACHE.exists() and (time.time() - _FINANCIAL_CACHE.stat().st_mtime) < _CACHE_TTL:
+                with open(_FINANCIAL_CACHE, encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception as e:
+            _debug_source_fail("financial_cache_read", e)
+
+    from integrations.tushare_client import get_pro
+
+    pro = get_pro()
+    if pro is None:
+        try:
+            if _FINANCIAL_CACHE.exists():
+                with open(_FINANCIAL_CACHE, encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception as e:
+            _debug_source_fail("financial_cache_fallback_read", e)
+        return {}
+
+    # 先获取全市场股票列表
+    try:
+        stock_df = pro.stock_basic(
+            exchange="",
+            list_status="L",
+            fields="ts_code",
+        )
+        all_ts_codes = sorted(str(r["ts_code"]) for _, r in stock_df.iterrows()) if stock_df is not None and not stock_df.empty else []
+    except Exception as e:
+        _debug_source_fail("tushare_stock_basic_for_financial", e)
+        return {}
+
+    if not all_ts_codes:
+        return {}
+
+    print(f"[financial] 开始逐只查询财务指标，共 {len(all_ts_codes)} 只标的...")
+
+    mapping: dict[str, dict] = {}
+    success = 0
+    fail = 0
+    no_data = 0
+    start_time = time.monotonic()
+
+    for idx, ts_code in enumerate(all_ts_codes):
+        try:
+            df = pro.fina_indicator(
+                ts_code=ts_code,
+                fields="ts_code,roe,debt_to_assets",
+                limit=1,
+            )
+            if df is not None and not df.empty:
+                row = df.iloc[0]
+                code = _ts_code_to_symbol(str(row["ts_code"]))
+                roe_val = row.get("roe")
+                debt_val = row.get("debt_to_assets")
+                if code:
+                    entry: dict = {}
+                    if pd.notna(roe_val):
+                        entry["roe"] = float(roe_val)
+                    if pd.notna(debt_val):
+                        entry["debt_to_asset_ratio"] = float(debt_val)
+                    if entry:
+                        mapping[code] = entry
+                success += 1
+            else:
+                no_data += 1
+        except Exception as e:
+            fail += 1
+            if fail <= 3:
+                _debug_source_fail(f"tushare_fina_indicator[{ts_code}]", e)
+
+        if (idx + 1) % 500 == 0:
+            elapsed = time.monotonic() - start_time
+            eta = (elapsed / (idx + 1)) * (len(all_ts_codes) - idx - 1)
+            print(
+                f"[financial] 进度 {idx + 1}/{len(all_ts_codes)} "
+                f"已耗时 {elapsed:.0f}s 预计剩余 {eta:.0f}s "
+                f"成功={success} 无数据={no_data} 失败={fail}"
+            )
+
+    elapsed_total = time.monotonic() - start_time
+    print(
+        f"[financial] Tushare 财务指标查询完成: "
+        f"有数据={success} 无数据={no_data} 失败={fail} "
+        f"总耗时 {elapsed_total:.0f}s"
+    )
+
+    if mapping:
+        try:
+            _atomic_write_json(_FINANCIAL_CACHE, dict(mapping))
+        except Exception as e:
+            _debug_source_fail("financial_cache_write", e)
 
     return mapping
 

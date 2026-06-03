@@ -848,6 +848,18 @@ def start_dashboard(port: int = 8765):
 
     init_db()
 
+    # 注入用户配置的数据源 token（与 TUI 行为一致）
+    try:
+        from cli.auth import load_config
+
+        _cfg = load_config()
+        for _k, _env in [("tushare_token", "TUSHARE_TOKEN"), ("tickflow_api_key", "TICKFLOW_API_KEY")]:
+            _v = str(_cfg.get(_k, "") or "").strip()
+            if _v:
+                os.environ.setdefault(_env, _v)
+    except Exception:
+        pass
+
     server = HTTPServer(("0.0.0.0", port), _Handler)
     server.allow_reuse_address = True
     print(f"Wyckoff Dashboard: {url}")

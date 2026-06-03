@@ -1296,27 +1296,17 @@ def run_funnel_job(
         market_cap_map = {}
     if not market_cap_map:
         print("[funnel] ⚠️ 市值数据为空（TUSHARE_TOKEN 可能缺失/失效），Layer1 将跳过市值过滤")
-    # TickFlow 财务指标
+    # Tushare 财务指标（ROE / 资产负债率）
     financial_map: dict[str, dict] = {}
-    tickflow_api_key = os.getenv("TICKFLOW_API_KEY", "").strip()
-    if tickflow_api_key:
-        try:
-            from integrations.tickflow_client import TickFlowClient
+    try:
+        from integrations.data_source import fetch_financial_map
 
-            _tf = TickFlowClient(api_key=tickflow_api_key)
-            print(f"[funnel] TickFlow 财务指标请求: symbols={len(all_symbols)}")
-            raw_fin = _tf.get_financial_metrics(all_symbols, latest=True)
-            for sym, records in raw_fin.items():
-                if records:
-                    financial_map[sym] = records[0]
-            missing = max(len(all_symbols) - len(financial_map), 0)
-            sample_missing = ",".join(sorted([s for s in all_symbols if s not in financial_map])[:8])
-            print(
-                f"[funnel] TickFlow 财务指标加载成功: {len(financial_map)}/{len(all_symbols)}, "
-                f"missing={missing}, sample_missing={sample_missing or '-'}"
-            )
-        except Exception as e:
-            logger.warning("TickFlow 财务指标加载失败，跳过财务过滤: %s", e)
+        print("[funnel] Tushare 财务指标请求...")
+        financial_map = fetch_financial_map()
+        effective = sum(1 for m in financial_map.values() if m)
+        print(f"[funnel] Tushare 财务指标加载成功: {effective}/{len(financial_map)}")
+    except Exception as e:
+        logger.warning("Tushare 财务指标加载失败，跳过财务过滤: %s", e)
     print("[funnel] 加载股票名称...")
     try:
         name_map = _stock_name_map()

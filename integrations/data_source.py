@@ -1273,80 +1273,69 @@ def fetch_market_cap_map() -> dict[str, float]:
     return mapping
 
 
-def fetch_financial_map(*, force_refresh: bool = False) -> dict[str, dict]:
-    """
-    全市场 code -> {roe, debt_to_asset_ratio} 映射。
-    通过 tushare fina_indicator 逐只获取最新季度数据，缓存 24 小时。
-
-    返回格式: {"000001": {"roe": 12.5, "debt_to_asset_ratio": 45.2}, ...}
-    """
-    if not force_refresh:
-        try:
-            if _FINANCIAL_CACHE.exists() and (time.time() - _FINANCIAL_CACHE.stat().st_mtime) < _CACHE_TTL:
-                with open(_FINANCIAL_CACHE, encoding="utf-8") as f:
-                    return json.load(f)
-        except Exception as e:
-            _debug_source_fail("financial_cache_read", e)
-
-    from integrations.tushare_client import get_pro
-
-    pro = get_pro()
-    if pro is None:
-        try:
-            if _FINANCIAL_CACHE.exists():
-                with open(_FINANCIAL_CACHE, encoding="utf-8") as f:
-                    return json.load(f)
-        except Exception as e:
-            _debug_source_fail("financial_cache_fallback_read", e)
-        return {}
-
-    # 先获取全市场股票列表
+def _load_financial_cache() -> dict[str, dict] | None:
+    """读取财务指标缓存，有效期内返回数据，否则返回 None。"""
     try:
-        stock_df = pro.stock_basic(
-            exchange="",
-            list_status="L",
-            fields="ts_code",
-        )
-        all_ts_codes = (
-            sorted(str(r["ts_code"]) for _, r in stock_df.iterrows())
-            if stock_df is not None and not stock_df.empty
-            else []
-        )
+        if _FINANCIAL_CACHE.exists() and (time.time() - _FINANCIAL_CACHE.stat().st_mtime) < _CACHE_TTL:
+            with open(_FINANCIAL_CACHE, encoding="utf-8") as f:
+                return json.load(f)
     except Exception as e:
-        _debug_source_fail("tushare_stock_basic_for_financial", e)
-        return {}
+        _debug_source_fail("financial_cache_read", e)
+    return None
 
-    if not all_ts_codes:
-        return {}
 
+def _load_financial_cache_stale() -> dict[str, dict]:
+    """读取过期缓存（Tushare 不可用时降级使用）。"""
+    try:
+        if _FINANCIAL_CACHE.exists():
+            with open(_FINANCIAL_CACHE, encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        _debug_source_fail("financial_cache_fallback_read", e)
+    return {}
+
+
+def _fetch_all_ts_codes(pro) -> list[str]:
+    """获取全市场 A 股 ts_code 列表。"""
+    stock_df = pro.stock_basic(exchange="", list_status="L", fields="ts_code")
+    if stock_df is not None and not stock_df.empty:
+        return sorted(str(r["ts_code"]) for _, r in stock_df.iterrows())
+    return []
+
+
+def _try_parse_financial_row(df, ts_code: str) -> tuple[str, dict] | None:
+    """从 fina_indicator 返回的 DataFrame 中提取 code→{roe, debt_to_asset_ratio}。"""
+    if df is None or df.empty:
+        return None
+    row = df.iloc[0]
+    code = _ts_code_to_symbol(str(row["ts_code"]))
+    if not code:
+        return None
+    entry: dict = {}
+    roe_val = row.get("roe")
+    debt_val = row.get("debt_to_assets")
+    if pd.notna(roe_val):
+        entry["roe"] = float(roe_val)
+    if pd.notna(debt_val):
+        entry["debt_to_asset_ratio"] = float(debt_val)
+    return (code, entry) if entry else None
+
+
+def _fetch_all_financials(pro, all_ts_codes: list[str]) -> dict[str, dict]:
+    """逐只拉取 fina_indicator，返回 {code: {roe, debt_to_asset_ratio}}。"""
     print(f"[financial] 开始逐只查询财务指标，共 {len(all_ts_codes)} 只标的...")
-
     mapping: dict[str, dict] = {}
-    success = 0
-    fail = 0
-    no_data = 0
+    success = no_data = fail = 0
     start_time = time.monotonic()
 
     for idx, ts_code in enumerate(all_ts_codes):
         try:
-            df = pro.fina_indicator(
-                ts_code=ts_code,
-                fields="ts_code,roe,debt_to_assets",
-                limit=1,
+            parsed = _try_parse_financial_row(
+                pro.fina_indicator(ts_code=ts_code, fields="ts_code,roe,debt_to_assets", limit=1),
+                ts_code,
             )
-            if df is not None and not df.empty:
-                row = df.iloc[0]
-                code = _ts_code_to_symbol(str(row["ts_code"]))
-                roe_val = row.get("roe")
-                debt_val = row.get("debt_to_assets")
-                if code:
-                    entry: dict = {}
-                    if pd.notna(roe_val):
-                        entry["roe"] = float(roe_val)
-                    if pd.notna(debt_val):
-                        entry["debt_to_asset_ratio"] = float(debt_val)
-                    if entry:
-                        mapping[code] = entry
+            if parsed:
+                mapping[parsed[0]] = parsed[1]
                 success += 1
             else:
                 no_data += 1
@@ -1370,13 +1359,36 @@ def fetch_financial_map(*, force_refresh: bool = False) -> dict[str, dict]:
         f"有数据={success} 无数据={no_data} 失败={fail} "
         f"总耗时 {elapsed_total:.0f}s"
     )
+    return mapping
+
+
+def fetch_financial_map(*, force_refresh: bool = False) -> dict[str, dict]:
+    """
+    全市场 code -> {roe, debt_to_asset_ratio} 映射。
+    通过 tushare fina_indicator 逐只获取最新季度数据，缓存 24 小时。
+    """
+    if not force_refresh:
+        cached = _load_financial_cache()
+        if cached is not None:
+            return cached
+
+    from integrations.tushare_client import get_pro
+
+    pro = get_pro()
+    if pro is None:
+        return _load_financial_cache_stale()
+
+    all_ts_codes = _fetch_all_ts_codes(pro)
+    if not all_ts_codes:
+        return _load_financial_cache_stale()
+
+    mapping = _fetch_all_financials(pro, all_ts_codes)
 
     if mapping:
         try:
             _atomic_write_json(_FINANCIAL_CACHE, dict(mapping))
         except Exception as e:
             _debug_source_fail("financial_cache_write", e)
-
     return mapping
 
 

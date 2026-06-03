@@ -122,6 +122,32 @@ class TickFlowFatalError(RuntimeError):
     """不可重试的错误（权限不足、参数非法等 4xx 状态码）。"""
 
 
+def _handle_rate_limit_response(
+    body: str,
+    resp: requests.Response,
+    *,
+    path: str,
+    attempt: int,
+    max_retries: int,
+    params_summary: str,
+) -> None:
+    """处理 429 限流响应：等待后重试或抛出。"""
+    record_tickflow_limit_event(body)
+    _tf_log(
+        f"rate_limited path={path} attempt={attempt}/{max_retries} params={params_summary} body={body[:160]}",
+        always=True,
+    )
+    delay = _rate_limit_delay_seconds(body, resp.headers.get("Retry-After"))
+    if attempt < max_retries and delay is not None:
+        _tf_log(
+            f"rate_limited_sleep path={path} attempt={attempt}/{max_retries} sleep_s={delay:.1f} params={params_summary}",
+            always=True,
+        )
+        time.sleep(delay)
+        return
+    raise RuntimeError(f"TickFlow HTTP 429: {body[:200]}（{TICKFLOW_LIMIT_HINT}）")
+
+
 def _retry_or_raise_http(
     resp: requests.Response,
     *,
@@ -133,21 +159,15 @@ def _retry_or_raise_http(
 ) -> None:
     body = (resp.text or "").strip()
     if resp.status_code == 429 or "rate_limited" in body.lower():
-        record_tickflow_limit_event(body)
-        _tf_log(
-            f"rate_limited path={path} attempt={attempt}/{max_retries} params={params_summary} body={body[:160]}",
-            always=True,
+        _handle_rate_limit_response(
+            body,
+            resp,
+            path=path,
+            attempt=attempt,
+            max_retries=max_retries,
+            params_summary=params_summary,
         )
-        delay = _rate_limit_delay_seconds(body, resp.headers.get("Retry-After"))
-        if attempt < max_retries and delay is not None:
-            _tf_log(
-                f"rate_limited_sleep path={path} attempt={attempt}/{max_retries} "
-                f"sleep_s={delay:.1f} params={params_summary}",
-                always=True,
-            )
-            time.sleep(delay)
-            return
-        raise RuntimeError(f"TickFlow HTTP 429: {body[:200]}（{TICKFLOW_LIMIT_HINT}）")
+        return
 
     if attempt < max_retries and (resp.status_code >= 500 or "error code: 1010" in body.lower()):
         _tf_log(

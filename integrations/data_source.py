@@ -1307,7 +1307,11 @@ def fetch_financial_map(*, force_refresh: bool = False) -> dict[str, dict]:
             list_status="L",
             fields="ts_code",
         )
-        all_ts_codes = sorted(str(r["ts_code"]) for _, r in stock_df.iterrows()) if stock_df is not None and not stock_df.empty else []
+        all_ts_codes = (
+            sorted(str(r["ts_code"]) for _, r in stock_df.iterrows())
+            if stock_df is not None and not stock_df.empty
+            else []
+        )
     except Exception as e:
         _debug_source_fail("tushare_stock_basic_for_financial", e)
         return {}

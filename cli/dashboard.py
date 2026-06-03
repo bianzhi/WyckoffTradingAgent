@@ -1125,6 +1125,7 @@ zh:{
   funnel_run:'发起筛选',funnel_stop:'停止',funnel_running:'筛选运行中...',funnel_idle:'待发起',funnel_done:'筛选完成',
   funnel_error:'筛选出错',funnel_no_result:'暂无筛选结果',funnel_hit:'命中',fn_trigger:'信号类型',fn_momentum:'主升',fn_ambush:'潜伏',
   fn_accum:'吸筹',fn_dry:'地量',fn_trend:'趋势',fn_sos:'点火',fn_bypass:'旁路',fn_etf:'ETF候选',fn_report:'查看研报',
+  fn_date:'数据日期',fn_stale:'数据已过期，请重新发起筛选',
 },
 en:{
   nav_overview:'Overview',nav_recommendations:'Recommendations',nav_signals:'Signals',nav_tailbuy:'Tail Buy',nav_portfolio:'Portfolio',
@@ -1158,6 +1159,7 @@ en:{
   funnel_run:'Run Funnel',funnel_stop:'Stop',funnel_running:'Funnel running...',funnel_idle:'Ready',funnel_done:'Completed',
   funnel_error:'Error',funnel_no_result:'No results yet',funnel_hit:'Hits',fn_trigger:'Trigger',fn_momentum:'Momentum',fn_ambush:'Ambush',
   fn_accum:'Accum',fn_dry:'Dry Vol',fn_trend:'Trend',fn_sos:'SOS',fn_bypass:'Bypass',fn_etf:'ETF',fn_report:'View Report',
+  fn_date:'Data Date',fn_stale:'Data is stale, please re-run funnel',
 }};
 let _lang = localStorage.getItem('wk_lang') || 'zh';
 function t(k){return (I18N[_lang]||I18N.zh)[k]||k}
@@ -1248,6 +1250,10 @@ function renderRecTable(recs,showDel){
     return `<tr><td>${code}</td><td>${r.name||''}</td><td>${r.camp||''}</td><td>${localTime(r.recommend_date)}</td><td>${(r.initial_price||0).toFixed(2)}</td><td>${(r.current_price||0).toFixed(2)}</td><td>${ai}</td>${showDel?`<td><button class="btn-del" onclick="delRec('${code}')">${t('del')}</button></td>`:''}</tr>`}).join('')}</tbody></table>`}
 
 // ═══ Funnel ═══
+function _daysAgo(dateStr){
+  if(!dateStr)return 999;
+  try{const d=new Date(dateStr);if(isNaN(d))return 999;return Math.floor((Date.now()-d.getTime())/(864e5))}catch(e){return 999}
+}
 let _funnelTimer=null;
 async function renderFunnel(c){
   if(_funnelTimer){clearInterval(_funnelTimer);_funnelTimer=null}
@@ -1262,9 +1268,14 @@ function _renderFunnelContent(c,status){
   const statusText=running?t('funnel_running'):(lastResult&&lastResult.ok?t('funnel_done'):t('funnel_idle'));
   const statusPill=`<span class="pill ${running?'pill-amber':(lastResult&&lastResult.ok?'pill-green':'pill-dim')}">${statusText}</span>`;
   let html=`<div class="fade-in"><h2 style="margin:0 0 4px 0;font-size:20px">${t('funnel')}</h2>
-    <div style="margin:4px 0 16px 0;display:flex;gap:12px;align-items:center">${statusPill}`;
-  // last run info
-  if(lastResult&&lastResult.date){html+=`<span style="color:var(--text-dim);font-size:13px">${lastResult.date}</span>`}
+    <div style="margin:4px 0 16px 0;display:flex;gap:12px;align-items:center;flex-wrap:wrap">${statusPill}`;
+  // last run info — show date prominently, warn if stale
+  if(lastResult&&lastResult.date){
+    const daysAgo=_daysAgo(lastResult.date);
+    const dateColor=daysAgo>5?'pill-red':(daysAgo>1?'pill-amber':'');
+    html+=`<span class="pill ${dateColor}" style="font-weight:600">${t('fn_date')}: ${lastResult.date}</span>`;
+    if(daysAgo>5)html+=`<span style="color:var(--red);font-size:12px">⚠ ${t('fn_stale')}</span>`;
+  }
   if(lastResult&&lastResult.elapsed_s!=null){html+=`<span style="color:var(--text-dim);font-size:13px">耗时 ${lastResult.elapsed_s}s</span>`}
   if(lastResult&&lastResult.trigger_hits!=null){html+=`<span style="color:var(--text-dim);font-size:13px">命中 ${lastResult.trigger_hits} 只</span>`}
   html+=`</div>`;

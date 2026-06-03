@@ -235,10 +235,27 @@ def _try_kline_cache(
 ) -> tuple[dict[str, pd.DataFrame], dict[str, int]] | None:
     """非严格对齐模式下尝试走本地 K 线缓存，返回 None 表示缓存未命中。"""
     if enforce_target_trade_date:
+        print("[funnel] K线缓存跳过: enforce_target_trade_date=True")
         return None
     if os.getenv("KLINE_CACHE_ENABLED", "1").strip().lower() in ("0", "false", "no", "off"):
+        print("[funnel] K线缓存跳过: KLINE_CACHE_ENABLED=0")
         return None
-    from integrations.kline_cache import refresh_market_klines
+    from integrations.kline_cache import (
+        _infer_market,
+        ensure_kline_schema,
+        get_market_latest_date,
+        refresh_market_klines,
+    )
+
+    ensure_kline_schema()
+    market = _infer_market(symbols)
+    latest = get_market_latest_date(market)
+    cache_mode = os.getenv("KLINE_CACHE_MODE", "cache_first")
+    print(
+        f"[funnel] K线缓存检查: market={market}, mode={cache_mode}, "
+        f"最新缓存日期={latest or '空'}, 目标窗口结束={window.end_trade_date}, "
+        f"标的数={len(symbols)}"
+    )
 
     day_span = (window.end_trade_date - window.start_trade_date).days + 1
     kline_count = min(max(day_span * 2 + 16, 64), 10000)
@@ -450,10 +467,15 @@ def fetch_all_ohlcv(
     batch_result = _fetch_all_ohlcv_tickflow_batch(symbols, window, enforce_target_trade_date, batch_size, batch_sleep)
     if batch_result is not None:
         df_map, _stats = batch_result
-        print(f"[funnel] fetch_all_ohlcv 缓存命中: symbols={len(symbols)} result_keys={len(df_map)}")
+        cache_info = _stats.get("cache_mode", "unknown")
+        hit = _stats.get("cache_hit", len(df_map))
+        print(
+            f"[funnel] ✅ K线数据就绪: 共{len(df_map)}只 "
+            f"(来源={cache_info}, 命中={hit}, 耗时={_stats.get('fetch_elapsed_s', 0):.1f}s)"
+        )
         return batch_result
 
-    print(f"[funnel] fetch_all_ohlcv 缓存未命中，走并行单票链路 symbols={len(symbols)}")
+    print(f"[funnel] ⚠️ K线本地缓存未命中，退回 TickFlow/并行单票链路 (symbols={len(symbols)})")
 
     all_df_map: dict[str, pd.DataFrame] = {}
     fetch_ok = 0

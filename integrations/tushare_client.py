@@ -24,7 +24,7 @@ from threading import Lock
 # ── 全局滑动窗口限流器（进程级单例，线程安全） ──
 logger = logging.getLogger(__name__)
 
-_RATE_LIMIT = int(os.getenv("TUSHARE_RATE_LIMIT", "400"))  # 次/分钟
+_RATE_LIMIT = int(os.getenv("TUSHARE_RATE_LIMIT", "200"))  # 次/分钟（fina_indicator 限 200）
 _call_times: list[float] = []
 _call_lock = Lock()
 

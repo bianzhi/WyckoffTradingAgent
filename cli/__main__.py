@@ -623,7 +623,39 @@ def _cmd_screen(args):
             for code, score in items[:10]:
                 print(f"    {code}  score={score:.2f}")
     if metrics:
-        print(f"\n  指标: {json.dumps(metrics, ensure_ascii=False)}")
+        _safe = {
+            k: v
+            for k, v in metrics.items()
+            if k
+            not in (
+                "all_df_map",
+                "benchmark_context",
+                "sector_rotation",
+                "etf_enhancement",
+                "name_map",
+                "financial_map",
+                "candidate_concepts",
+                "concept_heat_full",
+                "l3_score_map",
+                "l2_channel_map",
+                "exit_signals",
+                "accum_stage_map",
+                "markup_symbols",
+                "latest_close_map",
+                "l2_bypass_pool",
+                "strategic_l2_bypass_pool",
+                "strategic_l2_bypass_triggers",
+                "strategic_l2_bypass_stage_map",
+                "strategic_l2_bypass_rescue_map",
+                "strategic_l2_bypass_markup_symbols",
+                "strategic_l2_bypass_reason_map",
+                "l2_bypass_triggers",
+                "layer3_symbols",
+                "layer3_score_map",
+                "bypass_triggers",
+            )
+        }
+        print(f"\n  指标: {json.dumps(_safe, ensure_ascii=False)}")
 
 
 # ---------------------------------------------------------------------------
@@ -1256,6 +1288,38 @@ def _cmd_cleanup(args):
 # ---------------------------------------------------------------------------
 
 
+def _inject_config_env() -> None:
+    """将配置文件中的数据源 token 和模型 API Key 注入环境变量。"""
+    try:
+        from cli.auth import load_config
+
+        _cfg = load_config()
+        for _k, _env in [("tushare_token", "TUSHARE_TOKEN"), ("tickflow_api_key", "TICKFLOW_API_KEY")]:
+            _v = str(_cfg.get(_k, "") or "").strip()
+            if _v:
+                os.environ.setdefault(_env, _v)
+    except Exception:
+        logger.debug("config env vars load failed", exc_info=True)
+
+    try:
+        from cli.auth import load_model_configs
+
+        configs = load_model_configs()
+        if configs:
+            env_map = {"gemini": "GEMINI_API_KEY", "claude": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
+            for cfg in configs:
+                ek = env_map.get(cfg.get("provider_name", ""))
+                if ek and cfg.get("api_key"):
+                    os.environ.setdefault(ek, cfg["api_key"])
+    except Exception:
+        logger.debug("model api key env loading failed", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# TUI (默认命令)
+# ---------------------------------------------------------------------------
+
+
 def _cmd_tui(_args=None):
     _check_update_async()
 
@@ -1398,6 +1462,8 @@ def _cmd_tui(_args=None):
 
 
 def _dispatch_command(args) -> None:
+    # 将配置文件中的数据源 token 注入环境变量，确保所有子命令可用
+    _inject_config_env()
     if args.cmd == "update":
         _cmd_update(args)
     elif args.cmd == "auth":

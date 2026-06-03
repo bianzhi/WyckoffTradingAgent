@@ -34,6 +34,7 @@ data/concept_heat_cache.json
 data/concept_heat_history.json
 data/funnel_snapshots/*
 !data/funnel_snapshots/.gitkeep
+data/financial_map_cache.json
 data/strategy_shadow/
 logs/
 tmp/

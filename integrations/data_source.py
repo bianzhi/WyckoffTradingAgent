@@ -1128,6 +1128,7 @@ _CONCEPT_HEAT_CACHE = _DATA_CACHE_DIR / "concept_heat_cache.json"
 _CONCEPT_HEAT_HISTORY = _DATA_CACHE_DIR / "concept_heat_history.json"
 _FINANCIAL_CACHE = _DATA_CACHE_DIR / "financial_map_cache.json"
 _CACHE_TTL = 24 * 60 * 60
+_FINANCIAL_CACHE_TTL = 7 * 24 * 60 * 60  # 财务数据按季度更新，缓存 7 天
 _CONCEPT_HEAT_TTL = 4 * 60 * 60
 
 
@@ -1276,7 +1277,7 @@ def fetch_market_cap_map() -> dict[str, float]:
 def _load_financial_cache() -> dict[str, dict] | None:
     """读取财务指标缓存，有效期内返回数据，否则返回 None。"""
     try:
-        if _FINANCIAL_CACHE.exists() and (time.time() - _FINANCIAL_CACHE.stat().st_mtime) < _CACHE_TTL:
+        if _FINANCIAL_CACHE.exists() and (time.time() - _FINANCIAL_CACHE.stat().st_mtime) < _FINANCIAL_CACHE_TTL:
             with open(_FINANCIAL_CACHE, encoding="utf-8") as f:
                 return json.load(f)
     except Exception as e:
@@ -1325,24 +1326,39 @@ def _fetch_all_financials(pro, all_ts_codes: list[str]) -> dict[str, dict]:
     """逐只拉取 fina_indicator，返回 {code: {roe, debt_to_asset_ratio}}。"""
     print(f"[financial] 开始逐只查询财务指标，共 {len(all_ts_codes)} 只标的...")
     mapping: dict[str, dict] = {}
-    success = no_data = fail = 0
+    success = no_data = fail = ratelimit = 0
     start_time = time.monotonic()
 
     for idx, ts_code in enumerate(all_ts_codes):
-        try:
-            parsed = _try_parse_financial_row(
-                pro.fina_indicator(ts_code=ts_code, fields="ts_code,roe,debt_to_assets", limit=1),
-                ts_code,
-            )
-            if parsed:
-                mapping[parsed[0]] = parsed[1]
-                success += 1
-            else:
-                no_data += 1
-        except Exception as e:
+        last_err = None
+        for attempt in range(3):  # 最多重试 3 次
+            try:
+                parsed = _try_parse_financial_row(
+                    pro.fina_indicator(ts_code=ts_code, fields="ts_code,roe,debt_to_assets", limit=1),
+                    ts_code,
+                )
+                if parsed:
+                    mapping[parsed[0]] = parsed[1]
+                    success += 1
+                else:
+                    no_data += 1
+                break  # 成功，跳出重试循环
+            except Exception as e:
+                last_err = e
+                err_msg = str(e)
+                if "频率超限" in err_msg or "频次" in err_msg:
+                    ratelimit += 1
+                    wait_s = (attempt + 1) * 3  # 3s, 6s, 9s 退避
+                    if attempt == 0:
+                        print(f"[financial] ⚠️ Tushare 频率超限，暂停 {wait_s}s 后重试...")
+                    time.sleep(wait_s)
+                else:
+                    break  # 非频率问题，不重试
+        else:
+            # 全部重试失败
             fail += 1
             if fail <= 3:
-                _debug_source_fail(f"tushare_fina_indicator[{ts_code}]", e)
+                _debug_source_fail(f"tushare_fina_indicator[{ts_code}]", last_err)
 
         if (idx + 1) % 500 == 0:
             elapsed = time.monotonic() - start_time
@@ -1362,17 +1378,59 @@ def _fetch_all_financials(pro, all_ts_codes: list[str]) -> dict[str, dict]:
     return mapping
 
 
-def fetch_financial_map(*, force_refresh: bool = False) -> dict[str, dict]:
+def fetch_financial_map(*, force_refresh: bool = False, symbols: list[str] | None = None) -> dict[str, dict]:
     """
     全市场 code -> {roe, debt_to_asset_ratio} 映射。
-    通过 tushare fina_indicator 逐只获取最新季度数据，缓存 24 小时。
+    通过 tushare fina_indicator 逐只获取最新季度数据，缓存 7 天。
+
+    若提供 symbols 列表且缓存有效，仅对不在缓存中的标的做增量拉取，
+    已有数据不重复请求。
     """
+    from integrations.tushare_client import get_pro
+
     if not force_refresh:
         cached = _load_financial_cache()
         if cached is not None:
-            return cached
+            effective = sum(1 for m in cached.values() if m)
+            total_cached = len(cached)
 
-    from integrations.tushare_client import get_pro
+            # 增量补全：检查 symbols 中有哪些不在缓存中
+            if symbols:
+                missing_symbols = [s for s in symbols if s not in cached]
+                unexpected_cached = total_cached - sum(1 for s in symbols if s in cached)
+                if missing_symbols:
+                    print(
+                        f"[financial] ✅ 缓存命中: {effective}/{total_cached} 有数据, "
+                        f"缺口={len(missing_symbols)} 只, 冗余={unexpected_cached} 只 "
+                        f"(TTL={_FINANCIAL_CACHE_TTL}s)"
+                    )
+                    pro = get_pro()
+                    if pro is not None:
+                        ts_codes = [_to_ts_code(s) for s in missing_symbols]
+                        incremental = _fetch_all_financials(pro, ts_codes)
+                        if incremental:
+                            cached.update(incremental)
+                            merged_effective = sum(1 for m in cached.values() if m)
+                            print(
+                                f"[financial] 增量补全: +{len(incremental)} 只, "
+                                f"合并后 {merged_effective}/{len(cached)} 有数据"
+                            )
+                            try:
+                                _atomic_write_json(_FINANCIAL_CACHE, dict(cached))
+                            except Exception as e:
+                                _debug_source_fail("financial_cache_write", e)
+                    else:
+                        print("[financial] ⚠️ Tushare 不可用，跳过增量补全")
+                else:
+                    print(
+                        f"[financial] ✅ 缓存命中: {effective}/{total_cached} 有数据, 全覆盖 (TTL={_FINANCIAL_CACHE_TTL}s)"
+                    )
+            else:
+                print(f"[financial] ✅ 缓存命中: {effective}/{total_cached} 只标的有数据 (TTL={_FINANCIAL_CACHE_TTL}s)")
+            return cached
+        print("[financial] ⚠️ 缓存未命中（过期或不存在），开始全量拉取 Tushare...")
+    else:
+        print("[financial] 🔄 force_refresh=True，跳过缓存直接拉取")
 
     pro = get_pro()
     if pro is None:

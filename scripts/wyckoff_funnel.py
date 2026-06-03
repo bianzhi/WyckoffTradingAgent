@@ -1302,9 +1302,11 @@ def run_funnel_job(
         from integrations.data_source import fetch_financial_map
 
         print("[funnel] Tushare 财务指标请求...")
-        financial_map = fetch_financial_map()
+        report_progress("财务数据", "检查本地缓存或拉取Tushare...", 0.10)
+        financial_map = fetch_financial_map(symbols=all_symbols)
         effective = sum(1 for m in financial_map.values() if m)
         print(f"[funnel] Tushare 财务指标加载成功: {effective}/{len(financial_map)}")
+        report_progress("财务数据", f"就绪: {effective}/{len(financial_map)} 有数据", 0.14)
     except Exception as e:
         logger.warning("Tushare 财务指标加载失败，跳过财务过滤: %s", e)
     print("[funnel] 加载股票名称...")

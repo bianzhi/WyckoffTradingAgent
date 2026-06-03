@@ -1069,9 +1069,11 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;b
     <div class="nav-item" data-page="tailbuy" data-i18n="nav_tailbuy"></div>
     <div class="nav-item" data-page="portfolio" data-i18n="nav_portfolio"></div>
     <div class="nav-item" data-page="memory" data-i18n="nav_memory"></div>
+    <div class="nav-item" data-page="funnel" data-i18n="nav_funnel"></div>
     <div class="nav-item" data-page="bgtasks" data-i18n="nav_bgtasks"></div>
     <div class="nav-item" data-page="chatlog" data-i18n="nav_chatlog"></div>
     <div class="nav-item" data-page="sync" data-i18n="nav_sync"></div>
+    <div class="nav-item" data-page="config" data-i18n="nav_config"></div>
   </div>
   <div class="main">
     <div class="topbar">
@@ -1093,10 +1095,10 @@ const API=p=>fetch(p).then(r=>r.json());
 const I18N={
 zh:{
   nav_overview:'总览',nav_recommendations:'形态复盘',nav_signals:'信号池',nav_tailbuy:'尾盘记录',nav_portfolio:'持仓',
-  nav_memory:'Agent 记忆',nav_config:'配置',nav_bgtasks:'后台任务',nav_chatlog:'对话日志',nav_sync:'同步状态',
+  nav_memory:'Agent 记忆',nav_config:'配置',nav_bgtasks:'后台任务',nav_chatlog:'对话日志',nav_sync:'同步状态',nav_funnel:'漏斗筛选',
   theme_dark:'深色',theme_light:'浅色',
   overview:'总览',recommendations:'形态复盘',signals:'信号池',tailbuy:'尾盘记录',portfolio:'持仓',
-  memory:'Agent 记忆',config:'配置',bgtasks:'后台任务',chatlog:'对话日志',sync:'同步状态',
+  memory:'Agent 记忆',config:'配置',bgtasks:'后台任务',chatlog:'对话日志',sync:'同步状态',funnel:'漏斗筛选',
   no_tailbuy:'暂无尾盘买入记录',th_run_date:'执行日',th_signal_type:'信号',th_rule_score:'规则分',th_priority:'优先级',th_llm:'LLM',confirm_del_tailbuy:'确认删除尾盘记录：',
   card_recs:'威科夫形态复盘',card_signals:'信号确认池',card_portfolio:'持仓',card_memory:'Agent 记忆',card_sync:'同步状态',
   tracked:'只跟踪中',pending_confirm:'条待确认',positions:'持仓',cash:'可用资金',stored:'条记忆',synced:'表已同步',
@@ -1119,13 +1121,17 @@ zh:{
   confirm_del_rec:'确认删除复盘记录：',confirm_del_sig:'确认删除信号记录：',confirm_del_session:'确认删除整个会话？会话 ID：',
   buy_links:'购买 API Key',buy_tickflow:'数据源（TickFlow）',buy_llm:'大模型（1Route）',
   tab_content:'内容',tab_runtime:'调用链',no_runtime:'无调用链数据（需重新对话后可见）',
+  // funnel
+  funnel_run:'发起筛选',funnel_stop:'停止',funnel_running:'筛选运行中...',funnel_idle:'待发起',funnel_done:'筛选完成',
+  funnel_error:'筛选出错',funnel_no_result:'暂无筛选结果',funnel_hit:'命中',fn_trigger:'信号类型',fn_momentum:'主升',fn_ambush:'潜伏',
+  fn_accum:'吸筹',fn_dry:'地量',fn_trend:'趋势',fn_sos:'点火',fn_bypass:'旁路',fn_etf:'ETF候选',fn_report:'查看研报',
 },
 en:{
   nav_overview:'Overview',nav_recommendations:'Recommendations',nav_signals:'Signals',nav_tailbuy:'Tail Buy',nav_portfolio:'Portfolio',
-  nav_memory:'Memory',nav_config:'Config',nav_bgtasks:'Background Tasks',nav_chatlog:'Chat Log',nav_sync:'Sync Status',
+  nav_memory:'Memory',nav_config:'Config',nav_bgtasks:'Background Tasks',nav_chatlog:'Chat Log',nav_sync:'Sync Status',nav_funnel:'Funnel',
   theme_dark:'Dark',theme_light:'Light',
   overview:'Overview',recommendations:'Recommendations',signals:'Signals',tailbuy:'Tail Buy',portfolio:'Portfolio',
-  memory:'Memory',config:'Config',bgtasks:'Background Tasks',chatlog:'Chat Log',sync:'Sync Status',
+  memory:'Memory',config:'Config',bgtasks:'Background Tasks',chatlog:'Chat Log',sync:'Sync Status',funnel:'Funnel',
   no_tailbuy:'No tail buy records',th_run_date:'Run Date',th_signal_type:'Signal',th_rule_score:'Rule Score',th_priority:'Priority',th_llm:'LLM',confirm_del_tailbuy:'Delete tail buy record: ',
   card_recs:'AI Recommendations',card_signals:'Signal Pool',card_portfolio:'Portfolio',card_memory:'Agent Memory',card_sync:'Sync Status',
   tracked:'tracked stocks',pending_confirm:'pending confirmation',positions:'positions',cash:'cash',stored:'stored memories',synced:'tables synced',
@@ -1148,6 +1154,10 @@ en:{
   confirm_del_rec:'Delete recommendation: ',confirm_del_sig:'Delete signal: ',confirm_del_session:'Delete entire session? ID: ',
   buy_links:'Get API Keys',buy_tickflow:'Data Source (TickFlow)',buy_llm:'LLM API (1Route)',
   tab_content:'Content',tab_runtime:'Runtime',no_runtime:'No runtime data (available after new conversations)',
+  // funnel
+  funnel_run:'Run Funnel',funnel_stop:'Stop',funnel_running:'Funnel running...',funnel_idle:'Ready',funnel_done:'Completed',
+  funnel_error:'Error',funnel_no_result:'No results yet',funnel_hit:'Hits',fn_trigger:'Trigger',fn_momentum:'Momentum',fn_ambush:'Ambush',
+  fn_accum:'Accum',fn_dry:'Dry Vol',fn_trend:'Trend',fn_sos:'SOS',fn_bypass:'Bypass',fn_etf:'ETF',fn_report:'View Report',
 }};
 let _lang = localStorage.getItem('wk_lang') || 'zh';
 function t(k){return (I18N[_lang]||I18N.zh)[k]||k}
@@ -1187,9 +1197,11 @@ async function loadPage(page){
       case 'overview':return renderOverview(c);case 'recommendations':return renderRecommendations(c);
       case 'signals':return renderSignals(c);case 'tailbuy':return renderTailBuy(c);case 'portfolio':return renderPortfolio(c);
       case 'memory':return renderMemory(c);
+      case 'funnel':return renderFunnel(c);
       case 'bgtasks':return renderBgTasks(c);
       case 'chatlog':return renderChatLog(c);
       case 'sync':return renderSync(c);
+      case 'config':return renderConfig(c);
     }
   }catch(e){c.innerHTML=`<div class="empty">Error: ${e.message}</div>`}
 }
@@ -1220,33 +1232,13 @@ async function renderOverview(c){
     <a href="https://tickflow.org/auth/register?ref=5N4NKTCPL4" target="_blank" rel="noopener" class="btn-accent" style="text-decoration:none">🔗 ${t('buy_tickflow')}</a>
     <a href="https://www.1route.dev/register?aff=359904261" target="_blank" rel="noopener" class="btn-accent" style="text-decoration:none;border-color:#a78bfa;color:#a78bfa">🔗 ${t('buy_llm')}</a>
   </div></div>`;
-  // --- data source config ---
-  const editableKeys=['tushare_token','tickflow_api_key'];
-  html+=`<div class="card fade-in" style="margin-top:12px;animation-delay:.1s"><div class="card-title">${t('ds_config')}</div>`;
-  const keys=Object.entries(cfg).filter(([k])=>k!=='models'&&k!=='default'&&k!=='fallback');
-  if(keys.length){keys.forEach(([k,v])=>{
-    const isMasked=String(v||'').includes('****');const canEdit=editableKeys.includes(k);
-    html+=`<div class="cfg-row"><span class="cfg-key">${k}</span><span class="cfg-val${isMasked?' masked':''}" id="ds-val-${k}">${v||`<span style="color:var(--text-dim)">${t('not_set')}</span>`}</span>`;
-    if(canEdit)html+=`<button class="btn-edit" onclick="_editDsKey('${k}')">${t('edit')}</button>`;
-    html+=`</div>`})}
-  else{html+=`<div class="empty">${t('no_config')}</div>`}
-  html+='</div>';
-  // --- model config ---
-  html+=`<div class="card fade-in" style="margin-top:12px;animation-delay:.15s"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div class="card-title" style="margin-bottom:0">${t('model_config')}</div><button class="btn-accent" onclick="_addModel()">${t('add_model')}</button></div>`;
-  if(models.length){
-    html+=`<table class="tbl"><thead><tr><th>${t('th_id')}</th><th>${t('th_provider')}</th><th>${t('th_model')}</th><th>${t('th_apikey')}</th><th>${t('th_baseurl')}</th><th>${t('th_actions')}</th></tr></thead><tbody>`;
-    models.forEach(m=>{const isDef=m.id===defId;const isFb=m.id===fbId;
-      html+=`<tr><td>${escHtml(m.id)}${isDef?' <span class="pill pill-green">DEFAULT</span>':''}${isFb?' <span class="pill pill-yellow">FALLBACK</span>':''}</td><td>${escHtml(m.provider_name||'')}</td><td>${escHtml(m.model||'')}</td><td class="cfg-val masked">${m.api_key||''}</td><td>${escHtml(m.base_url||'(default)')}</td><td style="white-space:nowrap">`;
-      html+=`<button class="btn-edit" onclick="_editModel('${escHtml(m.id)}')">${t('edit')}</button>`;
-      if(!isDef)html+=`<button class="btn-default" onclick="_setDefault('${escHtml(m.id)}')">${t('set_default')}</button>`;
-      if(!isFb&&!isDef)html+=`<button class="btn-fallback" onclick="_setFallback('${escHtml(m.id)}')">⚡Fallback</button>`;
-      html+=`<button class="btn-del" onclick="_delModel('${escHtml(m.id)}')">${t('del')}</button></td></tr>`});
-    html+='</tbody></table>'}else{html+=`<div class="empty">${t('no_models')}</div>`}
-  html+=`<div id="model-form-slot"></div></div>`;
+  // --- config summary ---
+  const dsKeys=Object.keys(cfg).filter(k=>k!=='models'&&k!=='default'&&k!=='fallback');
+  const dsSet=dsKeys.filter(k=>cfg[k]&&String(cfg[k]).trim()!=='');
+  html+=`<div class="card fade-in" style="margin-top:12px;animation-delay:.1s;cursor:pointer" onclick="$$('.nav-item').forEach(n=>n.classList.remove('active'));$('[data-page=config]').classList.add('active');currentPage='config';$('#pageTitle').textContent=t('config');loadPage('config')"><div class="card-title">${t('ds_config')} & ${t('model_config')}</div><div class="card-sub">${dsSet.length}/${dsKeys.length} ${t('ds_config')} · ${models.length} ${t('model_config')}  →</div></div>`;
   // --- recent recs ---
   html+=`<div class="card fade-in" style="margin-top:12px;animation-delay:.2s"><div class="card-title">${t('recent_recs')}</div>${renderRecTable(Array.isArray(recs)?recs.slice(0,8):[],false)}</div>`;
   c.innerHTML=html;
-  if(_editingModel==='__new__'){$('#model-form-slot').innerHTML=_modelForm(null,true)}
 }
 function renderRecTable(recs,showDel){
   if(!recs.length)return `<div class="empty">${t('no_data')}</div>`;
@@ -1254,6 +1246,142 @@ function renderRecTable(recs,showDel){
     const code=String(r.code||'').padStart(6,'0');
     const ai=r.is_ai_recommended?'<span class="pill pill-blue">AI</span>':'<span class="pill pill-dim">Manual</span>';
     return `<tr><td>${code}</td><td>${r.name||''}</td><td>${r.camp||''}</td><td>${localTime(r.recommend_date)}</td><td>${(r.initial_price||0).toFixed(2)}</td><td>${(r.current_price||0).toFixed(2)}</td><td>${ai}</td>${showDel?`<td><button class="btn-del" onclick="delRec('${code}')">${t('del')}</button></td>`:''}</tr>`}).join('')}</tbody></table>`}
+
+// ═══ Funnel ═══
+let _funnelTimer=null;
+async function renderFunnel(c){
+  if(_funnelTimer){clearInterval(_funnelTimer);_funnelTimer=null}
+  try{
+    const status=await API('/api/funnel/status');
+    _renderFunnelContent(c,status);
+  }catch(e){c.innerHTML=`<div class="empty">Error: ${e.message}</div>`}
+}
+function _renderFunnelContent(c,status){
+  const running=status&&status.status==='running';
+  const lastResult=status&&status.last_result||null;
+  const statusText=running?t('funnel_running'):(lastResult&&lastResult.ok?t('funnel_done'):t('funnel_idle'));
+  const statusPill=`<span class="pill ${running?'pill-amber':(lastResult&&lastResult.ok?'pill-green':'pill-dim')}">${statusText}</span>`;
+  let html=`<div class="fade-in"><h2 style="margin:0 0 4px 0;font-size:20px">${t('funnel')}</h2>
+    <div style="margin:4px 0 16px 0;display:flex;gap:12px;align-items:center">${statusPill}`;
+  // last run info
+  if(lastResult&&lastResult.date){html+=`<span style="color:var(--text-dim);font-size:13px">${lastResult.date}</span>`}
+  if(lastResult&&lastResult.elapsed_s!=null){html+=`<span style="color:var(--text-dim);font-size:13px">耗时 ${lastResult.elapsed_s}s</span>`}
+  if(lastResult&&lastResult.trigger_hits!=null){html+=`<span style="color:var(--text-dim);font-size:13px">命中 ${lastResult.trigger_hits} 只</span>`}
+  html+=`</div>`;
+  // progress bar when running
+  if(running){
+    const progress=status.current_progress;
+    const pct=(progress!=null&&progress>=0)?Math.round(progress*100):0;
+    html+=`<div style="margin:8px 0 16px 0"><div style="background:var(--border);border-radius:6px;height:8px"><div style="background:var(--accent);border-radius:6px;height:8px;width:${pct}%;transition:width 0.5s"></div></div><div style="text-align:right;font-size:12px;color:var(--text-dim);margin-top:4px">${pct}%</div></div>`;
+    if(status.current_stage){html+=`<div style="margin:4px 0;font-size:13px;color:var(--text-dim)">${escHtml(status.current_stage)}</div>`}
+    if(status.current_detail){html+=`<div style="margin:2px 0;font-size:12px;color:var(--text-dim)">${escHtml(status.current_detail)}</div>`}
+  }
+  // buttons
+  html+=`<div style="margin:8px 0 16px 0;display:flex;gap:8px">`;
+  if(running){
+    html+=`<button class="btn-del" onclick="stopFunnel()">${t('funnel_stop')}</button>`;
+    // poll
+    if(!_funnelTimer){_funnelTimer=setInterval(async()=>{
+      try{const s=await API('/api/funnel/status');renderFunnel($('#content'))}catch(e){}
+    },3000)}
+  }else{
+    html+=`<button class="btn-accent" onclick="startFunnel()">${t('funnel_run')}</button>`;
+    if(lastResult&&lastResult.ok){
+      html+=`<button class="btn-accent" style="border-color:#a78bfa;color:#a78bfa" onclick="viewFunnelReport()">${t('fn_report')}</button>`;
+    }
+  }
+  html+=`</div>`;
+  // results table
+  if(lastResult&&lastResult.ok&&!running){
+    html+=`<div id="funnel-result">${t('loading')}</div>`;
+    c.innerHTML=html;
+    _loadFunnelResult();
+    return;
+  }
+  if(!running&&(!status||!status.last_run)){
+    html+=`<div class="empty" style="margin-top:32px">${t('funnel_no_result')}</div>`;
+  }
+  c.innerHTML=html;
+}
+async function _loadFunnelResult(){
+  try{
+    const result=await API('/api/funnel/result');
+    const el=$('#funnel-result');
+    if(!el)return;
+    if(!result||!result.ok){el.innerHTML=`<div class="empty">${t('funnel_no_result')}</div>`;return}
+    const stocks=result.stocks||[];
+    const layerConditions=result.layer_conditions||{};
+    if(!stocks.length){el.innerHTML=`<div class="empty">${t('funnel_no_result')}</div>`;return}
+    // group by signal type from stocks
+    const bySignal={};
+    for(const s of stocks){
+      if(!s.signals||!s.signals.length)continue;
+      for(const sig of s.signals){
+        if(!bySignal[sig])bySignal[sig]=[];
+        bySignal[sig].push({code:s.code,score:s.score});
+      }
+    }
+    // summary cards
+    let html=`<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">`;
+    html+=`<div class="card" style="min-width:100px"><div class="card-title">${t('funnel_hit')}</div><div class="card-value">${result.hit_codes||stocks.length}</div></div>`;
+    const L1=layerConditions.L1||{};const L2=layerConditions.L2||{};const L3=layerConditions.L3||{};const L4=layerConditions.L4||{};
+    if(L1.count!=null)html+=`<div class="card" style="min-width:90px"><div class="card-title">L1</div><div class="card-value">${L1.count}</div></div>`;
+    if(L2.count!=null)html+=`<div class="card" style="min-width:90px"><div class="card-title">L2</div><div class="card-value">${L2.count}</div></div>`;
+    if(L3.count!=null)html+=`<div class="card" style="min-width:90px"><div class="card-title">L3</div><div class="card-value">${L3.count}</div></div>`;
+    if(L4.count!=null)html+=`<div class="card" style="min-width:90px"><div class="card-title">L4</div><div class="card-value">${L4.count}</div></div>`;
+    // L2 breakdown from layer_conditions
+    if(L2.breakdown){
+      const parts=[];const bd=L2.breakdown;
+      if(bd.momentum)parts.push(`${t('fn_momentum')}:${bd.momentum}`);
+      if(bd.ambush)parts.push(`${t('fn_ambush')}:${bd.ambush}`);
+      if(bd.accum)parts.push(`${t('fn_accum')}:${bd.accum}`);
+      if(bd.dry_vol)parts.push(`${t('fn_dry')}:${bd.dry_vol}`);
+      if(bd.trend_cont)parts.push(`${t('fn_trend')}:${bd.trend_cont}`);
+      if(bd.sos)parts.push(`${t('fn_sos')}:${bd.sos}`);
+      if(parts.length)html+=`<div class="card" style="min-width:200px"><div class="card-title">L2 分布</div><div class="card-sub">${parts.join(' / ')}</div></div>`;
+    }
+    if(result.top_sectors&&result.top_sectors.length){
+      html+=`<div class="card" style="min-width:180px"><div class="card-title">Top 板块</div><div class="card-sub">${result.top_sectors.slice(0,5).join(', ')}</div></div>`;
+    }
+    html+=`</div>`;
+    // signal tables grouped by signal type
+    const triggerLabels={sos:'SOS',spring:'Spring',lps:'LPS',evr:'EVR',compression:'Compression',trend_pullback:'Trend Pullback'};
+    const sigTypes=Object.keys(bySignal).sort((a,b)=>(bySignal[b].length-bySignal[a].length));
+    for(const sigType of sigTypes){
+      const items=bySignal[sigType];
+      html+=`<div class="card" style="margin-bottom:12px"><div class="card-title">${triggerLabels[sigType]||sigType} (${items.length})</div>`;
+      html+=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>${t('th_code')}</th><th>${t('th_score')}</th></tr></thead><tbody>`;
+      for(const item of items.slice(0,15)){
+        html+=`<tr><td>${item.code}</td><td>${(item.score||0).toFixed(2)}</td></tr>`;
+      }
+      if(items.length>15)html+=`<tr><td colspan="2" style="color:var(--text-dim)">... 共 ${items.length} 只</td></tr>`;
+      html+=`</tbody></table></div></div>`;
+    }
+    // full stock list
+    html+=`<div class="card" style="margin-bottom:12px"><div class="card-title">全部命中 (${stocks.length})</div>`;
+    html+=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>${t('th_code')}</th><th>${t('th_name')}</th><th>通道</th><th>信号</th><th>${t('th_score')}</th><th>阶段</th></tr></thead><tbody>`;
+    for(const s of stocks.slice(0,50)){
+      html+=`<tr><td>${s.code}</td><td>${s.name||''}</td><td style="font-size:12px">${s.channel||''}</td><td>${(s.signals||[]).join(', ')}</td><td>${(s.score||0).toFixed(1)}</td><td>${s.stage||''}</td></tr>`;
+    }
+    if(stocks.length>50)html+=`<tr><td colspan="6" style="color:var(--text-dim)">... 共 ${stocks.length} 只</td></tr>`;
+    html+=`</tbody></table></div></div>`;
+    el.innerHTML=html;
+  }catch(e){const el=$('#funnel-result');if(el)el.innerHTML=`<div class="empty">Error: ${e.message}</div>`}
+}
+window.startFunnel=async function(){
+  const c=$('#content');c.innerHTML=`<div class="empty">${t('loading')}</div>`;
+  try{
+    const r=await fetch('/api/funnel/run',{method:'POST'});
+    const data=await r.json();
+    if(!data.ok){c.innerHTML=`<div class="empty">${data.error||t('funnel_error')}</div>`;return}
+    renderFunnel(c);
+  }catch(e){c.innerHTML=`<div class="empty">Error: ${e.message}</div>`}
+};
+window.stopFunnel=async function(){
+  await fetch('/api/funnel/stop',{method:'POST'});
+  if(_funnelTimer){clearInterval(_funnelTimer);_funnelTimer=null}
+};
+window.viewFunnelReport=function(){window.open('/api/funnel/report','_blank')};
 
 // ═══ Recommendations ═══
 async function renderRecommendations(c){
@@ -1314,6 +1442,41 @@ window.delMemory=async function(id){if(!confirm(t('confirm_del')+id+'?'))return;
 let _editingModel=null;
 const _defaultModels={gemini:'gemini-2.5-flash',openai:'gpt-4o',claude:'claude-sonnet-4-20250514'};
 
+async function renderConfig(c){
+  const cfgData=await API('/api/config');
+  const cfg=cfgData.config||{};const models=cfgData.models||[];const defId=cfgData.default_model||'';const fbId=cfgData.fallback_model||'';
+  const editableKeys=['tushare_token','tickflow_api_key'];
+  let html='';
+  // data source config — always show known editable keys
+  html+=`<div class="card fade-in"><div class="card-title">${t('ds_config')}</div>`;
+  editableKeys.forEach(k=>{
+    const v=cfg[k]||'';
+    const isMasked=String(v||'').includes('****');
+    html+=`<div class="cfg-row"><span class="cfg-key">${k}</span><span class="cfg-val${isMasked?' masked':''}" id="ds-val-${k}">${v||`<span style="color:var(--text-dim)">${t('not_set')}</span>`}</span>`;
+    html+=`<button class="btn-edit" onclick="_editDsKey('${k}')">${t('edit')}</button>`;
+    html+=`</div>`})
+  html+='</div>';
+  // model config
+  html+=`<div class="card fade-in" style="margin-top:12px;animation-delay:.1s"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div class="card-title" style="margin-bottom:0">${t('model_config')}</div><button class="btn-accent" onclick="_addModel()">${t('add_model')}</button></div>`;
+  if(models.length){
+    html+=`<table class="tbl"><thead><tr><th>${t('th_id')}</th><th>${t('th_provider')}</th><th>${t('th_model')}</th><th>${t('th_apikey')}</th><th>${t('th_baseurl')}</th><th>${t('th_actions')}</th></tr></thead><tbody>`;
+    models.forEach(m=>{const isDef=m.id===defId;const isFb=m.id===fbId;
+      html+=`<tr><td>${escHtml(m.id)}${isDef?' <span class="pill pill-green">DEFAULT</span>':''}${isFb?' <span class="pill pill-yellow">FALLBACK</span>':''}</td><td>${escHtml(m.provider_name||'')}</td><td>${escHtml(m.model||'')}</td><td class="cfg-val masked">${m.api_key||''}</td><td>${escHtml(m.base_url||'(default)')}</td><td style="white-space:nowrap">`;
+      html+=`<button class="btn-edit" onclick="_editModel('${escHtml(m.id)}')">${t('edit')}</button>`;
+      if(!isDef)html+=`<button class="btn-default" onclick="_setDefault('${escHtml(m.id)}')">${t('set_default')}</button>`;
+      if(!isFb&&!isDef)html+=`<button class="btn-fallback" onclick="_setFallback('${escHtml(m.id)}')">⚡Fallback</button>`;
+      html+=`<button class="btn-del" onclick="_delModel('${escHtml(m.id)}')">${t('del')}</button></td></tr>`});
+    html+='</tbody></table>'}else{html+=`<div class="empty">${t('no_models')}</div>`}
+  html+=`<div id="model-form-slot"></div></div>`;
+  // purchase links
+  html+=`<div class="card fade-in" style="margin-top:12px;animation-delay:.15s"><div class="card-title">${t('buy_links')}</div><div style="display:flex;gap:12px;flex-wrap:wrap">
+    <a href="https://tickflow.org/auth/register?ref=5N4NKTCPL4" target="_blank" rel="noopener" class="btn-accent" style="text-decoration:none">🔗 ${t('buy_tickflow')}</a>
+    <a href="https://www.1route.dev/register?aff=359904261" target="_blank" rel="noopener" class="btn-accent" style="text-decoration:none;border-color:#a78bfa;color:#a78bfa">🔗 ${t('buy_llm')}</a>
+  </div></div>`;
+  c.innerHTML=html;
+  if(_editingModel==='__new__'){$('#model-form-slot').innerHTML=_modelForm(null,true)}
+}
+
 function _modelForm(m,isNew){
   const id=m?.id||'';const prov=m?.provider_name||'gemini';const model=m?.model||'';const url=m?.base_url||'';
   return `<div class="model-form" id="model-form">
@@ -1345,21 +1508,21 @@ window._saveModel=async function(isNew){
   try{
     if(isNew){await fetch('/api/models',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(entry)})}
     else{await fetch('/api/models/'+encodeURIComponent(id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(entry)})}
-    _editingModel=null;loadPage('overview');
+    _editingModel=null;loadPage(currentPage);
   }catch(e){alert('Error: '+e.message)}
 };
-window._delModel=async function(id){if(!confirm(t('confirm_del_model')+id+'?'))return;await fetch('/api/models/'+encodeURIComponent(id),{method:'DELETE'});loadPage('overview')};
-window._setDefault=async function(id){await fetch('/api/models/'+encodeURIComponent(id)+'/default',{method:'PUT'});loadPage('overview')};
-window._setFallback=async function(id){await fetch('/api/models/'+encodeURIComponent(id)+'/fallback',{method:'PUT'});loadPage('overview')};
+window._delModel=async function(id){if(!confirm(t('confirm_del_model')+id+'?'))return;await fetch('/api/models/'+encodeURIComponent(id),{method:'DELETE'});loadPage(currentPage)};
+window._setDefault=async function(id){await fetch('/api/models/'+encodeURIComponent(id)+'/default',{method:'PUT'});loadPage(currentPage)};
+window._setFallback=async function(id){await fetch('/api/models/'+encodeURIComponent(id)+'/fallback',{method:'PUT'});loadPage(currentPage)};
 window._editDsKey=function(key){
   const valEl=$('#ds-val-'+key);if(!valEl)return;
   const cur=valEl.textContent.includes('****')?'':valEl.textContent;
-  valEl.innerHTML=`<input class="form-input" id="ds-input-${key}" type="password" value="${escHtml(cur)}" style="width:200px;display:inline-block" placeholder="enter new value"><button class="btn-accent" style="margin-left:8px" onclick="_saveDsKey('${key}')">${t('save')}</button><button class="btn-del" style="margin-left:4px" onclick="loadPage('overview')">${t('cancel')}</button>`;
+  valEl.innerHTML=`<input class="form-input" id="ds-input-${key}" type="password" value="${escHtml(cur)}" style="width:200px;display:inline-block" placeholder="enter new value"><button class="btn-accent" style="margin-left:8px" onclick="_saveDsKey('${key}')">${t('save')}</button><button class="btn-del" style="margin-left:4px" onclick="loadPage(currentPage)">${t('cancel')}</button>`;
   $(`#ds-input-${key}`).focus()};
 window._saveDsKey=async function(key){
   const v=$(`#ds-input-${key}`).value.trim();if(!v)return;
   await fetch('/api/config/'+encodeURIComponent(key),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:v})});
-  loadPage('overview')}
+  loadPage(currentPage)}
 
 // ═══ Sync ═══
 async function renderSync(c){

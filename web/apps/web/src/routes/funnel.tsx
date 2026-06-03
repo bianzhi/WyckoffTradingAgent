@@ -306,7 +306,7 @@ export function FunnelPage() {
       {/* Layer pass rate chart */}
       <section className="rounded-xl border border-border bg-card/50 p-4">
         <h2 className="mb-3 text-sm font-semibold">{isZh ? '各层通过率' : 'Layer Pass Rates'}</h2>
-        <FunnelLayersChart layers={summary.layers} />
+        <FunnelLayersChart layers={summary.layers} dataDate={summary.date} />
       </section>
 
       {/* Sector heatmap + Trigger distribution */}
@@ -609,6 +609,7 @@ function FunnelRunPanel({ isZh, funnelState, logs, error }: {
 function useFunnelLayersChart(
   containerRef: React.RefObject<HTMLDivElement | null>,
   layers: FunnelSummary['layers'],
+  dataDate?: string,
 ) {
   useEffect(() => {
     if (!containerRef.current || layers.length === 0) return
@@ -619,7 +620,7 @@ function useFunnelLayersChart(
       layout: { background: { color: theme.background }, textColor: theme.mutedText, fontSize: 11 },
       grid: { vertLines: { color: theme.grid }, horzLines: { color: theme.grid } },
       rightPriceScale: { borderColor: theme.border },
-      timeScale: { borderColor: theme.border, visible: true, timeVisible: false },
+      timeScale: { borderColor: theme.border, visible: false },
       localization: { priceFormatter: (v: number) => `${v.toFixed(1)}%` },
     })
 
@@ -629,9 +630,10 @@ function useFunnelLayersChart(
     })
 
     const colors = ['#2563eb', '#22c55e', '#f59e0b', '#ef4444']
-    // Use dummy dates to satisfy lightweight-charts' yyyy-mm-dd requirement.
-    // Layer labels are rendered separately below the chart.
-    const layerDates = ['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04']
+    // Use actual date from data; each layer gets the same date (bar chart, not time series).
+    // lightweight-charts requires yyyy-mm-dd format — we use the real date for correctness.
+    const baseDate = dataDate && /^\d{4}-\d{2}-\d{2}$/.test(dataDate) ? dataDate : '2026-01-01'
+    const layerDates = [baseDate, shiftDate(baseDate, 1), shiftDate(baseDate, 2), shiftDate(baseDate, 3)]
     const data: HistogramData<Time>[] = layers.map((layer, i) => ({
       time: layerDates[i] as Time,
       value: layer.passRate,
@@ -648,12 +650,18 @@ function useFunnelLayersChart(
     resize()
 
     return () => { window.removeEventListener('resize', resize); chart.remove() }
-  }, [layers])
+  }, [layers, dataDate])
 }
 
-function FunnelLayersChart({ layers }: { layers: FunnelSummary['layers'] }) {
+function shiftDate(dateStr: string, days: number): string {
+  const d = new Date(dateStr)
+  d.setDate(d.getDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+function FunnelLayersChart({ layers, dataDate }: { layers: FunnelSummary['layers']; dataDate?: string }) {
   const containerRef = useRef<HTMLDivElement>(null)
-  useFunnelLayersChart(containerRef, layers)
+  useFunnelLayersChart(containerRef, layers, dataDate)
 
   return (
     <div>

@@ -1292,6 +1292,16 @@ def _load_financial_cache() -> dict[str, dict] | None:
                 )
         else:
             print(f"[financial] ⚠️ 缓存文件不存在: {_FINANCIAL_CACHE}")
+            _dir = _FINANCIAL_CACHE.parent
+            _exists = "Y" if _dir.exists() else "N"
+            _writable = "Y" if os.access(str(_dir), os.W_OK) else "N"
+            print(f"[financial]   └─ 目录存在={_exists} 可写={_writable} 路径={_dir}")
+            if _dir.exists():
+                try:
+                    cache_fnames = sorted(p.name for p in _dir.glob("*cache*"))
+                    print(f"[financial]   └─ 已有cache文件: {cache_fnames or '无'}")
+                except Exception:
+                    pass
     except Exception as e:
         print(f"[financial] ⚠️ 缓存读取异常: {_FINANCIAL_CACHE} — {e}")
     return None

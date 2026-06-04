@@ -37,6 +37,9 @@ check_prereqs() {
   fi
 }
 
+ENV_FILE="$SCRIPT_DIR/.env.production"
+COMPOSE_ARGS=(-f "$SCRIPT_DIR/docker-compose.yml" --env-file "$ENV_FILE")
+
 # --- 检查环境变量 ---
 check_env() {
   if [[ ! -f "$SCRIPT_DIR/.env.production" ]]; then
@@ -64,7 +67,7 @@ check_env() {
 build() {
   log "构建 Docker 镜像..."
   cd "$PROJECT_DIR"
-  $DOCKER_COMPOSE -f deploy/docker-compose.yml build --no-cache
+   "" build --no-cache
   log "构建完成 ✓"
 }
 
@@ -72,12 +75,12 @@ build() {
 start() {
   log "启动服务..."
   cd "$PROJECT_DIR"
-  $DOCKER_COMPOSE -f deploy/docker-compose.yml up -d
+   "" up -d
 
   echo ""
   log "服务已启动，检查状态..."
   sleep 3
-  $DOCKER_COMPOSE -f deploy/docker-compose.yml ps
+   "" ps
 
   echo ""
   log "API 健康检查:"
@@ -88,7 +91,7 @@ start() {
 stop() {
   log "停止服务..."
   cd "$PROJECT_DIR"
-  $DOCKER_COMPOSE -f deploy/docker-compose.yml down
+   "" down
   log "已停止"
 }
 
@@ -101,13 +104,13 @@ restart() {
 # --- 查看日志 ---
 logs() {
   cd "$PROJECT_DIR"
-  $DOCKER_COMPOSE -f deploy/docker-compose.yml logs -f --tail=100 "${@:-}"
+   "" logs -f --tail=100 "${@:-}"
 }
 
 # --- 状态 ---
 status() {
   cd "$PROJECT_DIR"
-  $DOCKER_COMPOSE -f deploy/docker-compose.yml ps
+   "" ps
 }
 
 # --- 清理 ---
@@ -116,7 +119,7 @@ clean() {
   read -rp "确认? [y/N] " confirm
   if [[ "$confirm" =~ ^[Yy]$ ]]; then
     cd "$PROJECT_DIR"
-    $DOCKER_COMPOSE -f deploy/docker-compose.yml down -v --rmi all
+     "" down -v --rmi all
     log "清理完成"
   else
     log "取消"

@@ -1307,15 +1307,19 @@ def _load_financial_cache() -> dict[str, dict] | None:
     return None
 
 
-def _load_financial_cache_stale() -> dict[str, dict]:
-    """读取过期缓存（Tushare 不可用时降级使用）。"""
+def _load_financial_cache_stale() -> dict[str, dict] | None:
+    """读取过期缓存（Tushare 不可用时降级使用），文件不存在返回 None。"""
     try:
         if _FINANCIAL_CACHE.exists():
             with open(_FINANCIAL_CACHE, encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+            if data:
+                print(f"[financial] ⚠️ 缓存已过期，降级使用旧数据({len(data)} keys)")
+                return data
+            print(f"[financial] ⚠️ 缓存文件为空: {_FINANCIAL_CACHE}")
     except Exception as e:
-        _debug_source_fail("financial_cache_fallback_read", e)
-    return {}
+        print(f"[financial] ⚠️ 缓存降级读取异常: {_FINANCIAL_CACHE} — {e}")
+    return None
 
 
 def _fetch_all_ts_codes(pro) -> list[str]:

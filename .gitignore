@@ -56,3 +56,4 @@ deploy/.env
 .vite/
 .atomcode/
 data/financial_map_cache.json.migrated
+data/wyckoff.db*

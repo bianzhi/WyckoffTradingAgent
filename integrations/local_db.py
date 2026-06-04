@@ -217,6 +217,11 @@ def get_db() -> sqlite3.Connection:
         db_path_str = os.environ.get("WYCKOFF_DB_PATH", "").strip()
         db_path = Path(db_path_str) if db_path_str else core_constants.LOCAL_DB_PATH
         db_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            if not os.access(str(db_path.parent), os.W_OK):
+                os.chmod(str(db_path.parent), 0o777)
+        except Exception:
+            pass
         conn = sqlite3.connect(str(db_path), check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")

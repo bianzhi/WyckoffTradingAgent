@@ -55,3 +55,4 @@ deploy/.env.production
 deploy/.env
 .vite/
 .atomcode/
+data/financial_map_cache.json.migrated

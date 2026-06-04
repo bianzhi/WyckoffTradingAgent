@@ -49,11 +49,12 @@ check_env() {
 
 # ── git pull + 构建 agent + 启动 ───────────────────────
 update() {
+  local clean_flag="${1:-}"
+
   cd "$PROJECT_DIR"
 
   log "拉取最新代码..."
   if ! git branch --set-upstream-to=origin/main main 2>/dev/null; then
-    # 首次设置
     git checkout -b main 2>/dev/null || true
     git branch --set-upstream-to=origin/main main 2>/dev/null || true
   fi
@@ -68,6 +69,14 @@ update() {
   git --no-pager log --oneline -5
   echo ""
 
+  local build_args=()
+  if [[ "$clean_flag" == "--clean" ]]; then
+    build_args=(--no-cache)
+    warn "使用 --no-cache 全量重建"
+  else
+    log "使用 Docker 层缓存加速构建（仅变更文件重新构建）"
+  fi
+
   read -r -p "确认部署以上更新？[Y/n] " answer
   answer="${answer:-Y}"
   if [[ ! "$answer" =~ ^[Yy]$ ]]; then
@@ -75,8 +84,8 @@ update() {
     exit 0
   fi
 
-  log "重新构建 agent 容器..."
-  $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build --no-cache agent
+  log "构建 agent 容器..."
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build "${build_args[@]}" agent
 
   log "启动 agent..."
   $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d agent
@@ -101,7 +110,9 @@ update() {
 # ── 其他命令 ──────────────────────────────────────────
 build() {
   cd "$PROJECT_DIR"
-  $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build --no-cache agent
+  local args=()
+  [[ "${1:-}" == "--clean" ]] && args=(--no-cache)
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build "${args[@]}" agent
 }
 
 start_all() {
@@ -137,17 +148,19 @@ usage() {
 用法: $0 <命令>
 
 命令:
-  update    拉取代码 + 重建 agent + 启动（日常更新）
-  build     仅构建 agent 镜像
-  start     启动全部服务
-  stop      停止全部服务
-  restart   重启 agent
-  logs      查看日志（可指定服务名: logs agent）
-  status    查看容器状态
+  update         拉取代码 + 构建 agent + 启动（日常更新，默认用缓存）
+  update --clean 同上，但强制 --no-cache 全量重建（依赖变更时用）
+  build          仅构建 agent 镜像（默认缓存）
+  build --clean  仅构建 agent 镜像（全量重建）
+  start          启动全部服务
+  stop           停止全部服务
+  restart        重启 agent
+  logs           查看日志（可指定服务名: logs agent）
+  status         查看容器状态
 
 示例:
-  bash deploy/deploy.sh update     # 日常更新
-  bash deploy/deploy.sh logs agent # 查看 agent 日志
+  bash deploy/deploy.sh update           # 日常更新（快，利用缓存）
+  bash deploy/deploy.sh update --clean   # 依赖变更后全量重建
 EOF
 }
 

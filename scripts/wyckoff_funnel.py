@@ -537,6 +537,9 @@ def _run_etf_enhancement(
     direct_source: bool = False,
 ) -> tuple[list[str], dict[str, str], dict[str, pd.DataFrame], list[str], list[dict]]:
     """加载 ETF 并跑 L1/L2，过 L2 的 ETF 注入 sector_map 和 all_df_map。"""
+    from cli.progress import report_progress
+
+    report_progress("ETF 板块增强", "加载 ETF 池 K 线...", 0.22)
     etf_symbols, etf_sector_map = _load_etf_universe()
     etf_df_map = _fetch_etf_ohlcv(etf_symbols, window, direct_source=direct_source)
     etf_l2_passed: list[str] = []

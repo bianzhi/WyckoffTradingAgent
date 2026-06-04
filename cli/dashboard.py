@@ -260,6 +260,20 @@ def _build_and_persist_funnel(triggers: dict, metrics: dict) -> dict:
 
 def _build_stocks(triggers: dict, metrics: dict) -> list[dict]:
     """从触发信号和 metrics 构建个股维度的结果列表。"""
+    import pandas as pd
+
+    def _safe_num(v, default=0.0):
+        try:
+            if v is None:
+                return default
+            if isinstance(v, (int, float)):
+                if pd.isna(v):
+                    return default
+                return float(v)
+            return float(v)
+        except (TypeError, ValueError):
+            return default
+
     l2_channel_map = metrics.get("layer2_channel_map", {}) or {}
     l3_score_map = metrics.get("layer3_score_map", {}) or {}
     l3_symbols = metrics.get("layer3_symbols", []) or []
@@ -273,24 +287,69 @@ def _build_stocks(triggers: dict, metrics: dict) -> list[dict]:
     for sig_type, hits in triggers.items():
         for code, score in hits:
             stock_signals.setdefault(code, []).append(sig_type)
-            stock_score[code] = max(stock_score.get(code, 0.0), score)
+            stock_score[code] = max(stock_score.get(code, 0.0), _safe_num(score))
 
     stocks: list[dict] = []
     all_hit_codes = set(stock_signals) | set(l3_symbols)
     for code in sorted(all_hit_codes):
+        ch = l2_channel_map.get(code, "")
+        sigs = stock_signals.get(code, [])
+        stage = accum_stage_map.get(code, "")
+        remark = _build_remark(ch, sigs, stage)
         stocks.append(
             {
                 "code": code,
                 "name": name_map.get(code, ""),
-                "channel": l2_channel_map.get(code, ""),
-                "score": round(l3_score_map.get(code, stock_score.get(code, 0.0)), 1),
-                "signals": stock_signals.get(code, []),
-                "stage": accum_stage_map.get(code, ""),
-                "latest_close": latest_close_map.get(code),
+                "channel": ch,
+                "score": round(_safe_num(l3_score_map.get(code), stock_score.get(code, 0.0)), 1),
+                "signals": sigs,
+                "stage": stage,
+                "latest_close": _safe_num(latest_close_map.get(code)),
                 "exit_signal": exit_signals.get(code, {}).get("signal", ""),
+                "remark": remark,
             }
         )
     return stocks
+
+
+_CHANNEL_HINT: dict[str, str] = {
+    "主升通道": "趋势强劲·动量领跑",
+    "潜伏通道": "长强短弱·蓄势待发",
+    "吸筹通道": "低位横盘·吸筹结构",
+    "地量蓄势": "卖压枯竭·地量见底",
+    "暗中护盘": "拒绝新低·资金托底",
+    "趋势延续": "稳定趋势·回撤可控",
+    "点火破局": "结构突破·量能爆发",
+}
+
+_SIGNAL_HINT: dict[str, str] = {
+    "spring": "Spring弹簧反弹",
+    "lps": "LPS最后支撑确认",
+    "sos": "SOS放量突破",
+    "evr": "量价背离(EVR)",
+    "compression": "波动率压缩",
+    "trend_pullback": "趋势回调到位",
+}
+
+
+def _build_remark(channel: str, signals: list[str], stage: str) -> str:
+    """根据通道+信号+阶段生成选股关键信息备注。"""
+    parts: list[str] = []
+    # 通道多标签用 + 分隔
+    for tag in channel.split("+"):
+        tag = tag.strip()
+        if tag and tag in _CHANNEL_HINT:
+            parts.append(_CHANNEL_HINT[tag])
+    if not parts and channel.strip():
+        parts.append(channel.strip())
+    # 信号
+    sig_texts = [_SIGNAL_HINT.get(s, s) for s in signals if s]
+    if sig_texts:
+        parts.append(" · ".join(sig_texts))
+    # 阶段（非空且非默认值才加）
+    if stage and stage not in ("", "UNKNOWN"):
+        parts.append(f"阶段: {stage}")
+    return " | ".join(parts) if parts else ""
 
 
 def _build_layer_conditions(triggers: dict, metrics: dict, stocks: list[dict]) -> dict:
@@ -350,8 +409,8 @@ def _funnel_progress_callback(stage: str, detail: str, progress: float) -> None:
         "detail": str(detail or ""),
         "progress": float(progress) if isinstance(progress, (int, float)) else -1.0,
     }
-    if not _funnel_logs or _funnel_logs[-1] != item:
-        _funnel_logs.append(item)
+    # 每次回调都记录，不跳过重复条目（保留完整过程供排查）
+    _funnel_logs.append(item)
 
 
 def _build_funnel_result(triggers: dict, metrics: dict, elapsed: float, stocks, layer_conditions) -> dict:
@@ -535,6 +594,8 @@ tr:hover { background: #1a1d2e40; }
 
 
 def _render_report_rows(stocks: list[dict]) -> str:
+    import pandas as pd
+
     rows = ""
     for i, s in enumerate(stocks):
         code = s.get("code", "")
@@ -548,7 +609,7 @@ def _render_report_rows(stocks: list[dict]) -> str:
 
         sig_badges = "".join(f'<span class="sig">{sig}</span>' for sig in signals)
         exit_badge = f'<span class="exit">⚠ {exit_s}</span>' if exit_s else ""
-        price_str = f"{latest:.2f}" if isinstance(latest, (int, float)) else "-"
+        price_str = f"{latest:.2f}" if isinstance(latest, (int, float)) and not pd.isna(latest) else "-"
         row_class = "exit-row" if exit_s else ""
 
         rows += f"""<tr class="{row_class}">

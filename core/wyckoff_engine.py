@@ -20,6 +20,20 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+def _safe_float(v: object, default: float = 0.0) -> float:
+    """将值安全转为 float，pd.NA / NaN / None 一律回退到 default。"""
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            if pd.isna(v):
+                return default
+            return float(v)
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
 def normalize_hist_from_fetch(df: pd.DataFrame) -> pd.DataFrame:
     """将 fetch_a_share_csv._fetch_hist 返回的 DataFrame 转为筛选器所需格式。"""
     from core.constants import COL_MAP
@@ -1159,8 +1173,8 @@ def _is_trading_range_context(zone: pd.DataFrame, cfg: FunnelConfig, df_full: pd
     if high.isna().all() or low.isna().all() or close.isna().all():
         return False
 
-    high_max = float(high.max())
-    low_min = float(low.min())
+    high_max = _safe_float(high.max())
+    low_min = _safe_float(low.min())
     if low_min <= 0:
         return False
     range_pct = (high_max - low_min) / low_min * 100.0
@@ -1180,8 +1194,8 @@ def _is_trading_range_context(zone: pd.DataFrame, cfg: FunnelConfig, df_full: pd
         tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
         atr = tr.rolling(getattr(cfg, "spring_tr_atr_window", 20)).mean()
 
-        last_atr = float(atr.iloc[-1])
-        last_c = float(c.iloc[-1])
+        last_atr = _safe_float(atr.iloc[-1])
+        last_c = _safe_float(c.iloc[-1])
         if pd.notna(last_atr) and pd.notna(last_c) and last_c > 0:
             atr_pct = (last_atr / last_c) * 100.0
             max_allowed_range_pct = atr_pct * getattr(cfg, "spring_tr_atr_max_multiple", 4.0)
@@ -1191,8 +1205,8 @@ def _is_trading_range_context(zone: pd.DataFrame, cfg: FunnelConfig, df_full: pd
     if range_pct > max_allowed_range_pct:
         return False
 
-    c_start = float(close.iloc[0])
-    c_end = float(close.iloc[-1])
+    c_start = _safe_float(close.iloc[0])
+    c_end = _safe_float(close.iloc[-1])
     if c_start <= 0:
         return False
     drift_pct = abs((c_end - c_start) / c_start * 100.0)

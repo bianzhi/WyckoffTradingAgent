@@ -50,6 +50,7 @@ export interface FunnelStockResult {
   stage: string            // 威科夫阶段
   latest_close: number | null
   exit_signal: string      // 退出信号（空=正常）
+  remark: string           // 选股关键信息备注
 }
 
 export interface FunnelLayerCondition {

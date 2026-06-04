@@ -567,7 +567,7 @@ function FunnelRunPanel({ isZh, funnelState, logs, error }: {
 }) {
   if (funnelState === 'idle' && logs.length === 0 && !error) return null
   const isRunning = funnelState === 'running'
-  const recent = logs.slice(-15).reverse()
+  const recent = [...logs].reverse()
   const latestProgress = logs.length > 0 ? (logs[logs.length - 1]!.progress ?? -1) : -1
   const overallPct = latestProgress >= 0 ? Math.round(latestProgress * 100) : null
 
@@ -583,7 +583,7 @@ function FunnelRunPanel({ isZh, funnelState, logs, error }: {
       {isRunning && overallPct !== null && <FunnelProgressBar pct={overallPct} isZh={isZh} />}
 
       {recent.length > 0 ? (
-        <div className="space-y-1.5 max-h-[420px] overflow-y-auto">
+        <div className="space-y-1.5 max-h-[70vh] overflow-y-auto">
           {recent.map((log, index) => {
             const pct = log.progress != null && log.progress >= 0 ? Math.round(log.progress * 100) : null
             return (
@@ -806,36 +806,96 @@ function SignalQualitySection({ isZh }: { isZh: boolean }) {
 
 // ── Phase 4.0: 层级筛选条件组件 ──────────────────────────────────────────────
 
+const LAYER_CRITERIA: Record<string, { params: { label: string; value: string }[] }> = {
+  L1: { params: [
+    { label: '板块限制', value: '沪深主板+创业板' },
+    { label: 'ST/退市', value: '剔除' },
+    { label: '最小市值', value: '≥ 35 亿' },
+    { label: '最小日均成交额', value: '≥ 5000 万' },
+    { label: 'ROE底线', value: '≥ -10%（剔除严重亏损）' },
+    { label: '资产负债率', value: '≤ 85%' },
+  ]},
+  L2: { params: [
+    { label: 'MA均线', value: 'MA50 / MA200' },
+    { label: 'RS强弱', value: '10日RS≥2%, 3日RS≥1%' },
+    { label: 'RPS动量', value: 'RPS50≥65, RPS120≥70' },
+    { label: 'RPS斜率', value: '≥ 0.5%/天' },
+    { label: '七通道策略', value: '主升/潜伏/吸筹/地量/护盘/延续/点火' },
+  ]},
+  L3: { params: [
+    { label: '板块共振', value: '行业/概念热度Top-N过滤' },
+    { label: '样本门槛', value: '单板块≥3只，分位数≥70%' },
+    { label: 'ETF增强', value: '36只行业ETF注入板块权重' },
+  ]},
+  L4: { params: [
+    { label: 'Spring', value: 'TR内破低反收+放量' },
+    { label: 'LPS', value: '回踩支撑缩量确认' },
+    { label: 'SOS', value: '放量突破阻力位' },
+    { label: 'EVR', value: 'Effort vs Result 背离' },
+    { label: 'Compression', value: '波动率压缩至极限' },
+    { label: 'TrendPullback', value: '趋势回调至支撑位' },
+  ]},
+  L5: { params: [
+    { label: '波动率止损', value: 'ATR(10)×2 动态跟踪' },
+    { label: '时间止损', value: '持仓>20日且无新高' },
+    { label: '派发预警', value: '高位放量+价格停滞' },
+  ]},
+}
+
 const SIGNAL_LABELS: Record<string, string> = {
   sos: '点火突破', spring: 'Spring', lps: 'LPS',
   evr: 'EVR', compression: '压缩', trend_pullback: '趋势回调',
 }
 
 function FunnelLayerConditions({ isZh, layers }: { isZh: boolean; layers: Record<string, FunnelLayerCondition> }) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const toggle = (key: string) => setExpanded(prev => ({ ...prev, [key]: !prev[key] }))
+
   return (
     <section className="rounded-xl border border-border bg-card/50 p-4">
       <h2 className="mb-3 text-sm font-semibold">{isZh ? '各层筛选条件' : 'Layer Conditions'}</h2>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="space-y-2">
         {(['L1', 'L2', 'L3', 'L4', 'L5'] as const).map(key => {
           const l = layers[key]
           if (!l) return null
+          const open = expanded[key] ?? false
+          const criteria = LAYER_CRITERIA[key]
           return (
-            <div key={key} className="rounded-lg border border-border/60 bg-background/50 p-3">
-              <div className="flex items-center gap-2 mb-1.5">
+            <div key={key} className="rounded-lg border border-border/60 bg-background/50">
+              <button
+                type="button"
+                onClick={() => toggle(key)}
+                className="flex w-full items-center gap-2 p-3 text-left hover:bg-muted/30 transition-colors"
+              >
                 <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold text-emerald-400">{key}</span>
-                <span className="text-xs font-semibold">{l.label}</span>
-                <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">
+                <span className="text-xs font-semibold flex-1">{l.label}</span>
+                <span className="text-[11px] tabular-nums text-muted-foreground">
                   {isZh ? '通过' : 'Passed'} <b className="text-foreground">{l.passed}</b>
                 </span>
-              </div>
-              <p className="text-[11px] leading-relaxed text-muted-foreground">{l.desc}</p>
-              {l.detail && Object.keys(l.detail).length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {Object.entries(l.detail).map(([tag, count]) => (
-                    <span key={tag} className="rounded bg-muted px-1.5 py-0.5 text-[10px] tabular-nums">
-                      {key === 'L4' ? (SIGNAL_LABELS[tag] ?? tag) : tag}: <b>{count}</b>
-                    </span>
-                  ))}
+                <span className={`text-[10px] text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`}>▼</span>
+              </button>
+              {open && (
+                <div className="border-t border-border/40 px-3 pb-3 pt-2 space-y-1.5">
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">{l.desc}</p>
+                  {criteria && (
+                    <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                      {criteria.params.map(p => (
+                        <div key={p.label} className="flex items-baseline gap-1.5 text-[11px]">
+                          <span className="text-muted-foreground shrink-0">{p.label}:</span>
+                          <span className="font-medium text-foreground">{p.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {l.detail && Object.keys(l.detail).length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {Object.entries(l.detail).map(([tag, count]) => (
+                        <span key={tag} className="rounded bg-muted px-1.5 py-0.5 text-[10px] tabular-nums">
+                          {key === 'L4' ? (SIGNAL_LABELS[tag] ?? tag) : tag}: <b>{count}</b>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -860,26 +920,158 @@ function FunnelStocksSection({
   const activeStocks = stocks.filter(s => !s.exit_signal)
   const exitedStocks = stocks.filter(s => s.exit_signal)
 
+  // 通道筛选
+  const channels = useMemo(() => {
+    const set = new Set<string>()
+    for (const s of activeStocks) { if (s.channel) set.add(s.channel) }
+    return [...set].sort()
+  }, [activeStocks])
+  const [channelFilter, setChannelFilter] = useState<Set<string>>(new Set())
+
+  // 信号筛选
+  const signalTypes = useMemo(() => {
+    const set = new Set<string>()
+    for (const s of activeStocks) { for (const sig of s.signals) set.add(sig) }
+    return [...set].sort()
+  }, [activeStocks])
+  const [signalFilter, setSignalFilter] = useState<Set<string>>(new Set())
+
+  // 是否显示退出信号股票
+  const [showExited, setShowExited] = useState(false)
+
+  const filtered = useMemo(() => {
+    let result = activeStocks
+    if (channelFilter.size > 0) result = result.filter(s => channelFilter.has(s.channel))
+    if (signalFilter.size > 0) result = result.filter(s => s.signals.some(sig => signalFilter.has(sig)))
+    return result
+  }, [activeStocks, channelFilter, signalFilter])
+
+  const filterCount = channelFilter.size + signalFilter.size
+
   return (
     <section className="rounded-xl border border-border bg-card/50 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <h2 className="text-sm font-semibold">
           {isZh ? '筛选结果' : 'Screened Stocks'}
           <span className="ml-2 text-xs font-normal text-muted-foreground">
-            {stocks.length} {isZh ? '只' : ''} · {date}
+            {filtered.length}/{activeStocks.length} {isZh ? '只' : ''}{filterCount > 0 ? ` · ${filterCount} ${isZh ? '个筛选' : 'filters'}` : ''} · {date}
           </span>
         </h2>
-        <button
-          type="button"
-          onClick={async () => { setDownloading(true); await onDownloadReport(); setDownloading(false) }}
-          disabled={downloading}
-          className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition-colors disabled:opacity-50"
-        >
-          {downloading ? '⏳' : '📥'} {isZh ? '下载报告' : 'Download Report'}
-        </button>
+        <div className="flex items-center gap-2">
+          {channels.length > 1 && (
+            <MultiSelect
+              label={isZh ? '通道' : 'Channel'}
+              options={channels}
+              selected={channelFilter}
+              onChange={setChannelFilter}
+            />
+          )}
+          {signalTypes.length > 1 && (
+            <MultiSelect
+              label={isZh ? '信号' : 'Signal'}
+              options={signalTypes.map(s => ({ value: s, label: SIGNAL_LABELS[s] ?? s }))}
+              selected={signalFilter}
+              onChange={setSignalFilter}
+            />
+          )}
+          {exitedStocks.length > 0 && (
+            <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={showExited}
+                onChange={e => setShowExited(e.target.checked)}
+                className="rounded border-border"
+              />
+              {isZh ? `已剔除(${exitedStocks.length})` : `Exited(${exitedStocks.length})`}
+            </label>
+          )}
+          <button
+            type="button"
+            onClick={async () => { setDownloading(true); await onDownloadReport(); setDownloading(false) }}
+            disabled={downloading}
+            className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition-colors disabled:opacity-50"
+          >
+            {downloading ? '⏳' : '📥'} {isZh ? '下载报告' : 'Download Report'}
+          </button>
+        </div>
       </div>
-      <FunnelStockTable isZh={isZh} activeStocks={activeStocks} exitedStocks={exitedStocks} />
+      <FunnelStockTable
+        isZh={isZh}
+        activeStocks={filtered}
+        exitedStocks={showExited ? exitedStocks : []}
+      />
     </section>
+  )
+}
+
+// ── 多选下拉组件 ──────────────────────────────────────────────────────
+
+function MultiSelect({
+  label, options, selected, onChange,
+}: {
+  label: string
+  options: string[] | { value: string; label: string }[]
+  selected: Set<string>
+  onChange: (next: Set<string>) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const items: { value: string; label: string }[] = Array.isArray(options) && typeof options[0] === 'string'
+    ? (options as string[]).map(v => ({ value: v, label: v }))
+    : options as { value: string; label: string }[]
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    if (open) { document.addEventListener('keydown', onKey); document.addEventListener('click', onClick) }
+    return () => { document.removeEventListener('keydown', onKey); document.removeEventListener('click', onClick) }
+  }, [open])
+
+  const toggle = (v: string) => {
+    const next = new Set(selected)
+    if (next.has(v)) next.delete(v); else next.add(v)
+    onChange(next)
+  }
+  const clear = () => onChange(new Set())
+  const count = selected.size
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] transition-colors ${
+          count > 0 ? 'border-primary/40 bg-primary/5 text-primary' : 'border-border text-muted-foreground hover:text-foreground'
+        }`}
+      >
+        {label}{count > 0 ? ` (${count})` : ''}
+        <span className={`text-[9px] transition-transform ${open ? 'rotate-180' : ''}`}>▼</span>
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-1 min-w-[160px] rounded-lg border border-border bg-popover p-1.5 shadow-lg">
+          {count > 0 && (
+            <button type="button" onClick={clear} className="w-full rounded px-2 py-1 text-left text-[10px] text-muted-foreground hover:bg-muted">
+              清除筛选
+            </button>
+          )}
+          <div className="max-h-[220px] overflow-y-auto">
+            {items.map(item => (
+              <label key={item.value} className="flex items-center gap-2 rounded px-2 py-1.5 text-[11px] hover:bg-muted cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selected.has(item.value)}
+                  onChange={() => toggle(item.value)}
+                  className="rounded border-border"
+                />
+                <span className="truncate">{item.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -910,6 +1102,9 @@ function FunnelStockRow({ s, i }: { s: FunnelFullResult['stocks'][number]; i: nu
         </div>
       </td>
       <td className="px-2 py-1.5 text-muted-foreground">{s.stage || '-'}</td>
+      <td className="px-2 py-1.5 text-[11px] text-muted-foreground max-w-[200px] truncate" title={s.remark || ''}>
+        {s.remark || '-'}
+      </td>
     </tr>
   )
 }
@@ -921,7 +1116,7 @@ function FunnelExitedSection({ isZh, exitedStocks }: {
   return (
     <>
       <tr>
-        <td colSpan={8} className="px-2 py-1.5 text-[11px] text-muted-foreground">
+        <td colSpan={9} className="px-2 py-1.5 text-[11px] text-muted-foreground border-t border-border/50">
           {isZh ? `以下 ${exitedStocks.length} 只触发退出信号（已剔除）` : `${exitedStocks.length} stocks triggered exit signals`}
         </td>
       </tr>
@@ -939,34 +1134,42 @@ function FunnelExitedSection({ isZh, exitedStocks }: {
             <span className="rounded bg-red-500/10 px-1 py-0.5 text-[10px] text-red-400">⚠ {s.exit_signal}</span>
           </td>
           <td className="px-2 py-1.5 text-muted-foreground">{s.stage || '-'}</td>
+          <td className="px-2 py-1.5 text-[11px] text-muted-foreground">{s.remark || '-'}</td>
         </tr>
       ))}
     </>
   )
 }
 
+type StockSortKey = 'code' | 'name' | 'channel' | 'score' | 'price' | 'signals' | 'stage' | 'remark'
+
 function useStockSort(activeStocks: FunnelFullResult['stocks']) {
-  const [sortBy, setSortBy] = useState<'score' | 'price' | 'channel' | 'signals' | null>(null)
+  const [sortBy, setSortBy] = useState<StockSortKey>('score')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
   const sorted = useMemo(() => {
-    if (!sortBy) return activeStocks
     const dir = sortDir === 'asc' ? 1 : -1
     return [...activeStocks].sort((a, b) => {
-      if (sortBy === 'score') return (a.score - b.score) * dir
-      if (sortBy === 'price') return ((a.latest_close ?? 0) - (b.latest_close ?? 0)) * dir
-      if (sortBy === 'channel') return a.channel.localeCompare(b.channel) * dir
-      if (sortBy === 'signals') return (a.signals || []).join(',').localeCompare((b.signals || []).join(',')) * dir
-      return 0
+      switch (sortBy) {
+        case 'code': return a.code.localeCompare(b.code) * dir
+        case 'name': return (a.name || '').localeCompare(b.name || '') * dir
+        case 'channel': return (a.channel || '').localeCompare(b.channel || '') * dir
+        case 'score': return ((a.score ?? 0) - (b.score ?? 0)) * dir
+        case 'price': return ((a.latest_close ?? 0) - (b.latest_close ?? 0)) * dir
+        case 'signals': return ((a.signals || []).length - (b.signals || []).length) * dir
+        case 'stage': return (a.stage || '').localeCompare(b.stage || '') * dir
+        case 'remark': return (a.remark || '').localeCompare(b.remark || '') * dir
+        default: return 0
+      }
     })
   }, [activeStocks, sortBy, sortDir])
 
-  const toggleSort = (col: 'score' | 'price' | 'channel' | 'signals') => {
+  const toggleSort = (col: StockSortKey) => {
     if (sortBy === col) { setSortDir(prev => prev === 'asc' ? 'desc' : 'asc') }
-    else { setSortBy(col); setSortDir('desc') }
+    else { setSortBy(col); setSortDir(col === 'score' || col === 'price' ? 'desc' : 'asc') }
   }
 
-  const sortArrow = (col: 'score' | 'price' | 'channel' | 'signals') =>
+  const sortArrow = (col: StockSortKey) =>
     sortBy === col ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''
 
   return { sorted, toggleSort, sortArrow }
@@ -981,27 +1184,29 @@ function FunnelStockTable({
 }) {
   const { sorted, toggleSort, sortArrow } = useStockSort(activeStocks)
 
+  const th = (key: StockSortKey, label: string, align: 'left' | 'right' = 'left') => (
+    <th
+      className={`px-2 py-1.5 text-${align} cursor-pointer hover:text-foreground select-none whitespace-nowrap`}
+      onClick={() => toggleSort(key)}
+    >
+      {label}{sortArrow(key)}
+    </th>
+  )
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-border text-muted-foreground">
             <th className="px-2 py-1.5 text-left w-8">#</th>
-            <th className="px-2 py-1.5 text-left">{isZh ? '代码' : 'Code'}</th>
-            <th className="px-2 py-1.5 text-left">{isZh ? '名称' : 'Name'}</th>
-            <th className="px-2 py-1.5 text-left cursor-pointer hover:text-foreground select-none" onClick={() => toggleSort('channel')}>
-              {isZh ? 'L2通道' : 'L2 Channel'}{sortArrow('channel')}
-            </th>
-            <th className="px-2 py-1.5 text-right cursor-pointer hover:text-foreground select-none" onClick={() => toggleSort('score')}>
-              {isZh ? '评分' : 'Score'}{sortArrow('score')}
-            </th>
-            <th className="px-2 py-1.5 text-right cursor-pointer hover:text-foreground select-none" onClick={() => toggleSort('price')}>
-              {isZh ? '最新价' : 'Price'}{sortArrow('price')}
-            </th>
-            <th className="px-2 py-1.5 text-left cursor-pointer hover:text-foreground select-none" onClick={() => toggleSort('signals')}>
-              {isZh ? 'L4信号' : 'L4 Signals'}{sortArrow('signals')}
-            </th>
-            <th className="px-2 py-1.5 text-left">{isZh ? '阶段' : 'Stage'}</th>
+            {th('code', isZh ? '代码' : 'Code')}
+            {th('name', isZh ? '名称' : 'Name')}
+            {th('channel', isZh ? 'L2通道' : 'L2 Channel')}
+            {th('score', isZh ? '评分' : 'Score', 'right')}
+            {th('price', isZh ? '最新价' : 'Price', 'right')}
+            {th('signals', isZh ? 'L4信号' : 'L4 Signals')}
+            {th('stage', isZh ? '阶段' : 'Stage')}
+            {th('remark', isZh ? '备注' : 'Remark')}
           </tr>
         </thead>
         <tbody>
@@ -1013,6 +1218,16 @@ function FunnelStockTable({
           )}
         </tbody>
       </table>
+      {sorted.length === 0 && activeStocks.length === 0 && (
+        <p className="py-8 text-center text-xs text-muted-foreground">
+          {isZh ? '暂无筛选结果' : 'No results'}
+        </p>
+      )}
+      {sorted.length === 0 && activeStocks.length > 0 && (
+        <p className="py-8 text-center text-xs text-muted-foreground">
+          {isZh ? '当前筛选条件无匹配结果' : 'No stocks match current filters'}
+        </p>
+      )}
     </div>
   )
 }

@@ -564,15 +564,15 @@ def layer2_strength_detailed(
         s = pd.to_numeric(pct_series, errors="coerce").dropna()
         if s.empty:
             return None
-        return float(((s / 100.0 + 1.0).prod() - 1.0) * 100.0)
+        return _safe_float(((s / 100.0 + 1.0).prod() - 1.0) * 100.0)
 
     def _close_return_pct(close_series: pd.Series, lookback: int) -> float | None:
         s = pd.to_numeric(close_series, errors="coerce").dropna()
         lb = max(int(lookback), 1)
         if len(s) <= lb:
             return None
-        start = float(s.iloc[-lb - 1])
-        end = float(s.iloc[-1])
+        start = _safe_float(s.iloc[-lb - 1])
+        end = _safe_float(s.iloc[-1])
         if start == 0:
             return None
         return (end - start) / start * 100.0
@@ -691,7 +691,7 @@ def layer2_strength_detailed(
             recent_closes = []
             for i in range(-rps_window, 0):
                 if len(close_series) + i >= 0:
-                    recent_closes.append(float(close_series.iloc[i]))
+                    recent_closes.append(_safe_float(close_series.iloc[i]))
 
             if len(recent_closes) >= 2:
                 base_price = recent_closes[0]
@@ -699,7 +699,7 @@ def layer2_strength_detailed(
                     cum_returns = [(p - base_price) / base_price * 100.0 for p in recent_closes]
                     x = np.arange(len(cum_returns))
                     y = np.array(cum_returns)
-                    rps_slope_val = float(np.polyfit(x, y, 1)[0])
+                    rps_slope_val = _safe_float(np.polyfit(x, y, 1)[0])
                     rps_slope_ok = rps_slope_val >= cfg.rps_slope_min
 
         if cfg.enable_rps_filter and rps_filter_active:
@@ -727,15 +727,15 @@ def layer2_strength_detailed(
             )
 
         momentum_bias_ok = True
-        if pd.notna(last_ma_long) and float(last_ma_long) > 0 and pd.notna(last_close):
-            bias_200 = (float(last_close) - float(last_ma_long)) / float(last_ma_long)
+        if pd.notna(last_ma_long) and _safe_float(last_ma_long) > 0 and pd.notna(last_close):
+            bias_200 = (_safe_float(last_close) - _safe_float(last_ma_long)) / _safe_float(last_ma_long)
             momentum_bias_ok = bias_200 <= getattr(cfg, "momentum_bias_200_max", 0.25)
 
         momentum_ok = (bullish_alignment or holding_ma20) and momentum_rs_ok and momentum_rps_ok and momentum_bias_ok
 
         ambush_shape_ok = False
-        if cfg.enable_ambush_channel and pd.notna(last_ma_long) and float(last_ma_long) > 0 and pd.notna(last_close):
-            bias_200 = (float(last_close) - float(last_ma_long)) / float(last_ma_long)
+        if cfg.enable_ambush_channel and pd.notna(last_ma_long) and _safe_float(last_ma_long) > 0 and pd.notna(last_close):
+            bias_200 = (_safe_float(last_close) - _safe_float(last_ma_long)) / _safe_float(last_ma_long)
             ret20 = _close_return_pct(close, 20)
             ambush_shape_ok = (
                 abs(bias_200) <= cfg.ambush_bias_200_abs_max and ret20 is not None and ret20 <= cfg.ambush_ret20_max
@@ -752,8 +752,8 @@ def layer2_strength_detailed(
 
             # 条件 1：低位区——现价在年内低点 +X% 以内
             lookback_w = max(int(cfg.accum_lookback_days), 2)
-            period_low = float(_c.tail(lookback_w).min())
-            accum_low_ok = period_low > 0 and float(last_close) <= period_low * (1.0 + cfg.accum_price_from_low_max)
+            period_low = _safe_float(_c.tail(lookback_w).min())
+            accum_low_ok = period_low > 0 and _safe_float(last_close) <= period_low * (1.0 + cfg.accum_price_from_low_max)
 
             # 条件 2：横盘振幅——近 N 日 high/low 振幅不超过阈值
             accum_range_ok = False
@@ -763,8 +763,8 @@ def layer2_strength_detailed(
                 _high = pd.to_numeric(zone.get("high"), errors="coerce")
                 _low = pd.to_numeric(zone.get("low"), errors="coerce")
                 if not _high.dropna().empty and not _low.dropna().empty:
-                    h_max = float(_high.max())
-                    l_min = float(_low.min())
+                    h_max = _safe_float(_high.max())
+                    l_min = _safe_float(_low.min())
                     if l_min > 0:
                         range_pct = (h_max - l_min) / l_min * 100.0
                         accum_range_ok = range_pct <= cfg.accum_range_max_pct
@@ -775,17 +775,17 @@ def layer2_strength_detailed(
                 vol = pd.to_numeric(df_sorted.get("volume"), errors="coerce")
                 dw = max(int(cfg.accum_vol_dry_window), 2)
                 rfw = max(int(cfg.accum_vol_dry_ref_window), dw + 1)
-                recent_vol_mean = float(vol.tail(dw).mean()) if len(vol) >= dw else None
-                ref_vol_mean = float(vol.tail(rfw).iloc[:-dw].mean()) if len(vol) >= rfw else None
+                recent_vol_mean = _safe_float(vol.tail(dw).mean()) if len(vol) >= dw else None
+                ref_vol_mean = _safe_float(vol.tail(rfw).iloc[:-dw].mean()) if len(vol) >= rfw else None
                 if recent_vol_mean is not None and ref_vol_mean is not None and ref_vol_mean > 0:
                     accum_vol_ok = (recent_vol_mean / ref_vol_mean) < cfg.accum_vol_dry_ratio
 
             # 条件 4：均线即将穿越——MA50 即将穿过或刚穿过 MA200（吸筹完成信号）
             accum_ma_ok = False
-            if accum_vol_ok and pd.notna(last_ma_short) and pd.notna(last_ma_long) and float(last_ma_long) > 0:
+            if accum_vol_ok and pd.notna(last_ma_short) and pd.notna(last_ma_long) and _safe_float(last_ma_long) > 0:
                 # MA50 与 MA200 的差距百分比：允许在 ±accum_ma_gap_max 之间
                 # 即 MA50 可以在 MA200 下方 N% 以内（即将穿），或在上方 N% 以内（刚穿）
-                ma_gap_pct = (float(last_ma_short) - float(last_ma_long)) / float(last_ma_long) * 100.0
+                ma_gap_pct = (_safe_float(last_ma_short) - _safe_float(last_ma_long)) / _safe_float(last_ma_long) * 100.0
                 ma_gap_limit = cfg.accum_ma_gap_max * 100.0  # 配置值为小数（如 0.06 → 6%）
                 accum_ma_ok = -ma_gap_limit <= ma_gap_pct <= ma_gap_limit
 
@@ -798,13 +798,13 @@ def layer2_strength_detailed(
             vol = pd.to_numeric(df_sorted.get("volume"), errors="coerce")
             _c_dv = close
             lookback_dv = max(int(cfg.dry_vol_ref_window), 2)
-            period_low_dv = float(_c_dv.tail(lookback_dv).min())
-            if period_low_dv > 0 and float(last_close) <= period_low_dv * (1.0 + cfg.dry_vol_price_from_low_max):
+            period_low_dv = _safe_float(_c_dv.tail(lookback_dv).min())
+            if period_low_dv > 0 and _safe_float(last_close) <= period_low_dv * (1.0 + cfg.dry_vol_price_from_low_max):
                 ref_vol = vol.tail(lookback_dv)
                 if len(ref_vol.dropna()) >= 50:
-                    vol_threshold = float(np.quantile(ref_vol.dropna().values, cfg.dry_vol_quantile))
+                    vol_threshold = _safe_float(np.quantile(ref_vol.dropna().values, cfg.dry_vol_quantile))
                     recent_vol = vol.tail(cfg.dry_vol_lookback)
-                    if float(recent_vol.min()) <= vol_threshold:
+                    if _safe_float(recent_vol.min()) <= vol_threshold:
                         dry_vol_ok = True
 
         # 暗中护盘通道（RS Divergence Channel）
@@ -822,14 +822,14 @@ def layer2_strength_detailed(
                 # 位阶保护
                 _c_rd = close
                 lookback_rd = max(int(cfg.dry_vol_ref_window), 250)
-                period_low_rd = float(_c_rd.tail(min(lookback_rd, len(_c_rd))).min())
-                if period_low_rd > 0 and float(last_close) <= period_low_rd * (1.0 + cfg.rs_div_price_from_low_max):
+                period_low_rd = _safe_float(_c_rd.tail(min(lookback_rd, len(_c_rd))).min())
+                if period_low_rd > 0 and _safe_float(last_close) <= period_low_rd * (1.0 + cfg.rs_div_price_from_low_max):
                     # 大盘：近 N 日的最低收盘价 < 前 ref_window 日的最低收盘价（创新低）
                     bench_recent = bench_close.tail(cfg.rs_div_bench_window)
                     bench_ref = bench_close.tail(cfg.rs_div_bench_ref_window).iloc[: -cfg.rs_div_bench_window]
                     if not bench_ref.dropna().empty and not bench_recent.dropna().empty:
-                        bench_recent_low = float(bench_recent.min())
-                        bench_ref_low = float(bench_ref.min())
+                        bench_recent_low = _safe_float(bench_recent.min())
+                        bench_ref_low = _safe_float(bench_ref.min())
                         bench_made_lower_low = bench_recent_low < bench_ref_low
 
                         if bench_made_lower_low:
@@ -838,8 +838,8 @@ def layer2_strength_detailed(
                             stock_recent = stock_low_col.tail(cfg.rs_div_stock_window)
                             stock_ref = stock_low_col.tail(cfg.rs_div_bench_ref_window).iloc[: -cfg.rs_div_stock_window]
                             if not stock_ref.dropna().empty and not stock_recent.dropna().empty:
-                                stock_recent_low = float(stock_recent.min())
-                                stock_ref_low = float(stock_ref.min())
+                                stock_recent_low = _safe_float(stock_recent.min())
+                                stock_ref_low = _safe_float(stock_ref.min())
                                 if stock_recent_low >= stock_ref_low:
                                     # 加入成交量确认
                                     bench_vol = pd.to_numeric(bench_sorted.get("volume"), errors="coerce")
@@ -873,7 +873,7 @@ def layer2_strength_detailed(
         # 价格站上 MA50 但 MA50 尚未上穿 MA200，短期动量爆发 + 放量
         breakout_accel_ok = False
         if cfg.enable_breakout_accel_channel and rps_filter_active:
-            _ba_above_ma50 = pd.notna(last_ma_short) and float(last_close) > float(last_ma_short)
+            _ba_above_ma50 = pd.notna(last_ma_short) and _safe_float(last_close) > _safe_float(last_ma_short)
             _ba_not_bullish = not bullish_alignment
             _ba_rps_ok = rps_fast is not None and rps_fast >= cfg.breakout_accel_rps_fast_min
             if _ba_above_ma50 and _ba_not_bullish and _ba_rps_ok:
@@ -883,8 +883,8 @@ def layer2_strength_detailed(
                     rw = cfg.breakout_accel_ret_window
                     refw = cfg.breakout_accel_vol_ref_window
                     if len(vol) >= refw:
-                        recent_vol = float(vol.tail(rw).mean())
-                        ref_vol = float(vol.tail(refw).iloc[:-rw].mean()) if len(vol) >= refw else 0
+                        recent_vol = _safe_float(vol.tail(rw).mean())
+                        ref_vol = _safe_float(vol.tail(refw).iloc[:-rw].mean()) if len(vol) >= refw else 0
                         if ref_vol > 0 and recent_vol / ref_vol >= cfg.breakout_accel_vol_ratio:
                             breakout_accel_ok = True
 
@@ -900,7 +900,7 @@ def layer2_strength_detailed(
                 if len(recent_close) >= 10:
                     cum_max = recent_close.cummax()
                     drawdown = (recent_close - cum_max) / cum_max * 100.0
-                    max_dd = float(drawdown.min())
+                    max_dd = _safe_float(drawdown.min())
                     _tc_dd_ok = abs(max_dd) < cfg.trend_cont_max_drawdown_pct
             trend_cont_ok = _tc_rps_ok and _tc_dd_ok
 
@@ -946,16 +946,16 @@ def layer2_strength_detailed(
             channel_map[sym] = "+".join(labels)
         elif cfg.enable_pre_ignition_watch:
             _pre_ign = False
-            if pd.notna(last_ma_long) and float(last_ma_long) > 0 and pd.notna(last_close):
-                _bias = (float(last_close) - float(last_ma_long)) / float(last_ma_long)
+            if pd.notna(last_ma_long) and _safe_float(last_ma_long) > 0 and pd.notna(last_close):
+                _bias = (_safe_float(last_close) - _safe_float(last_ma_long)) / _safe_float(last_ma_long)
                 _has_structure = (bullish_alignment or holding_ma20) and _bias <= cfg.pre_ignition_bias_max
                 _has_rps = rps_slow is not None and rps_slow >= cfg.pre_ignition_rps_slow_min
                 _has_vol = False
                 if len(df_sorted) >= 2 and "volume" in df_sorted.columns:
                     vol_tail = df_sorted["volume"].tail(cfg.sos_vol_window)
                     if len(vol_tail) > 1:
-                        prev_vol = float(df_sorted["volume"].iloc[-2])
-                        avg_vol = float(vol_tail.iloc[:-1].mean())
+                        prev_vol = _safe_float(df_sorted["volume"].iloc[-2])
+                        avg_vol = _safe_float(vol_tail.iloc[:-1].mean())
                         if avg_vol > 0:
                             _has_vol = (prev_vol / avg_vol) >= cfg.pre_ignition_vol_ratio_min
                 _pre_ign = _has_structure and _has_rps and _has_vol
@@ -983,12 +983,12 @@ def _compute_sector_strength(
         close = pd.to_numeric(s.get("close"), errors="coerce").dropna()
         if len(close) <= 20:
             continue
-        ret20 = (float(close.iloc[-1]) - float(close.iloc[-21])) / float(close.iloc[-21]) * 100.0
+        ret20 = (_safe_float(close.iloc[-1]) - _safe_float(close.iloc[-21])) / _safe_float(close.iloc[-21]) * 100.0
         ret5 = (
-            (float(close.iloc[-1]) - float(close.iloc[-6])) / float(close.iloc[-6]) * 100.0 if len(close) > 5 else ret20
+            (_safe_float(close.iloc[-1]) - _safe_float(close.iloc[-6])) / _safe_float(close.iloc[-6]) * 100.0 if len(close) > 5 else ret20
         )
         ret3 = (
-            (float(close.iloc[-1]) - float(close.iloc[-4])) / float(close.iloc[-4]) * 100.0 if len(close) > 3 else ret5
+            (_safe_float(close.iloc[-1]) - _safe_float(close.iloc[-4])) / _safe_float(close.iloc[-4]) * 100.0 if len(close) > 3 else ret5
         )
         rows.append((sym, ret20, ret5, ret3))
     if not rows:
@@ -1033,7 +1033,7 @@ def _compute_sector_thresholds(
     """计算板块筛选的各项动态阈值。返回 (count_threshold, pass_threshold, strength_threshold, super_threshold, pass_ratio_map)。"""
     ranked = sorted(counts.items(), key=lambda x: -x[1])
     min_count = max(int(cfg.sector_min_count), 1)
-    q = min(max(float(cfg.sector_count_quantile), 0.0), 1.0)
+    q = min(max(_safe_float(cfg.sector_count_quantile), 0.0), 1.0)
     size_arr = np.array(list(counts.values()), dtype=float)
     q_count = int(np.ceil(np.quantile(size_arr, q))) if size_arr.size > 0 else min_count
     threshold = max(min_count, q_count)
@@ -1041,15 +1041,15 @@ def _compute_sector_thresholds(
     pass_ratio_map: dict[str, float] = {}
     pass_ratios: list[float] = []
     for sec, cnt in ranked:
-        ratio = float(cnt) / float(max(int(base_counts.get(sec, 0)), 1))
+        ratio = _safe_float(cnt) / _safe_float(max(int(base_counts.get(sec, 0)), 1))
         pass_ratio_map[sec] = ratio
         pass_ratios.append(ratio)
-    pass_threshold = float(np.quantile(np.array(pass_ratios, dtype=float), q)) if pass_ratios else 0.0
+    pass_threshold = _safe_float(np.quantile(np.array(pass_ratios, dtype=float), q)) if pass_ratios else 0.0
 
     strength_vals = list(sector_strength_map.values())
-    strength_threshold = float(np.quantile(np.array(strength_vals, dtype=float), q)) if strength_vals else 0.0
-    super_q = min(max(float(getattr(cfg, "sector_super_strength_quantile", 0.90)), 0.0), 1.0)
-    super_threshold = float(np.quantile(np.array(strength_vals, dtype=float), super_q)) if strength_vals else 0.0
+    strength_threshold = _safe_float(np.quantile(np.array(strength_vals, dtype=float), q)) if strength_vals else 0.0
+    super_q = min(max(_safe_float(getattr(cfg, "sector_super_strength_quantile", 0.90)), 0.0), 1.0)
+    super_threshold = _safe_float(np.quantile(np.array(strength_vals, dtype=float), super_q)) if strength_vals else 0.0
     return threshold, pass_threshold, strength_threshold, super_threshold, pass_ratio_map
 
 
@@ -1104,7 +1104,7 @@ def _compute_per_sector_strength(
     sector_strength: dict[str, float] = {}
     for sec in counts:
         vals = [strength_map[sym] for sym in symbols if sec in sym_sectors.get(sym, []) and sym in strength_map]
-        sector_strength[sec] = float(np.median(vals)) if vals else 0.0
+        sector_strength[sec] = _safe_float(np.median(vals)) if vals else 0.0
     return sector_strength
 
 
@@ -1200,7 +1200,7 @@ def _is_trading_range_context(zone: pd.DataFrame, cfg: FunnelConfig, df_full: pd
             atr_pct = (last_atr / last_c) * 100.0
             max_allowed_range_pct = atr_pct * getattr(cfg, "spring_tr_atr_max_multiple", 4.0)
             # 放松动态振幅：不再死板卡 15~45，而是最低保底为原始配置（通常是30%），最高可达 60%，给大蓝筹和大盘股透气
-            max_allowed_range_pct = min(max(max_allowed_range_pct, float(cfg.spring_tr_max_range_pct)), 60.0)
+            max_allowed_range_pct = min(max(max_allowed_range_pct, _safe_float(cfg.spring_tr_max_range_pct)), 60.0)
 
     if range_pct > max_allowed_range_pct:
         return False
@@ -1239,13 +1239,13 @@ def _detect_spring(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     if vol_avg <= 0 or last["volume"] < vol_avg * cfg.spring_vol_ratio:
         return None
 
-    prev_vol = float(prev["volume"]) if pd.notna(prev["volume"]) else 0
-    last_vol = float(last["volume"]) if pd.notna(last["volume"]) else 0
+    prev_vol = _safe_float(prev["volume"]) if pd.notna(prev["volume"]) else 0
+    last_vol = _safe_float(last["volume"]) if pd.notna(last["volume"]) else 0
     if prev_vol > 0 and last_vol / prev_vol < cfg.spring_vol_expand_ratio:
         return None
 
     recovery = (last["close"] - support_level) / support_level * 100
-    return float(recovery)
+    return _safe_float(recovery)
 
 
 def _detect_lps(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
@@ -1270,7 +1270,7 @@ def _detect_lps(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     rising_offset = cfg.lps_lookback + cfg.lps_ma_rising_window
     if len(ma) > rising_offset:
         ma_prev = ma.iloc[-rising_offset]
-        if pd.isna(ma_prev) or last_ma <= float(ma_prev):
+        if pd.isna(ma_prev) or last_ma <= _safe_float(ma_prev):
             return None
 
     low_near_ma = recent["low"].min()
@@ -1285,7 +1285,7 @@ def _detect_lps(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     vol_ratio = recent_max_vol / ref_max_vol
     if vol_ratio > cfg.lps_vol_dry_ratio:
         return None
-    return float(vol_ratio)
+    return _safe_float(vol_ratio)
 
 
 def _detect_evr(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
@@ -1310,14 +1310,14 @@ def _detect_evr(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     ma200 = close.rolling(200).mean()
     ma200_last = ma200.iloc[-1]
     close_last = close.iloc[-1]
-    if pd.notna(ma200_last) and pd.notna(close_last) and float(ma200_last) > 0:
-        bias_200 = (float(close_last) - float(ma200_last)) / float(ma200_last) * 100.0
-        if bias_200 > float(cfg.evr_max_bias_200):
+    if pd.notna(ma200_last) and pd.notna(close_last) and _safe_float(ma200_last) > 0:
+        bias_200 = (_safe_float(close_last) - _safe_float(ma200_last)) / _safe_float(ma200_last) * 100.0
+        if bias_200 > _safe_float(cfg.evr_max_bias_200):
             return None
 
     # 基准量能取"最近窗口但剔除最后两天"，避免当前异动污染基线
     vol_ref = volume.tail(cfg.evr_vol_window).iloc[:-2]
-    vol_ref_avg = float(vol_ref.mean()) if not vol_ref.empty else 0.0
+    vol_ref_avg = _safe_float(vol_ref.mean()) if not vol_ref.empty else 0.0
     if vol_ref_avg <= 0:
         return None
 
@@ -1326,7 +1326,7 @@ def _detect_evr(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
 
     # 默认要求"放量滞涨"后至少 1 天确认，不再当日立即上报。
     for idx in candidate_idx:
-        vol_ratio = float(volume.iloc[idx] / vol_ref_avg) if vol_ref_avg > 0 else 0.0
+        vol_ratio = _safe_float(volume.iloc[idx] / vol_ref_avg) if vol_ref_avg > 0 else 0.0
         if vol_ratio < cfg.evr_vol_ratio:
             continue
 
@@ -1335,20 +1335,20 @@ def _detect_evr(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
             continue
 
         # 结果约束：剔除大阴线/大阳线，保留"努力无结果"的滞涨/抗跌
-        if float(day_pct) < -cfg.evr_max_drop or float(day_pct) > cfg.evr_max_rise:
+        if _safe_float(day_pct) < -cfg.evr_max_drop or _safe_float(day_pct) > cfg.evr_max_rise:
             continue
 
         # 换手率过滤：剔除全天死水里的相对放量假象，但阈值保持保守。
-        if "turnover" in df_s.columns and float(cfg.evr_min_turnover) > 0:
+        if "turnover" in df_s.columns and _safe_float(cfg.evr_min_turnover) > 0:
             turnover_series = pd.to_numeric(df_s["turnover"], errors="coerce")
             day_turnover = turnover_series.iloc[idx]
-            if pd.notna(day_turnover) and float(day_turnover) < float(cfg.evr_min_turnover):
+            if pd.notna(day_turnover) and _safe_float(day_turnover) < _safe_float(cfg.evr_min_turnover):
                 continue
 
         # 结构约束：最新收盘不能明显弱于三天前（防止下跌中继）
         if len(close) >= 4:
             close_3d_ago = close.iloc[-4]
-            if pd.notna(close_3d_ago) and float(close_last) < float(close_3d_ago) * 0.98:
+            if pd.notna(close_3d_ago) and _safe_float(close_last) < _safe_float(close_3d_ago) * 0.98:
                 continue
 
         if confirm_days > 0:
@@ -1361,9 +1361,9 @@ def _detect_evr(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
             confirm_close = close.iloc[confirm_start:confirm_end]
             if pd.isna(event_low) or confirm_close.empty or confirm_close.isna().all():
                 continue
-            min_confirm_close = float(confirm_close.min())
-            allow_break = max(float(cfg.evr_confirm_allow_break_pct), 0.0) / 100.0
-            if min_confirm_close < float(event_low) * (1.0 - allow_break):
+            min_confirm_close = _safe_float(confirm_close.min())
+            allow_break = max(_safe_float(cfg.evr_confirm_allow_break_pct), 0.0) / 100.0
+            if min_confirm_close < _safe_float(event_low) * (1.0 - allow_break):
                 continue
         return vol_ratio
 
@@ -1399,13 +1399,13 @@ def _detect_sos(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     if len(close) >= 200:
         ma200 = close.rolling(200).mean()
         ma200_last = ma200.iloc[-1]
-        if pd.notna(ma200_last) and pd.notna(close_last) and float(ma200_last) > 0:
-            bias_200 = (float(close_last) - float(ma200_last)) / float(ma200_last) * 100.0
-            if bias_200 > float(cfg.sos_max_bias_200):
+        if pd.notna(ma200_last) and pd.notna(close_last) and _safe_float(ma200_last) > 0:
+            bias_200 = (_safe_float(close_last) - _safe_float(ma200_last)) / _safe_float(ma200_last) * 100.0
+            if bias_200 > _safe_float(cfg.sos_max_bias_200):
                 return None
 
     # 只看当天（威科夫点火通常是当天的明显大阳线）
-    day_pct = float(pct_chg.iloc[-1])
+    day_pct = _safe_float(pct_chg.iloc[-1])
     if pd.isna(day_pct) or day_pct < cfg.sos_pct_min:
         return None
 
@@ -1418,14 +1418,14 @@ def _detect_sos(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     if vol_ref.empty:
         return None
 
-    vol_ref_avg = float(vol_ref.mean())
+    vol_ref_avg = _safe_float(vol_ref.mean())
     if vol_ref_avg <= 0:
         return None
 
-    vol_ratio = float(volume.iloc[-1]) / vol_ref_avg
+    vol_ratio = _safe_float(volume.iloc[-1]) / vol_ref_avg
 
     # 取消 95% 分位数极值爆量约束，回到常识性简单的放量倍数判断
-    if vol_ratio < float(getattr(cfg, "sos_vol_ratio", 2.0)):
+    if vol_ratio < _safe_float(getattr(cfg, "sos_vol_ratio", 2.0)):
         return None
 
     # 结构突破要求：创N日新高，或强势穿透季线/半年线
@@ -1433,18 +1433,18 @@ def _detect_sos(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     ma50_last = ma50.iloc[-1] if not ma50.empty else None
 
     recent_highs = high.tail(cfg.sos_breakout_window + 1).iloc[:-1]
-    max_recent_high = float(recent_highs.max()) if not recent_highs.empty else float("inf")
+    max_recent_high = _safe_float(recent_highs.max()) if not recent_highs.empty else _safe_float("inf")
 
     # 改为 1% 容差（从 2% 改为 1%）
     breakout_tolerance = getattr(cfg, "sos_breakout_tolerance", 0.01)
-    is_breakout = float(close_last) >= max_recent_high * (1.0 - breakout_tolerance)
+    is_breakout = _safe_float(close_last) >= max_recent_high * (1.0 - breakout_tolerance)
 
     is_ma_crossover = False
     ma50_prev = ma50.iloc[-2] if len(ma50) >= 2 else None
     if ma50_last is not None and pd.notna(ma50_last) and ma50_prev is not None and pd.notna(ma50_prev):
-        prev_close = float(close.iloc[-2])
+        prev_close = _safe_float(close.iloc[-2])
         # 修正：Lookahead 问题，昨天的收盘价比昨天的 MA50，今天收盘价比今天的 MA50
-        if prev_close <= float(ma50_prev) and float(close_last) > float(ma50_last):
+        if prev_close <= _safe_float(ma50_prev) and _safe_float(close_last) > _safe_float(ma50_last):
             is_ma_crossover = True
 
     if not (is_breakout or is_ma_crossover):
@@ -1471,8 +1471,8 @@ def _detect_compression(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     if len(close) >= 200:
         ma200 = close.rolling(200).mean()
         ma200_last = ma200.iloc[-1]
-        if pd.notna(ma200_last) and float(ma200_last) > 0:
-            bias = (float(close.iloc[-1]) - float(ma200_last)) / float(ma200_last) * 100.0
+        if pd.notna(ma200_last) and _safe_float(ma200_last) > 0:
+            bias = (_safe_float(close.iloc[-1]) - _safe_float(ma200_last)) / _safe_float(ma200_last) * 100.0
             if bias > cfg.compression_max_bias_200:
                 return None
 
@@ -1486,8 +1486,8 @@ def _detect_compression(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     if hist_atr.empty or recent_atr.empty:
         return None
 
-    threshold = float(hist_atr.quantile(cfg.compression_atr_quantile))
-    current_atr_avg = float(recent_atr.mean())
+    threshold = _safe_float(hist_atr.quantile(cfg.compression_atr_quantile))
+    current_atr_avg = _safe_float(recent_atr.mean())
     if current_atr_avg > threshold:
         return None
 
@@ -1496,13 +1496,13 @@ def _detect_compression(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     if violations > 1:
         return None
 
-    vol_ref = float(volume.iloc[-(atr_w + lookback) : -lookback].mean())
-    vol_recent = float(volume.tail(lookback).mean())
+    vol_ref = _safe_float(volume.iloc[-(atr_w + lookback) : -lookback].mean())
+    vol_recent = _safe_float(volume.tail(lookback).mean())
     if vol_ref <= 0 or vol_recent / vol_ref > cfg.compression_vol_decline_ratio:
         return None
 
-    hist_atr_median = float(hist_atr.median())
-    return float(current_atr_avg / hist_atr_median) if hist_atr_median > 0 else None
+    hist_atr_median = _safe_float(hist_atr.median())
+    return _safe_float(current_atr_avg / hist_atr_median) if hist_atr_median > 0 else None
 
 
 def _trend_pullback_peak_idx(close: pd.Series, cfg: FunnelConfig) -> int | None:
@@ -1512,20 +1512,20 @@ def _trend_pullback_peak_idx(close: pd.Series, cfg: FunnelConfig) -> int | None:
     if pd.isna(last_ma):
         return None
     ma_prev = ma.iloc[-(lookback + 1)]
-    if pd.isna(ma_prev) or float(last_ma) <= float(ma_prev):
+    if pd.isna(ma_prev) or _safe_float(last_ma) <= _safe_float(ma_prev):
         return None
 
     recent = close.tail(lookback + 1)
-    peak = float(recent.max())
+    peak = _safe_float(recent.max())
     peak_idx = int(recent.values.argmax())
     if peak_idx < 1 or peak <= 0:
         return None
-    trough = float(recent.iloc[peak_idx + 1 : -1].min()) if peak_idx + 1 < len(recent) - 1 else float(recent.iloc[-1])
-    last_close = float(close.iloc[-1])
+    trough = _safe_float(recent.iloc[peak_idx + 1 : -1].min()) if peak_idx + 1 < len(recent) - 1 else _safe_float(recent.iloc[-1])
+    last_close = _safe_float(close.iloc[-1])
     pullback_pct = (peak - min(trough, last_close)) / peak * 100.0
     if pullback_pct < cfg.trend_pb_min_pullback_pct or pullback_pct > cfg.trend_pb_max_pullback_pct:
         return None
-    if last_close <= float(close.iloc[-2]):
+    if last_close <= _safe_float(close.iloc[-2]):
         return None
     return peak_idx
 
@@ -1541,7 +1541,7 @@ def _trend_pullback_vol_threshold(close: pd.Series, cfg: FunnelConfig, market_ca
 
     streak = 0
     for i in range(1, min(len(ma50), 60) + 1):
-        if pd.isna(ma50.iloc[-i]) or pd.isna(ma200.iloc[-i]) or float(ma50.iloc[-i]) <= float(ma200.iloc[-i]):
+        if pd.isna(ma50.iloc[-i]) or pd.isna(ma200.iloc[-i]) or _safe_float(ma50.iloc[-i]) <= _safe_float(ma200.iloc[-i]):
             break
         streak += 1
     if streak >= 20:
@@ -1571,18 +1571,18 @@ def _detect_trend_pullback(
 
     # 缩量确认：回落段（排除峰值日）均量 / 上涨段均量
     vol_tail = volume.tail(lookback + 1)
-    vol_up = float(vol_tail.iloc[: peak_idx + 1].mean())
+    vol_up = _safe_float(vol_tail.iloc[: peak_idx + 1].mean())
     vol_down_slice = vol_tail.iloc[peak_idx + 1 :]
     if vol_down_slice.empty or vol_up <= 0:
         return None
-    vol_down = float(vol_down_slice.mean())
+    vol_down = _safe_float(vol_down_slice.mean())
     vol_ratio = vol_down / vol_up
 
     # 大市值放宽 + 饥饿模式（趋势持续久无触发）
     threshold = _trend_pullback_vol_threshold(close, cfg, market_cap_yi)
     if vol_ratio > threshold:
         return None
-    return float(1.0 - vol_ratio)
+    return _safe_float(1.0 - vol_ratio)
 
 
 def layer4_triggers(
@@ -1630,7 +1630,7 @@ def layer4_triggers(
         if cfg.enable_trend_pullback_trigger:
             ch = channel_map.get(sym, "")
             if any(t in ch for t in trend_channel_tags):
-                cap_yi = float(cap_map.get(sym, 0.0) or 0.0)
+                cap_yi = _safe_float(cap_map.get(sym, 0.0) or 0.0)
                 score = _detect_trend_pullback(df, cfg, market_cap_yi=cap_yi)
                 if score is not None:
                     results["trend_pullback"].append((sym, score))
@@ -1690,7 +1690,7 @@ def _detect_markup_entry(df: pd.DataFrame, cfg: FunnelConfig) -> float | None:
     if angle < cfg.markup_ma_angle_min:
         return None
 
-    return float(recent_above / confirm_days)
+    return _safe_float(recent_above / confirm_days)
 
 
 def detect_markup_stage(
@@ -1741,7 +1741,7 @@ def _analyze_accum_stage(df: pd.DataFrame, cfg: FunnelConfig) -> str | None:
 
     # 条件 1: 低位区——现价在年内低点 +35% 以内
     lookback_w = max(int(cfg.accum_lookback_days), 2)
-    period_low = float(low.tail(lookback_w).min())
+    period_low = _safe_float(low.tail(lookback_w).min())
     if period_low <= 0 or last_close > period_low * (1.0 + cfg.accum_price_from_low_max):
         return None
 
@@ -1753,10 +1753,10 @@ def _analyze_accum_stage(df: pd.DataFrame, cfg: FunnelConfig) -> str | None:
     last_ma_short = ma_short.iloc[-1]
     last_ma_long = ma_long.iloc[-1]
 
-    if pd.isna(last_ma_short) or pd.isna(last_ma_long) or float(last_ma_long) <= 0:
+    if pd.isna(last_ma_short) or pd.isna(last_ma_long) or _safe_float(last_ma_long) <= 0:
         return None
 
-    ma_gap_pct = (float(last_ma_short) - float(last_ma_long)) / float(last_ma_long) * 100.0
+    ma_gap_pct = (_safe_float(last_ma_short) - _safe_float(last_ma_long)) / _safe_float(last_ma_long) * 100.0
     ma_gap_limit = cfg.accum_ma_gap_max * 100.0  # 配置值为小数（如 0.06 → 6%）
     if not (-ma_gap_limit <= ma_gap_pct <= ma_gap_limit):
         return None
@@ -1764,8 +1764,8 @@ def _analyze_accum_stage(df: pd.DataFrame, cfg: FunnelConfig) -> str | None:
     # 条件 3: 量能萎缩
     dw = max(int(cfg.accum_vol_dry_window), 2)
     rfw = max(int(cfg.accum_vol_dry_ref_window), dw + 1)
-    recent_vol_mean = float(volume.tail(dw).mean()) if len(volume) >= dw else 0.0
-    ref_vol_mean = float(volume.tail(rfw).iloc[:-dw].mean()) if len(volume) >= rfw else 0.0
+    recent_vol_mean = _safe_float(volume.tail(dw).mean()) if len(volume) >= dw else 0.0
+    ref_vol_mean = _safe_float(volume.tail(rfw).iloc[:-dw].mean()) if len(volume) >= rfw else 0.0
 
     if ref_vol_mean <= 0 or recent_vol_mean / ref_vol_mean >= cfg.accum_vol_dry_ratio:
         return None
@@ -1886,7 +1886,7 @@ def _compute_atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int 
     tr = tr.dropna()
     if len(tr) < period:
         return None
-    return float(tr.tail(period).mean())
+    return _safe_float(tr.tail(period).mean())
 
 
 def _compute_atr_lookback(
@@ -1908,7 +1908,7 @@ def _compute_atr_lookback(
     tr = tr.dropna()
     if len(tr) < period:
         return None
-    return float(tr.tail(period).mean())
+    return _safe_float(tr.tail(period).mean())
 
 
 def _check_volatility_stop(
@@ -1938,7 +1938,7 @@ def _check_time_stop(
     if cfg.exit_time_stop_days <= 0 or len(close) < cfg.exit_time_stop_days:
         return None
     window_close = close.tail(cfg.exit_time_stop_days).astype(float)
-    start_price = float(window_close.iloc[0])
+    start_price = _safe_float(window_close.iloc[0])
     if start_price <= 0:
         return None
     ret_over_window = (last_close - start_price) / start_price * 100.0
@@ -1969,7 +1969,7 @@ def _atr_trailing_price(
     if not atr or atr <= 0:
         return None
     atr_stop = recent_high - cfg.exit_atr_mult * atr
-    trailing_price = max(atr_stop, float(ma_short) * 0.98) if ma_short else atr_stop
+    trailing_price = max(atr_stop, _safe_float(ma_short) * 0.98) if ma_short else atr_stop
     return trailing_price, f"ATR动态跟踪止损({tag}ATR={atr:.3f}, mult={cfg.exit_atr_mult})"
 
 
@@ -1983,16 +1983,16 @@ def _compute_accum_stop(
     ma_short: float | None,
 ) -> tuple[float | None, str]:
     """吸筹阶段止损：破位防守 / 利润保护（ATR 跟踪）。"""
-    last_close = float(close.iloc[-1])
+    last_close = _safe_float(close.iloc[-1])
     lookback_w = max(int(cfg.accum_lookback_days), 2)
-    accum_low = float(low.tail(lookback_w).min())
+    accum_low = _safe_float(low.tail(lookback_w).min())
     if last_close >= accum_low * (1.0 + cfg.exit_trailing_active_pct / 100.0):
         atr_result = _atr_trailing_price(high, low, close, recent_high, ma_short, cfg, "利润保护")
         if atr_result:
             return atr_result
         drawdown_pct = cfg.exit_trailing_drawdown_pct / 100.0
         price = (
-            max(recent_high * (1.0 + drawdown_pct), float(ma_short) * 0.98)
+            max(recent_high * (1.0 + drawdown_pct), _safe_float(ma_short) * 0.98)
             if ma_short
             else recent_high * (1.0 + drawdown_pct)
         )
@@ -2008,10 +2008,10 @@ def _compute_stop_loss(
     cfg: FunnelConfig,
 ) -> tuple[float | None, str]:
     """计算单只股票的止损价和原因。支持 ATR 跟踪/时间/波动率三种高级出场策略。"""
-    last_close = float(close.iloc[-1])
+    last_close = _safe_float(close.iloc[-1])
     ma_short_series = close.rolling(cfg.ma_short).mean()
-    ma_short = float(ma_short_series.iloc[-1]) if not ma_short_series.isna().all() else None
-    recent_high = float(high.tail(60).max())
+    ma_short = _safe_float(ma_short_series.iloc[-1]) if not ma_short_series.isna().all() else None
+    recent_high = _safe_float(high.tail(60).max())
 
     # 波动率扩张止损（最高优先级）
     vol_stop = _check_volatility_stop(high, low, close, last_close, cfg)
@@ -2033,7 +2033,7 @@ def _compute_stop_loss(
         return atr_result
     drawdown_pct = cfg.exit_trailing_drawdown_pct / 100.0
     price = (
-        max(recent_high * (1.0 + drawdown_pct), float(ma_short) * 0.98)
+        max(recent_high * (1.0 + drawdown_pct), _safe_float(ma_short) * 0.98)
         if ma_short
         else recent_high * (1.0 + drawdown_pct)
     )
@@ -2066,7 +2066,7 @@ def layer5_exit_signals(
         if not _is_holiday_grace(df_s, cfg.exit_holiday_grace_days):
             stage = accum_stage_map.get(sym, "Markup")
             stop_price, stop_reason = _compute_stop_loss(close, low, high, stage, cfg)
-            last_close = float(close.iloc[-1])
+            last_close = _safe_float(close.iloc[-1])
             if stop_price is not None and last_close <= stop_price:
                 # 深度破位硬止损：跌幅超过 stop_price 的 5% 直接触发，不等确认
                 deep_breach = stop_price > 0 and (stop_price - last_close) / stop_price >= 0.05
@@ -2081,15 +2081,15 @@ def layer5_exit_signals(
                 confirm_days = max(int(cfg.exit_confirm_days), 1)
                 if len(close) >= confirm_days:
                     recent_closes = close.tail(confirm_days)
-                    all_below = all(float(c) <= stop_price for c in recent_closes)
+                    all_below = all(_safe_float(c) <= stop_price for c in recent_closes)
                 else:
                     all_below = True
                 vol_confirmed = True
                 if all_below and cfg.exit_vol_confirm_ratio > 0:
                     volume = pd.to_numeric(df_s.get("volume"), errors="coerce")
                     if not volume.empty and len(volume) >= 20 + confirm_days:
-                        vol_recent = float(volume.tail(confirm_days).mean())
-                        vol_ref = float(volume.tail(20 + confirm_days).iloc[:-confirm_days].mean())
+                        vol_recent = _safe_float(volume.tail(confirm_days).mean())
+                        vol_ref = _safe_float(volume.tail(20 + confirm_days).iloc[:-confirm_days].mean())
                         if vol_ref > 0:
                             vol_confirmed = (vol_recent / vol_ref) >= cfg.exit_vol_confirm_ratio
                 if all_below and vol_confirmed:
@@ -2266,7 +2266,7 @@ def allocate_ai_candidates(
     weights = signal_weight_map or {}
 
     def _signal_weight(signal_type: str) -> float:
-        return max(float(weights.get(signal_type, 1.0) or 0.0), 0.0)
+        return max(_safe_float(weights.get(signal_type, 1.0) or 0.0), 0.0)
 
     def _calc_priority_score(code: str, is_trend_side: bool) -> float:
         score = 0.0
@@ -2311,7 +2311,7 @@ def allocate_ai_candidates(
 
     sos_hit_codes = [
         str(c).strip()
-        for c, _ in sorted(result.triggers.get("sos", []), key=lambda x: -float(x[1] if x[1] is not None else 0.0))
+        for c, _ in sorted(result.triggers.get("sos", []), key=lambda x: -_safe_float(x[1] if x[1] is not None else 0.0))
         if str(c).strip()
     ]
     for code in _dedup_order(sos_hit_codes):
@@ -2322,7 +2322,7 @@ def allocate_ai_candidates(
         str(c).strip()
         for c, _ in sorted(
             result.triggers.get("trend_pullback", []),
-            key=lambda x: float(x[1] if x[1] is not None else 0.0),
+            key=lambda x: _safe_float(x[1] if x[1] is not None else 0.0),
             reverse=True,
         )
         if str(c).strip()
@@ -2335,7 +2335,7 @@ def allocate_ai_candidates(
     all_triggers = []
     for _k, v in result.triggers.items():
         all_triggers.extend(v)
-    sorted_codes = [c for c, _ in sorted(all_triggers, key=lambda x: -float(x[1] if x[1] is not None else 0.0))]
+    sorted_codes = [c for c, _ in sorted(all_triggers, key=lambda x: -_safe_float(x[1] if x[1] is not None else 0.0))]
     sorted_codes = _dedup_order(sorted_codes)
 
     for code in sorted_codes + l3_ranked_symbols:
@@ -2349,7 +2349,7 @@ def allocate_ai_candidates(
         # 移除 L3 filler 逻辑: 宁缺毋滥，如果只有几个好标的，就只送这几个给 AI
 
     accum_hit_candidates = result.triggers.get("spring", []) + result.triggers.get("lps", [])
-    for code, _ in sorted(accum_hit_candidates, key=lambda x: -float(x[1] if x[1] is not None else 0.0)):
+    for code, _ in sorted(accum_hit_candidates, key=lambda x: -_safe_float(x[1] if x[1] is not None else 0.0)):
         code = str(code).strip()
         if _is_blocked_exit(code):
             continue

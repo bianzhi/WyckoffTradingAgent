@@ -143,7 +143,7 @@ def save_klines(market: str, symbol: str, df: pd.DataFrame) -> int:
 
 
 def _df_from_db_records(recs: list[dict]) -> pd.DataFrame | None:
-    """将一组 DB 行记录转为排序好的 DataFrame。"""
+    """将一组 DB 行记录转为排序好的 DataFrame，确保数值列不含 pd.NA。"""
     if not recs:
         return None
     col_order = ["date", "open", "high", "low", "close", "volume", "amount", "pct_chg", "turnover"]
@@ -154,7 +154,7 @@ def _df_from_db_records(recs: list[dict]) -> pd.DataFrame | None:
     df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y-%m-%d")
     for col in ["open", "high", "low", "close", "volume", "amount", "pct_chg", "turnover"]:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+            df[col] = pd.to_numeric(df[col], errors="coerce").astype("float64")
     return df.sort_values("date").reset_index(drop=True)
 
 

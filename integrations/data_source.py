@@ -1277,11 +1277,23 @@ def fetch_market_cap_map() -> dict[str, float]:
 def _load_financial_cache() -> dict[str, dict] | None:
     """读取财务指标缓存，有效期内返回数据，否则返回 None。"""
     try:
-        if _FINANCIAL_CACHE.exists() and (time.time() - _FINANCIAL_CACHE.stat().st_mtime) < _FINANCIAL_CACHE_TTL:
-            with open(_FINANCIAL_CACHE, encoding="utf-8") as f:
-                return json.load(f)
+        if _FINANCIAL_CACHE.exists():
+            age_s = time.time() - _FINANCIAL_CACHE.stat().st_mtime
+            if age_s < _FINANCIAL_CACHE_TTL:
+                with open(_FINANCIAL_CACHE, encoding="utf-8") as f:
+                    data = json.load(f)
+                print(
+                    f"[financial] 缓存文件: {_FINANCIAL_CACHE} ({len(data)} keys, age={age_s / 3600:.1f}h, TTL={_FINANCIAL_CACHE_TTL / 3600:.0f}h)"
+                )
+                return data
+            else:
+                print(
+                    f"[financial] ⚠️ 缓存过期: {_FINANCIAL_CACHE} (age={age_s / 3600:.1f}h > TTL={_FINANCIAL_CACHE_TTL / 3600:.0f}h)"
+                )
+        else:
+            print(f"[financial] ⚠️ 缓存文件不存在: {_FINANCIAL_CACHE}")
     except Exception as e:
-        _debug_source_fail("financial_cache_read", e)
+        print(f"[financial] ⚠️ 缓存读取异常: {_FINANCIAL_CACHE} — {e}")
     return None
 
 
@@ -1383,26 +1395,33 @@ def fetch_financial_map(*, force_refresh: bool = False, symbols: list[str] | Non
     全市场 code -> {roe, debt_to_asset_ratio} 映射。
     通过 tushare fina_indicator 逐只获取最新季度数据，缓存 7 天。
 
-    若提供 symbols 列表且缓存有效，仅对不在缓存中的标的做增量拉取，
-    已有数据不重复请求。
+    若提供 symbols 列表，优先走增量补全：
+    1. 有效缓存 → 检查缺口，仅拉取缺失标的
+    2. 过期缓存 → 仍用作底数 + 增量补全，标记为 stale
+    3. 无缓存 → 全量拉取（不回退）
     """
     from integrations.tushare_client import get_pro
 
     if not force_refresh:
         cached = _load_financial_cache()
+        stale = False
+        if cached is None:
+            # 缓存文件存在但已过期 → 降级使用，同时做增量补全
+            cached = _load_financial_cache_stale()
+            if cached:
+                stale = True
+                print(f"[financial] ⚠️ 缓存已过期，降级使用旧数据({len(cached)} keys) + 增量补全")
         if cached is not None:
             effective = sum(1 for m in cached.values() if m)
             total_cached = len(cached)
 
-            # 增量补全：检查 symbols 中有哪些不在缓存中
             if symbols:
                 missing_symbols = [s for s in symbols if s not in cached]
-                unexpected_cached = total_cached - sum(1 for s in symbols if s in cached)
                 if missing_symbols:
+                    tag = " (stale)" if stale else ""
                     print(
-                        f"[financial] ✅ 缓存命中: {effective}/{total_cached} 有数据, "
-                        f"缺口={len(missing_symbols)} 只, 冗余={unexpected_cached} 只 "
-                        f"(TTL={_FINANCIAL_CACHE_TTL}s)"
+                        f"[financial] {'⚠️ 过期' if stale else '✅'} 缓存{tag}: {effective}/{total_cached} 有数据, "
+                        f"缺口={len(missing_symbols)} 只 (TTL={_FINANCIAL_CACHE_TTL}s)"
                     )
                     pro = get_pro()
                     if pro is not None:
@@ -1418,17 +1437,21 @@ def fetch_financial_map(*, force_refresh: bool = False, symbols: list[str] | Non
                             try:
                                 _atomic_write_json(_FINANCIAL_CACHE, dict(cached))
                             except Exception as e:
-                                _debug_source_fail("financial_cache_write", e)
+                                print(f"[financial] ⚠️ 缓存写入失败: {_FINANCIAL_CACHE} — {e}")
                     else:
                         print("[financial] ⚠️ Tushare 不可用，跳过增量补全")
                 else:
+                    tag = " (stale)" if stale else ""
                     print(
-                        f"[financial] ✅ 缓存命中: {effective}/{total_cached} 有数据, 全覆盖 (TTL={_FINANCIAL_CACHE_TTL}s)"
+                        f"[financial] {'⚠️ 过期' if stale else '✅'} 缓存{tag}: {effective}/{total_cached} 有数据, 全覆盖 (TTL={_FINANCIAL_CACHE_TTL}s)"
                     )
             else:
-                print(f"[financial] ✅ 缓存命中: {effective}/{total_cached} 只标的有数据 (TTL={_FINANCIAL_CACHE_TTL}s)")
+                tag = " (stale)" if stale else ""
+                print(
+                    f"[financial] {'⚠️ 过期' if stale else '✅'} 缓存{tag}: {effective}/{total_cached} 只标的有数据 (TTL={_FINANCIAL_CACHE_TTL}s)"
+                )
             return cached
-        print("[financial] ⚠️ 缓存未命中（过期或不存在），开始全量拉取 Tushare...")
+        print("[financial] ⚠️ 缓存不存在，开始全量拉取 Tushare...")
     else:
         print("[financial] 🔄 force_refresh=True，跳过缓存直接拉取")
 
@@ -1445,8 +1468,9 @@ def fetch_financial_map(*, force_refresh: bool = False, symbols: list[str] | Non
     if mapping:
         try:
             _atomic_write_json(_FINANCIAL_CACHE, dict(mapping))
+            print(f"[financial] 全量拉取完成，缓存已写入: {_FINANCIAL_CACHE} ({len(mapping)} keys)")
         except Exception as e:
-            _debug_source_fail("financial_cache_write", e)
+            print(f"[financial] ⚠️ 缓存写入失败: {_FINANCIAL_CACHE} — {e}")
     return mapping
 
 

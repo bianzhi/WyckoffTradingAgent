@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import threading
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from core import constants as core_constants
@@ -211,7 +213,9 @@ def get_db() -> sqlite3.Connection:
     with _lock:
         if _conn is not None:
             return _conn
-        db_path = core_constants.LOCAL_DB_PATH
+        # 优先用 WYCKOFF_DB_PATH（Docker volume 持久化），回退到 ~/.wyckoff
+        db_path_str = os.environ.get("WYCKOFF_DB_PATH", "").strip()
+        db_path = Path(db_path_str) if db_path_str else core_constants.LOCAL_DB_PATH
         db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(db_path), check_same_thread=False)
         conn.row_factory = sqlite3.Row

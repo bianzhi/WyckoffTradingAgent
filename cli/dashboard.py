@@ -821,8 +821,36 @@ class _Handler(BaseHTTPRequestHandler):
 # ---------------------------------------------------------------------------
 
 
+def _ensure_data_dir_writable() -> None:
+    """确保 data/ 和 ~/.wyckoff/ 目录可写。
+
+    Docker named volume 挂载权限可能为 root，需修正。
+    K线 SQLite 在 ~/.wyckoff/ 下，容器重建后会丢失（非 volume），
+    改为优先使用 /app/data/wyckoff.db（volume 挂载路径）。
+    """
+    from pathlib import Path
+
+    for d in [Path("data"), Path.home() / ".wyckoff"]:
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            if not os.access(str(d), os.W_OK):
+                os.chmod(str(d), 0o777)
+                print(f"[init] 已修正目录权限: {d}")
+        except Exception:
+            pass
+
+    # 将 SQLite K 线缓存也放到 volume 上，容器重建不丢数据
+    volume_db = Path("data") / "wyckoff.db"
+    try:
+        volume_db.parent.mkdir(parents=True, exist_ok=True)
+        os.environ["WYCKOFF_DB_PATH"] = str(volume_db.resolve())
+    except Exception:
+        pass
+
+
 def start_dashboard_background(port: int = 8765):
     """后台静默启动 dashboard（daemon 线程调用，不打开浏览器）。"""
+    _ensure_data_dir_writable()
     server = HTTPServer(("127.0.0.1", port), _Handler)
     server.allow_reuse_address = True
     server.serve_forever()
@@ -837,6 +865,7 @@ def _port_in_use(port: int) -> bool:
 
 def start_dashboard(port: int = 8765):
     """启动 dashboard HTTP 服务并打开浏览器。"""
+    _ensure_data_dir_writable()
     url = f"http://127.0.0.1:{port}"
 
     if _port_in_use(port):

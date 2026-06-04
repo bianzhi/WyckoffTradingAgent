@@ -1128,12 +1128,17 @@ _CONCEPT_HEAT_CACHE = _DATA_CACHE_DIR / "concept_heat_cache.json"
 _CONCEPT_HEAT_HISTORY = _DATA_CACHE_DIR / "concept_heat_history.json"
 _FINANCIAL_CACHE = _DATA_CACHE_DIR / "financial_map_cache.json"
 _CACHE_TTL = 24 * 60 * 60
-_FINANCIAL_CACHE_TTL = 7 * 24 * 60 * 60  # 财务数据按季度更新，缓存 7 天
 _CONCEPT_HEAT_TTL = 4 * 60 * 60
 
 
 def _atomic_write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Docker named volume 可能以 root 权限挂载，确保当前用户可写
+    try:
+        if not os.access(str(path.parent), os.W_OK):
+            os.chmod(str(path.parent), 0o777)
+    except Exception:
+        pass
     tmp_name: str | None = None
     try:
         with NamedTemporaryFile(
@@ -1265,61 +1270,13 @@ def fetch_market_cap_map() -> dict[str, float]:
             _debug_source_fail(f"tushare_daily_basic[{trade_date}]", e)
             continue
 
-    if mapping:
-        try:
-            _atomic_write_json(_MARKET_CAP_CACHE, mapping)
-        except Exception as e:
-            _debug_source_fail("market_cap_cache_write", e)
 
-    return mapping
-
-
-def _load_financial_cache() -> dict[str, dict] | None:
-    """读取财务指标缓存，有效期内返回数据，否则返回 None。"""
-    try:
-        if _FINANCIAL_CACHE.exists():
-            age_s = time.time() - _FINANCIAL_CACHE.stat().st_mtime
-            if age_s < _FINANCIAL_CACHE_TTL:
-                with open(_FINANCIAL_CACHE, encoding="utf-8") as f:
-                    data = json.load(f)
-                print(
-                    f"[financial] 缓存文件: {_FINANCIAL_CACHE} ({len(data)} keys, age={age_s / 3600:.1f}h, TTL={_FINANCIAL_CACHE_TTL / 3600:.0f}h)"
-                )
-                return data
-            else:
-                print(
-                    f"[financial] ⚠️ 缓存过期: {_FINANCIAL_CACHE} (age={age_s / 3600:.1f}h > TTL={_FINANCIAL_CACHE_TTL / 3600:.0f}h)"
-                )
-        else:
-            print(f"[financial] ⚠️ 缓存文件不存在: {_FINANCIAL_CACHE}")
-            _dir = _FINANCIAL_CACHE.parent
-            _exists = "Y" if _dir.exists() else "N"
-            _writable = "Y" if os.access(str(_dir), os.W_OK) else "N"
-            print(f"[financial]   └─ 目录存在={_exists} 可写={_writable} 路径={_dir}")
-            if _dir.exists():
-                try:
-                    cache_fnames = sorted(p.name for p in _dir.glob("*cache*"))
-                    print(f"[financial]   └─ 已有cache文件: {cache_fnames or '无'}")
-                except Exception:
-                    pass
-    except Exception as e:
-        print(f"[financial] ⚠️ 缓存读取异常: {_FINANCIAL_CACHE} — {e}")
-    return None
-
-
-def _load_financial_cache_stale() -> dict[str, dict] | None:
-    """读取过期缓存（Tushare 不可用时降级使用），文件不存在返回 None。"""
-    try:
-        if _FINANCIAL_CACHE.exists():
-            with open(_FINANCIAL_CACHE, encoding="utf-8") as f:
-                data = json.load(f)
-            if data:
-                print(f"[financial] ⚠️ 缓存已过期，降级使用旧数据({len(data)} keys)")
-                return data
-            print(f"[financial] ⚠️ 缓存文件为空: {_FINANCIAL_CACHE}")
-    except Exception as e:
-        print(f"[financial] ⚠️ 缓存降级读取异常: {_FINANCIAL_CACHE} — {e}")
-    return None
+def _ts_code_to_symbol(ts_code: str) -> str:
+    """tushare ts_code → 6 位纯数字代码 (000001.SZ → 000001)。"""
+    s = str(ts_code).strip()
+    if "." in s:
+        return s.split(".")[0]
+    return s
 
 
 def _fetch_all_ts_codes(pro) -> list[str]:
@@ -1352,12 +1309,11 @@ def _fetch_all_financials(pro, all_ts_codes: list[str]) -> dict[str, dict]:
     """逐只拉取 fina_indicator，返回 {code: {roe, debt_to_asset_ratio}}。"""
     print(f"[financial] 开始逐只查询财务指标，共 {len(all_ts_codes)} 只标的...")
     mapping: dict[str, dict] = {}
-    success = no_data = fail = ratelimit = 0
+    success = no_data = fail = 0
     start_time = time.monotonic()
 
     for idx, ts_code in enumerate(all_ts_codes):
-        last_err = None
-        for attempt in range(3):  # 最多重试 3 次
+        for _attempt in range(3):
             try:
                 parsed = _try_parse_financial_row(
                     pro.fina_indicator(ts_code=ts_code, fields="ts_code,roe,debt_to_assets", limit=1),
@@ -1368,23 +1324,15 @@ def _fetch_all_financials(pro, all_ts_codes: list[str]) -> dict[str, dict]:
                     success += 1
                 else:
                     no_data += 1
-                break  # 成功，跳出重试循环
+                break
             except Exception as e:
-                last_err = e
                 err_msg = str(e)
                 if "频率超限" in err_msg or "频次" in err_msg:
-                    ratelimit += 1
-                    wait_s = (attempt + 1) * 3  # 3s, 6s, 9s 退避
-                    if attempt == 0:
-                        print(f"[financial] ⚠️ Tushare 频率超限，暂停 {wait_s}s 后重试...")
-                    time.sleep(wait_s)
+                    time.sleep((_attempt + 1) * 3)
                 else:
-                    break  # 非频率问题，不重试
+                    break
         else:
-            # 全部重试失败
             fail += 1
-            if fail <= 3:
-                _debug_source_fail(f"tushare_fina_indicator[{ts_code}]", last_err)
 
         if (idx + 1) % 500 == 0:
             elapsed = time.monotonic() - start_time
@@ -1404,27 +1352,58 @@ def _fetch_all_financials(pro, all_ts_codes: list[str]) -> dict[str, dict]:
     return mapping
 
 
+def _migrate_json_cache_to_sqlite() -> None:
+    """将旧 JSON 缓存迁移到 SQLite（仅执行一次）。"""
+    try:
+        if not _FINANCIAL_CACHE.exists():
+            return
+        # 检查 SQLite 是否已有数据
+        from integrations.kline_cache import load_financial_map_sql_stale
+
+        existing = load_financial_map_sql_stale()
+        if existing:
+            return  # SQLite 已有数据，不需要迁移
+        with open(_FINANCIAL_CACHE, encoding="utf-8") as f:
+            data = json.load(f)
+        if data:
+            from integrations.kline_cache import save_financial_map_sql
+
+            save_financial_map_sql(data)
+            print(f"[financial] JSON→SQLite 迁移完成: {len(data)} keys")
+            # 迁移成功后重命名原文件，避免重复迁移
+            _FINANCIAL_CACHE.rename(_FINANCIAL_CACHE.with_suffix(".json.migrated"))
+    except Exception as e:
+        print(f"[financial] ⚠️ JSON→SQLite 迁移失败: {e}")
+
+
 def fetch_financial_map(*, force_refresh: bool = False, symbols: list[str] | None = None) -> dict[str, dict]:
     """
-    全市场 code -> {roe, debt_to_asset_ratio} 映射。
+    全市场 code -> {roe, debt_to_asset_ratio} 映射（SQLite 缓存）。
     通过 tushare fina_indicator 逐只获取最新季度数据，缓存 7 天。
 
     若提供 symbols 列表，优先走增量补全：
     1. 有效缓存 → 检查缺口，仅拉取缺失标的
-    2. 过期缓存 → 仍用作底数 + 增量补全，标记为 stale
-    3. 无缓存 → 全量拉取（不回退）
+    2. 过期缓存 → 降级使用 + 增量补全
+    3. 无缓存 → 全量拉取
     """
+    from integrations.kline_cache import (
+        ensure_kline_schema,
+        load_financial_map_sql,
+        load_financial_map_sql_stale,
+        save_financial_map_sql,
+    )
     from integrations.tushare_client import get_pro
 
+    ensure_kline_schema()
+    _migrate_json_cache_to_sqlite()
+
     if not force_refresh:
-        cached = _load_financial_cache()
+        cached = load_financial_map_sql()
         stale = False
         if cached is None:
-            # 缓存文件存在但已过期 → 降级使用，同时做增量补全
-            cached = _load_financial_cache_stale()
+            cached = load_financial_map_sql_stale()
             if cached:
                 stale = True
-                print(f"[financial] ⚠️ 缓存已过期，降级使用旧数据({len(cached)} keys) + 增量补全")
         if cached is not None:
             effective = sum(1 for m in cached.values() if m)
             total_cached = len(cached)
@@ -1432,10 +1411,10 @@ def fetch_financial_map(*, force_refresh: bool = False, symbols: list[str] | Non
             if symbols:
                 missing_symbols = [s for s in symbols if s not in cached]
                 if missing_symbols:
-                    tag = " (stale)" if stale else ""
+                    tag = " (过期)" if stale else ""
                     print(
-                        f"[financial] {'⚠️ 过期' if stale else '✅'} 缓存{tag}: {effective}/{total_cached} 有数据, "
-                        f"缺口={len(missing_symbols)} 只 (TTL={_FINANCIAL_CACHE_TTL}s)"
+                        f"[financial] {'⚠️ 过期' if stale else '✅'} SQLite 缓存{tag}: {effective}/{total_cached} 有数据, "
+                        f"缺口={len(missing_symbols)} 只"
                     )
                     pro = get_pro()
                     if pro is not None:
@@ -1443,27 +1422,22 @@ def fetch_financial_map(*, force_refresh: bool = False, symbols: list[str] | Non
                         incremental = _fetch_all_financials(pro, ts_codes)
                         if incremental:
                             cached.update(incremental)
+                            save_financial_map_sql(incremental)
                             merged_effective = sum(1 for m in cached.values() if m)
                             print(
                                 f"[financial] 增量补全: +{len(incremental)} 只, "
                                 f"合并后 {merged_effective}/{len(cached)} 有数据"
                             )
-                            try:
-                                _atomic_write_json(_FINANCIAL_CACHE, dict(cached))
-                            except Exception as e:
-                                print(f"[financial] ⚠️ 缓存写入失败: {_FINANCIAL_CACHE} — {e}")
                     else:
                         print("[financial] ⚠️ Tushare 不可用，跳过增量补全")
                 else:
-                    tag = " (stale)" if stale else ""
+                    tag = " (过期)" if stale else ""
                     print(
-                        f"[financial] {'⚠️ 过期' if stale else '✅'} 缓存{tag}: {effective}/{total_cached} 有数据, 全覆盖 (TTL={_FINANCIAL_CACHE_TTL}s)"
+                        f"[financial] {'⚠️ 过期' if stale else '✅'} SQLite 缓存{tag}: {effective}/{total_cached} 有数据, 全覆盖"
                     )
             else:
-                tag = " (stale)" if stale else ""
-                print(
-                    f"[financial] {'⚠️ 过期' if stale else '✅'} 缓存{tag}: {effective}/{total_cached} 只标的有数据 (TTL={_FINANCIAL_CACHE_TTL}s)"
-                )
+                tag = " (过期)" if stale else ""
+                print(f"[financial] {'⚠️ 过期' if stale else '✅'} SQLite 缓存{tag}: {effective}/{total_cached} 有数据")
             return cached
         print("[financial] ⚠️ 缓存不存在，开始全量拉取 Tushare...")
     else:
@@ -1471,20 +1445,19 @@ def fetch_financial_map(*, force_refresh: bool = False, symbols: list[str] | Non
 
     pro = get_pro()
     if pro is None:
-        return _load_financial_cache_stale()
+        return load_financial_map_sql_stale() or {}
 
     all_ts_codes = _fetch_all_ts_codes(pro)
     if not all_ts_codes:
-        return _load_financial_cache_stale()
+        return load_financial_map_sql_stale() or {}
 
     mapping = _fetch_all_financials(pro, all_ts_codes)
 
     if mapping:
         try:
-            _atomic_write_json(_FINANCIAL_CACHE, dict(mapping))
-            print(f"[financial] 全量拉取完成，缓存已写入: {_FINANCIAL_CACHE} ({len(mapping)} keys)")
+            save_financial_map_sql(mapping)
         except Exception as e:
-            print(f"[financial] ⚠️ 缓存写入失败: {_FINANCIAL_CACHE} — {e}")
+            print(f"[financial] ⚠️ SQLite 写入失败: {e}")
     return mapping
 
 

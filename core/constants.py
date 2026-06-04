@@ -37,7 +37,9 @@ TABLE_SIGNAL_REGISTRY = "signal_registry"
 TABLE_SIGNAL_POLICY_SHADOW_RUNS = "signal_policy_shadow_runs"
 TABLE_THEME_RADAR_SNAPSHOT = "theme_radar_snapshot"
 
-# Local SQLite DB path
+# Local SQLite DB path — 优先使用环境变量 WYCKOFF_DB_PATH（Docker volume 持久化）
+import os
 from pathlib import Path as _Path
 
-LOCAL_DB_PATH = _Path.home() / ".wyckoff" / "wyckoff.db"
+_LOCAL_DB_ENV = os.environ.get("WYCKOFF_DB_PATH", "").strip()
+LOCAL_DB_PATH = _Path(_LOCAL_DB_ENV) if _LOCAL_DB_ENV else _Path.home() / ".wyckoff" / "wyckoff.db"

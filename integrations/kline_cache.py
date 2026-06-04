@@ -40,7 +40,17 @@ CREATE TABLE IF NOT EXISTS kline_daily (
 );
 CREATE INDEX IF NOT EXISTS idx_kline_market_date ON kline_daily(market, trade_date);
 CREATE INDEX IF NOT EXISTS idx_kline_market_symbol ON kline_daily(market, symbol);
+
+CREATE TABLE IF NOT EXISTS financial_map (
+    symbol              TEXT PRIMARY KEY,
+    roe                 REAL,
+    debt_to_asset_ratio REAL,
+    updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_financial_updated ON financial_map(updated_at);
 """
+
+_FINANCIAL_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 天
 
 
 def ensure_kline_schema() -> None:
@@ -468,3 +478,51 @@ def refresh_market_klines(
         f"耗时={stats['fetch_elapsed_s']}s, qps={stats['fetch_qps']}"
     )
     return df_map, stats
+
+
+# ── Financial Map (统一 SQLite 缓存) ──────────────────────────────
+
+
+def load_financial_map_sql() -> dict[str, dict] | None:
+    """读取财务指标缓存，有效期内返回数据，TTL 过期返回 None。"""
+    conn = get_db()
+    cutoff = _financial_cutoff_iso()
+    cur = conn.execute(
+        "SELECT symbol, roe, debt_to_asset_ratio FROM financial_map WHERE updated_at >= ?",
+        (cutoff,),
+    )
+    rows = cur.fetchall()
+    if not rows:
+        total = conn.execute("SELECT COUNT(*) FROM financial_map").fetchone()[0]
+        if total > 0:
+            print(f"[financial] ⚠️ 缓存全部过期 (TTL={_FINANCIAL_CACHE_TTL_SECONDS}s)，降级使用旧数据")
+            return load_financial_map_sql_stale()
+        return None
+    return {r["symbol"]: {"roe": r["roe"], "debt_to_asset_ratio": r["debt_to_asset_ratio"]} for r in rows}
+
+
+def load_financial_map_sql_stale() -> dict[str, dict] | None:
+    """读取全部财务缓存（忽略 TTL），无数据返回 None。"""
+    conn = get_db()
+    rows = conn.execute("SELECT symbol, roe, debt_to_asset_ratio FROM financial_map").fetchall()
+    if not rows:
+        return None
+    print(f"[financial] ⚠️ 降级使用旧数据({len(rows)} keys)")
+    return {r["symbol"]: {"roe": r["roe"], "debt_to_asset_ratio": r["debt_to_asset_ratio"]} for r in rows}
+
+
+def save_financial_map_sql(mapping: dict[str, dict]) -> None:
+    """全量写入财务指标缓存（UPSERT）。"""
+    conn = get_db()
+    now_iso = datetime.now(CN_TZ).isoformat()
+    rows = [(k, v.get("roe"), v.get("debt_to_asset_ratio"), now_iso) for k, v in mapping.items()]
+    with conn:
+        conn.executemany(
+            "INSERT OR REPLACE INTO financial_map(symbol, roe, debt_to_asset_ratio, updated_at) VALUES (?, ?, ?, ?)",
+            rows,
+        )
+    print(f"[financial] 缓存已写入 SQLite: {len(rows)} keys")
+
+
+def _financial_cutoff_iso() -> str:
+    return (datetime.now(CN_TZ) - timedelta(seconds=_FINANCIAL_CACHE_TTL_SECONDS)).isoformat()

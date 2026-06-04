@@ -946,7 +946,7 @@ function FunnelExitedSection({ isZh, exitedStocks }: {
 }
 
 function useStockSort(activeStocks: FunnelFullResult['stocks']) {
-  const [sortBy, setSortBy] = useState<'score' | 'price' | 'channel' | null>(null)
+  const [sortBy, setSortBy] = useState<'score' | 'price' | 'channel' | 'signals' | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
   const sorted = useMemo(() => {
@@ -956,16 +956,17 @@ function useStockSort(activeStocks: FunnelFullResult['stocks']) {
       if (sortBy === 'score') return (a.score - b.score) * dir
       if (sortBy === 'price') return ((a.latest_close ?? 0) - (b.latest_close ?? 0)) * dir
       if (sortBy === 'channel') return a.channel.localeCompare(b.channel) * dir
+      if (sortBy === 'signals') return (a.signals || []).join(',').localeCompare((b.signals || []).join(',')) * dir
       return 0
     })
   }, [activeStocks, sortBy, sortDir])
 
-  const toggleSort = (col: 'score' | 'price' | 'channel') => {
+  const toggleSort = (col: 'score' | 'price' | 'channel' | 'signals') => {
     if (sortBy === col) { setSortDir(prev => prev === 'asc' ? 'desc' : 'asc') }
     else { setSortBy(col); setSortDir('desc') }
   }
 
-  const sortArrow = (col: 'score' | 'price' | 'channel') =>
+  const sortArrow = (col: 'score' | 'price' | 'channel' | 'signals') =>
     sortBy === col ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''
 
   return { sorted, toggleSort, sortArrow }
@@ -997,7 +998,9 @@ function FunnelStockTable({
             <th className="px-2 py-1.5 text-right cursor-pointer hover:text-foreground select-none" onClick={() => toggleSort('price')}>
               {isZh ? '最新价' : 'Price'}{sortArrow('price')}
             </th>
-            <th className="px-2 py-1.5 text-left">{isZh ? 'L4信号' : 'L4 Signals'}</th>
+            <th className="px-2 py-1.5 text-left cursor-pointer hover:text-foreground select-none" onClick={() => toggleSort('signals')}>
+              {isZh ? 'L4信号' : 'L4 Signals'}{sortArrow('signals')}
+            </th>
             <th className="px-2 py-1.5 text-left">{isZh ? '阶段' : 'Stage'}</th>
           </tr>
         </thead>

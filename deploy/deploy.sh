@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================
-# Wyckoff Trading Agent — 阿里云 ECS 部署脚本
+# Wyckoff Trading Agent — ECS 一键部署脚本
 # ============================================
 set -euo pipefail
 
@@ -12,165 +12,157 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-log()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
-warn() { echo -e "${YELLOW}[WARN]${NC}  $*"; }
-err()  { echo -e "${RED}[ERR]${NC}   $*"; }
+log()  { echo -e "${GREEN}[$(date +%H:%M:%S)]${NC} $*"; }
+warn() { echo -e "${YELLOW}[$(date +%H:%M:%S)]${NC} $*"; }
+err()  { echo -e "${RED}[$(date +%H:%M:%S)]${NC} $*"; }
 
-# --- 检查前置条件 ---
+# ── 检查前置条件 ──────────────────────────────────────
 check_prereqs() {
   local missing=()
-
   command -v docker >/dev/null 2>&1 || missing+=("docker")
-  command -v docker compose >/dev/null 2>&1 && {
+  if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
     DOCKER_COMPOSE="docker compose"
-  } || command -v docker-compose >/dev/null 2>&1 && {
+  elif command -v docker-compose >/dev/null 2>&1; then
     DOCKER_COMPOSE="docker-compose"
-  } || missing+=("docker compose / docker-compose")
+  else
+    missing+=("docker compose")
+  fi
 
   if [[ ${#missing[@]} -gt 0 ]]; then
     err "缺少依赖: ${missing[*]}"
-    echo ""
-    echo "阿里云 ECS 安装 Docker:"
-    echo "  curl -fsSL https://get.docker.com | sh"
-    echo "  systemctl enable docker && systemctl start docker"
+    echo "  安装 Docker: curl -fsSL https://get.docker.com | sh"
     exit 1
   fi
 }
 
 ENV_FILE="$SCRIPT_DIR/.env.production"
-COMPOSE_ARGS=(-f "$SCRIPT_DIR/docker-compose.yml" --env-file "$ENV_FILE")
+COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 
-# --- 检查环境变量 ---
+# ── 检查环境变量 ──────────────────────────────────────
 check_env() {
-  if [[ ! -f "$SCRIPT_DIR/.env.production" ]]; then
-    err ".env.production 不存在"
-    echo "  请复制模板并填入真实值:"
-    echo "  cp deploy/.env.production deploy/.env.production.real"
-    echo "  编辑 deploy/.env.production.real 后重试"
-    exit 1
+  if [[ ! -f "$ENV_FILE" ]]; then
+    warn ".env.production 不存在，将使用默认值"
+    return 0
   fi
-
-  # 检查必填项
-  source "$SCRIPT_DIR/.env.production"
-  local missing_vars=()
-  [[ -z "${SUPABASE_URL:-}" ]]      && missing_vars+=("SUPABASE_URL")
-  [[ -z "${SUPABASE_ANON_KEY:-}" ]] && missing_vars+=("SUPABASE_ANON_KEY")
-
-  if [[ ${#missing_vars[@]} -gt 0 ]]; then
-    err "缺少必填环境变量: ${missing_vars[*]}"
-    exit 1
-  fi
-  log "环境变量检查通过 ✓"
+  log "环境变量: $ENV_FILE ✓"
 }
 
-# --- 构建 ---
+# ── git pull + 构建 agent + 启动 ───────────────────────
+update() {
+  cd "$PROJECT_DIR"
+
+  log "拉取最新代码..."
+  if ! git branch --set-upstream-to=origin/main main 2>/dev/null; then
+    # 首次设置
+    git checkout -b main 2>/dev/null || true
+    git branch --set-upstream-to=origin/main main 2>/dev/null || true
+  fi
+
+  if ! git pull origin main; then
+    err "git pull 失败，检查网络或 GitCode 仓库状态"
+    exit 1
+  fi
+
+  echo ""
+  log "本次更新内容:"
+  git --no-pager log --oneline -5
+  echo ""
+
+  read -r -p "确认部署以上更新？[Y/n] " answer
+  answer="${answer:-Y}"
+  if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+    warn "已取消"
+    exit 0
+  fi
+
+  log "重新构建 agent 容器..."
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build --no-cache agent
+
+  log "启动 agent..."
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d agent
+
+  log "等待健康检查..."
+  for i in $(seq 1 30); do
+    if $DOCKER_COMPOSE -f "$COMPOSE_FILE" ps agent 2>/dev/null | grep -q "healthy"; then
+      log "agent 已就绪 ✓"
+      break
+    fi
+    sleep 2
+  done
+
+  log "清理旧镜像..."
+  docker image prune -f 2>/dev/null || true
+
+  echo ""
+  log "完成。容器状态:"
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" ps
+}
+
+# ── 其他命令 ──────────────────────────────────────────
 build() {
-  log "构建 Docker 镜像..."
   cd "$PROJECT_DIR"
-   "" build --no-cache
-  log "构建完成 ✓"
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build --no-cache agent
 }
 
-# --- 启动 ---
-start() {
-  log "启动服务..."
+start_all() {
   cd "$PROJECT_DIR"
-   "" up -d
-
-  echo ""
-  log "服务已启动，检查状态..."
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d
   sleep 3
-   "" ps
-
-  echo ""
-  log "API 健康检查:"
-  curl -sf http://localhost/api/health && echo "" || warn "健康检查失败，请查看日志"
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" ps
 }
 
-# --- 停止 ---
-stop() {
-  log "停止服务..."
+stop_all() {
   cd "$PROJECT_DIR"
-   "" down
-  log "已停止"
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" down
 }
 
-# --- 重启 ---
-restart() {
-  stop
-  start
+restart_agent() {
+  cd "$PROJECT_DIR"
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" restart agent
 }
 
-# --- 查看日志 ---
 logs() {
   cd "$PROJECT_DIR"
-   "" logs -f --tail=100 "${@:-}"
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" logs -f --tail=100 "${@:-}"
 }
 
-# --- 状态 ---
 status() {
   cd "$PROJECT_DIR"
-   "" ps
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" ps
 }
 
-# --- 清理 ---
-clean() {
-  warn "将删除所有容器、镜像和数据卷"
-  read -rp "确认? [y/N] " confirm
-  if [[ "$confirm" =~ ^[Yy]$ ]]; then
-    cd "$PROJECT_DIR"
-     "" down -v --rmi all
-    log "清理完成"
-  else
-    log "取消"
-  fi
-}
-
-# --- 用法 ---
+# ── 用法 ──────────────────────────────────────────────
 usage() {
   cat <<EOF
 用法: $0 <命令>
 
 命令:
-  build     构建 Docker 镜像
-  start     启动服务 (docker compose up -d)
-  stop      停止服务
-  restart   重启服务
-  logs      查看日志 (可选: logs api | logs agent | logs nginx)
-  status    查看服务状态
-  clean     清理全部容器/镜像/数据卷 (需确认)
-  all       构建 + 启动 (首次部署)
+  update    拉取代码 + 重建 agent + 启动（日常更新）
+  build     仅构建 agent 镜像
+  start     启动全部服务
+  stop      停止全部服务
+  restart   重启 agent
+  logs      查看日志（可指定服务名: logs agent）
+  status    查看容器状态
 
 示例:
-  # 首次在 ECS 上部署
-  $0 all
-
-  # 更新代码后重新部署
-  git pull && $0 build && $0 restart
-
-  # 查看 Agent 日志
-  $0 logs agent
-
-  # 配置 HTTPS 后:
-  # 1. 将 SSL 证书放入 deploy/ssl/
-  # 2. 取消 nginx.conf 中 443 部分的注释
-  # 3. docker compose restart nginx
+  bash deploy/deploy.sh update     # 日常更新
+  bash deploy/deploy.sh logs agent # 查看 agent 日志
 EOF
 }
 
-# --- 主入口 ---
+# ── 主入口 ────────────────────────────────────────────
 main() {
   check_prereqs
 
   case "${1:-}" in
+    update)  check_env; update ;;
     build)   check_env; build ;;
-    start)   check_env; start ;;
-    stop)    stop ;;
-    restart) check_env; restart ;;
+    start)   check_env; start_all ;;
+    stop)    stop_all ;;
+    restart) check_env; restart_agent ;;
     logs)    shift; logs "$@" ;;
     status)  status ;;
-    clean)   clean ;;
-    all)     check_env; build; start ;;
     *)       usage; exit 1 ;;
   esac
 }

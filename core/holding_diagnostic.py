@@ -35,6 +35,24 @@ from core.wyckoff_engine import (
     layer5_exit_signals,
 )
 
+
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:  # NaN
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
+
 logger = logging.getLogger(__name__)
 
 
@@ -150,14 +168,14 @@ def diagnose_one_stock(
     low = pd.to_numeric(df_s["low"], errors="coerce")
     volume = pd.to_numeric(df_s["volume"], errors="coerce")
 
-    latest_close = float(close.iloc[-1]) if not close.empty else 0.0
+    latest_close = _safe_float(close.iloc[-1]) if not close.empty else 0.0
     pnl_pct = (latest_close - cost) / cost * 100.0 if cost > 0 else 0.0
 
     # ── 均线 ──
-    ma5 = float(close.rolling(5).mean().iloc[-1]) if len(close) >= 5 else None
-    ma20 = float(close.rolling(20).mean().iloc[-1]) if len(close) >= 20 else None
-    ma50 = float(close.rolling(50).mean().iloc[-1]) if len(close) >= 50 else None
-    ma200 = float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else None
+    ma5 = _safe_float(close.rolling(5).mean().iloc[-1]) if len(close) >= 5 else None
+    ma20 = _safe_float(close.rolling(20).mean().iloc[-1]) if len(close) >= 20 else None
+    ma50 = _safe_float(close.rolling(50).mean().iloc[-1]) if len(close) >= 50 else None
+    ma200 = _safe_float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else None
     ma_pattern = _calc_ma_pattern(latest_close, ma50, ma200)
     ma200_bias = (latest_close - ma200) / ma200 * 100 if ma200 and ma200 > 0 else None
 
@@ -223,20 +241,20 @@ def diagnose_one_stock(
         stop_status = "安全"
 
     # ── 量能与振幅 ──
-    vol_20 = float(volume.tail(20).mean()) if len(volume) >= 20 else 0
-    vol_60 = float(volume.tail(60).mean()) if len(volume) >= 60 else 0
+    vol_20 = _safe_float(volume.tail(20).mean()) if len(volume) >= 20 else 0
+    vol_60 = _safe_float(volume.tail(60).mean()) if len(volume) >= 60 else 0
     vol_ratio = vol_20 / vol_60 if vol_60 > 0 else 0
 
-    h60 = float(high.tail(60).max()) if len(high) >= 60 else float(high.max())
-    l60 = float(low.tail(60).min()) if len(low) >= 60 else float(low.min())
+    h60 = _safe_float(high.tail(60).max()) if len(high) >= 60 else _safe_float(high.max())
+    l60 = _safe_float(low.tail(60).min()) if len(low) >= 60 else _safe_float(low.min())
     range_60d = (h60 - l60) / l60 * 100 if l60 > 0 else 0
 
-    ret_10d = (latest_close / float(close.iloc[-11]) - 1) * 100 if len(close) >= 11 else 0
-    ret_20d = (latest_close / float(close.iloc[-21]) - 1) * 100 if len(close) >= 21 else 0
+    ret_10d = (latest_close / _safe_float(close.iloc[-11]) - 1) * 100 if len(close) >= 11 else 0
+    ret_20d = (latest_close / _safe_float(close.iloc[-21]) - 1) * 100 if len(close) >= 21 else 0
 
     lookback_250 = min(len(high), 250)
-    h_year = float(high.tail(lookback_250).max())
-    l_year = float(low.tail(lookback_250).min())
+    h_year = _safe_float(high.tail(lookback_250).max())
+    l_year = _safe_float(low.tail(lookback_250).min())
     from_year_high = (latest_close - h_year) / h_year * 100 if h_year > 0 else 0
     from_year_low = (latest_close - l_year) / l_year * 100 if l_year > 0 else 0
 

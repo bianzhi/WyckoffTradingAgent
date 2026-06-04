@@ -30,15 +30,33 @@ from integrations.data_source import fetch_stock_spot_snapshot
 from integrations.tickflow_client import TickFlowClient, normalize_cn_symbol
 from utils.trading_clock import CN_TZ
 
+
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:  # NaN
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
+
 # ── 环境变量配置 ──
 
 MAX_RETRIES = int(os.getenv("FUNNEL_FETCH_RETRIES", "2"))
-RETRY_BASE_DELAY = float(os.getenv("FUNNEL_RETRY_BASE_DELAY", "1.0"))
+RETRY_BASE_DELAY = _safe_float(os.getenv("FUNNEL_RETRY_BASE_DELAY", "1.0"))
 SOCKET_TIMEOUT = int(os.getenv("FUNNEL_SOCKET_TIMEOUT", "20"))
 FETCH_TIMEOUT = int(os.getenv("FUNNEL_FETCH_TIMEOUT", "45"))
 BATCH_TIMEOUT = int(os.getenv("FUNNEL_BATCH_TIMEOUT", "420"))
 BATCH_SIZE = int(os.getenv("FUNNEL_BATCH_SIZE", "200"))
-BATCH_SLEEP = float(os.getenv("FUNNEL_BATCH_SLEEP", "0.55"))
+BATCH_SLEEP = _safe_float(os.getenv("FUNNEL_BATCH_SLEEP", "0.55"))
 MAX_WORKERS = int(os.getenv("FUNNEL_MAX_WORKERS", "8"))
 EXECUTOR_MODE = os.getenv("FUNNEL_EXECUTOR_MODE", "process").strip().lower()
 if EXECUTOR_MODE not in {"thread", "process"}:
@@ -366,11 +384,11 @@ def append_spot_bar_if_needed(
         return (df, False)
 
     retries = int(os.getenv(f"{env_prefix}_SPOT_PATCH_RETRIES", "2"))
-    sleep_s = float(os.getenv(f"{env_prefix}_SPOT_PATCH_SLEEP", str(sleep_default)))
+    sleep_s = _safe_float(os.getenv(f"{env_prefix}_SPOT_PATCH_SLEEP", str(sleep_default)))
 
     df_s = df.sort_values("date").reset_index(drop=True)
     last_close_series = pd.to_numeric(df_s.get("close"), errors="coerce").dropna()
-    prev_close = float(last_close_series.iloc[-1]) if not last_close_series.empty else None
+    prev_close = _safe_float(last_close_series.iloc[-1]) if not last_close_series.empty else None
 
     # 仅在非 zero_fallback 模式下提取前日量能作为回退值
     prev_volume = None
@@ -379,38 +397,38 @@ def append_spot_bar_if_needed(
         if "volume" in df_s.columns:
             vol_s = pd.to_numeric(df_s.get("volume"), errors="coerce").dropna()
             if not vol_s.empty:
-                prev_volume = float(vol_s.iloc[-1])
+                prev_volume = _safe_float(vol_s.iloc[-1])
         if "amount" in df_s.columns:
             amt_s = pd.to_numeric(df_s.get("amount"), errors="coerce").dropna()
             if not amt_s.empty:
-                prev_amount = float(amt_s.iloc[-1])
+                prev_amount = _safe_float(amt_s.iloc[-1])
 
     for attempt in range(max(retries, 1)):
         snap = fetch_stock_spot_snapshot(code, force_refresh=attempt > 0)
         close_v = None if not snap else snap.get("close")
-        if close_v is None or float(close_v) <= 0:
+        if close_v is None or _safe_float(close_v) <= 0:
             if attempt < max(retries, 1) - 1:
                 time.sleep(max(sleep_s, 0.0))
             continue
 
-        close_f = float(close_v)
-        open_f = float(snap.get("open")) if snap and snap.get("open") is not None else close_f
-        high_raw = float(snap.get("high")) if snap and snap.get("high") is not None else close_f
-        low_raw = float(snap.get("low")) if snap and snap.get("low") is not None else close_f
+        close_f = _safe_float(close_v)
+        open_f = _safe_float(snap.get("open")) if snap and snap.get("open") is not None else close_f
+        high_raw = _safe_float(snap.get("high")) if snap and snap.get("high") is not None else close_f
+        low_raw = _safe_float(snap.get("low")) if snap and snap.get("low") is not None else close_f
         high_f = max(high_raw, open_f, close_f)
         low_f = min(low_raw, open_f, close_f)
-        turnover_ok = bool(float(snap.get("turnover_unit_ok", 0.0))) if snap else False
+        turnover_ok = bool(_safe_float(snap.get("turnover_unit_ok", 0.0))) if snap else False
         if turnover_ok:
-            volume_f = float(snap.get("volume")) if snap.get("volume") is not None else 0.0
-            amount_f = float(snap.get("amount")) if snap.get("amount") is not None else 0.0
+            volume_f = _safe_float(snap.get("volume")) if snap.get("volume") is not None else 0.0
+            amount_f = _safe_float(snap.get("amount")) if snap.get("amount") is not None else 0.0
         elif zero_fallback:
             # 单位不确定时，宁可放弃量能，避免污染均量/ATR 相关计算。
             volume_f = 0.0
             amount_f = 0.0
         else:
-            volume_f = float(prev_volume) if prev_volume is not None else float("nan")
-            amount_f = float(prev_amount) if prev_amount is not None else float("nan")
-        pct_f = float(snap.get("pct_chg")) if snap and snap.get("pct_chg") is not None else None
+            volume_f = _safe_float(prev_volume) if prev_volume is not None else _safe_float("nan")
+            amount_f = _safe_float(prev_amount) if prev_amount is not None else _safe_float("nan")
+        pct_f = _safe_float(snap.get("pct_chg")) if snap and snap.get("pct_chg") is not None else None
         if pct_f is None and prev_close and prev_close > 0:
             pct_f = (close_f - prev_close) / prev_close * 100.0
 

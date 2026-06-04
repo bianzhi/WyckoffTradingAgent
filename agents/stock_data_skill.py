@@ -16,6 +16,24 @@ from typing import Any
 
 import pandas as pd
 
+
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:  # NaN
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
+
 logger = logging.getLogger(__name__)
 
 # ── 类型别名 ──────────────────────────────────────────────────────────────────
@@ -101,10 +119,10 @@ class StockDataSkill:
                             result[name] = {
                                 "ts_code": ts_code,
                                 "trade_date": str(latest.get("trade_date", "")),
-                                "close": round(float(latest.get("close", 0)), 2),
-                                "pct_chg": round(float(latest.get("pct_chg", 0)), 2),
+                                "close": round(_safe_float(latest.get("close", 0)), 2),
+                                "pct_chg": round(_safe_float(latest.get("pct_chg", 0)), 2),
                                 "vol": int(latest.get("vol", 0)),
-                                "amount": round(float(latest.get("amount", 0)), 2),
+                                "amount": round(_safe_float(latest.get("amount", 0)), 2),
                             }
                     except Exception as e:
                         result[name] = {"error": str(e)}
@@ -306,7 +324,7 @@ def _build_index_record(
 ) -> dict[str, Any]:
     def _f(key: str) -> float:
         try:
-            return float(row.get(key, 0) or 0)
+            return _safe_float(row.get(key, 0) or 0)
         except Exception:
             return 0.0
 

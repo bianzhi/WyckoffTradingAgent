@@ -17,6 +17,24 @@ from collections.abc import Iterable
 
 import pandas as pd
 
+
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:  # NaN
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
+
 SECTOR_STATE_LABELS: dict[str, str] = {
     "CONSENSUS_CLIMAX": "连续一致高潮",
     "HEALTHY_MAINLINE": "主线健康推进",
@@ -56,26 +74,26 @@ def _safe_return(series: pd.Series, lookback: int) -> float | None:
     s = pd.to_numeric(series, errors="coerce").dropna()
     if len(s) <= lookback:
         return None
-    start = float(s.iloc[-lookback - 1])
-    end = float(s.iloc[-1])
+    start = _safe_float(s.iloc[-lookback - 1])
+    end = _safe_float(s.iloc[-1])
     if start == 0:
         return None
     return (end - start) / start * 100.0
 
 
 def _safe_median(values: Iterable[float | None]) -> float | None:
-    clean = [float(v) for v in values if v is not None and pd.notna(v)]
+    clean = [_safe_float(v) for v in values if v is not None and pd.notna(v)]
     if not clean:
         return None
-    return float(pd.Series(clean).median())
+    return _safe_float(pd.Series(clean).median())
 
 
 def _safe_ratio(numerator: float | None, denominator: float | None) -> float | None:
     if numerator is None or denominator is None:
         return None
-    if pd.isna(numerator) or pd.isna(denominator) or float(denominator) == 0:
+    if pd.isna(numerator) or pd.isna(denominator) or _safe_float(denominator) == 0:
         return None
-    return float(numerator) / float(denominator)
+    return _safe_float(numerator) / _safe_float(denominator)
 
 
 def _member_snapshot(df: pd.DataFrame) -> dict | None:
@@ -120,11 +138,11 @@ def _member_snapshot(df: pd.DataFrame) -> dict | None:
     base_amount_mean = base_amount_slice.mean() if not base_amount_slice.empty else None
     amount_ratio_3d = _safe_ratio(recent_amount_mean, base_amount_mean)
 
-    last_close = float(close.iloc[-1])
+    last_close = _safe_float(close.iloc[-1])
     last_ma20 = ma20.iloc[-1] if len(ma20) else pd.NA
     last_ma50 = ma50.iloc[-1] if len(ma50) else pd.NA
-    above_ma20 = bool(pd.notna(last_ma20) and float(last_ma20) > 0 and last_close >= float(last_ma20) * 0.99)
-    above_ma50 = bool(pd.notna(last_ma50) and float(last_ma50) > 0 and last_close >= float(last_ma50) * 0.99)
+    above_ma20 = bool(pd.notna(last_ma20) and _safe_float(last_ma20) > 0 and last_close >= _safe_float(last_ma20) * 0.99)
+    above_ma50 = bool(pd.notna(last_ma50) and _safe_float(last_ma50) > 0 and last_close >= _safe_float(last_ma50) * 0.99)
 
     climax_days = recent[
         (pd.to_numeric(recent["pct"], errors="coerce") >= 4.0)
@@ -160,28 +178,28 @@ def _member_snapshot(df: pd.DataFrame) -> dict | None:
         "climax_flag": climax_flag,
         "pullback_shrink_flag": pullback_shrink_flag,
         "breakdown_flag": breakdown_flag,
-        "last_pct": float(last_pct) if pd.notna(last_pct) else None,
+        "last_pct": _safe_float(last_pct) if pd.notna(last_pct) else None,
     }
 
 
 def _fmt_pct(value: float | None) -> str:
     if value is None or pd.isna(value):
         return "NA"
-    return f"{float(value):+.1f}%"
+    return f"{_safe_float(value):+.1f}%"
 
 
 def _fmt_ratio(value: float | None) -> str:
     if value is None or pd.isna(value):
         return "NA"
-    return f"{float(value):.2f}x"
+    return f"{_safe_float(value):.2f}x"
 
 
 def _build_sector_note(info: dict) -> str:
     return (
         f"10日{_fmt_pct(info.get('ret_10d'))}，3日{_fmt_pct(info.get('ret_3d'))}，"
         f"近3日成交额{_fmt_ratio(info.get('amount_ratio_3d'))}，"
-        f"上涨占比{float(info.get('breadth_up_pct', 0.0)):.0f}%，"
-        f"站上MA50占比{float(info.get('above_ma50_pct', 0.0)):.0f}%"
+        f"上涨占比{_safe_float(info.get('breadth_up_pct', 0.0)):.0f}%，"
+        f"站上MA50占比{_safe_float(info.get('above_ma50_pct', 0.0)):.0f}%"
     )
 
 
@@ -190,10 +208,10 @@ def _classify_sector_state(info: dict) -> str:
     ret_10d = info.get("ret_10d")
     ret_3d = info.get("ret_3d")
     amount_ratio_3d = info.get("amount_ratio_3d")
-    above_ma50_pct = float(info.get("above_ma50_pct", 0.0) or 0.0)
-    climax_pct = float(info.get("climax_pct", 0.0) or 0.0)
-    pullback_pct = float(info.get("pullback_shrink_pct", 0.0) or 0.0)
-    breakdown_pct = float(info.get("breakdown_pct", 0.0) or 0.0)
+    above_ma50_pct = _safe_float(info.get("above_ma50_pct", 0.0) or 0.0)
+    climax_pct = _safe_float(info.get("climax_pct", 0.0) or 0.0)
+    pullback_pct = _safe_float(info.get("pullback_shrink_pct", 0.0) or 0.0)
+    breakdown_pct = _safe_float(info.get("breakdown_pct", 0.0) or 0.0)
 
     if count < 3:
         return "NEUTRAL_MIXED"
@@ -235,12 +253,12 @@ def _classify_sector_state(info: dict) -> str:
 
 def _rotation_score(info: dict) -> float:
     return (
-        float(info.get("ret_10d") or 0.0) * 0.7
-        + float(info.get("ret_3d") or 0.0) * 0.3
-        + float(info.get("above_ma50_pct") or 0.0) * 0.05
-        + float(info.get("pullback_shrink_pct") or 0.0) * 0.06
-        + float(info.get("climax_pct") or 0.0) * 0.04
-        - float(info.get("breakdown_pct") or 0.0) * 0.08
+        _safe_float(info.get("ret_10d") or 0.0) * 0.7
+        + _safe_float(info.get("ret_3d") or 0.0) * 0.3
+        + _safe_float(info.get("above_ma50_pct") or 0.0) * 0.05
+        + _safe_float(info.get("pullback_shrink_pct") or 0.0) * 0.06
+        + _safe_float(info.get("climax_pct") or 0.0) * 0.04
+        - _safe_float(info.get("breakdown_pct") or 0.0) * 0.08
     )
 
 
@@ -255,7 +273,7 @@ def _group_overview_lines(state_map: dict[str, dict], focus_sectors: list[str] |
             bucket,
             key=lambda item: (
                 0 if item[0] in focus_set else 1,
-                -float(item[1].get("rotation_score", 0.0) or 0.0),
+                -_safe_float(item[1].get("rotation_score", 0.0) or 0.0),
                 item[0],
             ),
         )[:3]

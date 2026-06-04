@@ -24,6 +24,24 @@ from typing import Any
 from urllib.parse import urlparse
 
 
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:  # NaN
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
+
+
 class ToolContext:
     """最小化工具上下文，兼容 Web、CLI、MCP 的共享工具函数。"""
 
@@ -701,18 +719,18 @@ def analyze_stock(
                 records.append(
                     {
                         "date": str(row.get("date", "")),
-                        "open": round(float(row.get("open", 0)), 2),
-                        "high": round(float(row.get("high", 0)), 2),
-                        "low": round(float(row.get("low", 0)), 2),
-                        "close": round(float(row.get("close", 0)), 2),
+                        "open": round(_safe_float(row.get("open", 0)), 2),
+                        "high": round(_safe_float(row.get("high", 0)), 2),
+                        "low": round(_safe_float(row.get("low", 0)), 2),
+                        "close": round(_safe_float(row.get("close", 0)), 2),
                         "volume": int(row.get("volume", 0)),
-                        "pct_chg": round(float(row.get("pct_chg", 0)), 2),
+                        "pct_chg": round(_safe_float(row.get("pct_chg", 0)), 2),
                     }
                 )
             return {
                 "code": code,
                 "days": len(records),
-                "latest_close": round(float(latest.get("close", 0)), 2),
+                "latest_close": round(_safe_float(latest.get("close", 0)), 2),
                 "latest_date": str(latest.get("date", "")),
                 "data_status": "ok",
                 **hist_meta,
@@ -799,7 +817,7 @@ def portfolio(mode: str = "view", tool_context: ToolContext = None) -> dict:
 
                     save_portfolio(
                         portfolio_id,
-                        float(state.get("free_cash", 0) or 0),
+                        _safe_float(state.get("free_cash", 0) or 0),
                         [
                             {
                                 "code": p.get("code", ""),
@@ -872,7 +890,7 @@ def portfolio(mode: str = "view", tool_context: ToolContext = None) -> dict:
         for pos in state["positions"]:
             pos_code = pos.get("code", "") or pos.get("code", "")
             pos_name = pos.get("name", pos_code)
-            pos_cost = float(pos.get("cost", pos.get("cost_price", 0)) or 0)
+            pos_cost = _safe_float(pos.get("cost", pos.get("cost_price", 0)) or 0)
             try:
                 df = skill.fetch_stock_hist(pos_code, start_date, end_date)
                 if df is None or df.empty:
@@ -964,7 +982,7 @@ def _resolve_market_history_index(index: str) -> tuple[str, str, str]:
 
 def _json_float(value: Any, digits: int = 2) -> float | None:
     try:
-        out = float(value)
+        out = _safe_float(value)
     except (TypeError, ValueError):
         return None
     if not math.isfinite(out):
@@ -1011,8 +1029,8 @@ def _market_history_summary(df: Any) -> dict[str, Any]:
     prior = df.iloc[:-20] if len(df) > 20 else df.iloc[:0]
     prior_volume = prior["volume"].mean() if len(prior) else None
     recent_volume = tail20["volume"].mean()
-    period_return = (float(close.iloc[-1]) / float(close.iloc[0]) - 1.0) * 100.0
-    recent_return = (float(tail20["close"].iloc[-1]) / float(tail20["close"].iloc[0]) - 1.0) * 100.0
+    period_return = (_safe_float(close.iloc[-1]) / _safe_float(close.iloc[0]) - 1.0) * 100.0
+    recent_return = (_safe_float(tail20["close"].iloc[-1]) / _safe_float(tail20["close"].iloc[0]) - 1.0) * 100.0
     return {
         "latest_date": str(latest["date"]),
         "latest_close": _json_float(latest["close"]),
@@ -1020,9 +1038,9 @@ def _market_history_summary(df: Any) -> dict[str, Any]:
         "period_return_pct": _json_float(period_return),
         "recent_20d_return_pct": _json_float(recent_return),
         "latest_volume_ratio_20d": _json_float(
-            float(latest["volume"]) / float(recent_volume) if recent_volume else None
+            _safe_float(latest["volume"]) / _safe_float(recent_volume) if recent_volume else None
         ),
-        "recent_20d_volume_vs_prior": _json_float(float(recent_volume) / float(prior_volume) if prior_volume else None),
+        "recent_20d_volume_vs_prior": _json_float(_safe_float(recent_volume) / _safe_float(prior_volume) if prior_volume else None),
         "max_drawdown_pct": _json_float(drawdown.min()),
         "up_days": int((df["pct_chg"] > 0).sum()),
         "down_days": int((df["pct_chg"] < 0).sum()),
@@ -1159,7 +1177,7 @@ def screen_stocks(board: str = "all", tool_context: ToolContext = None) -> dict:
                 {
                     "code": str(code),
                     "name": str(name_map.get(str(code), code)),
-                    "score": round(float(score), 2),
+                    "score": round(_safe_float(score), 2),
                 }
                 for code, score in rows
             ]
@@ -1766,7 +1784,7 @@ def update_portfolio(
 
                     save_portfolio(
                         portfolio_id,
-                        float(state.get("free_cash", 0) or 0),
+                        _safe_float(state.get("free_cash", 0) or 0),
                         [
                             {
                                 "code": p.get("code", ""),
@@ -1834,8 +1852,8 @@ def _query_tail_buy(run_date: str, decision: str, limit: int) -> dict:
                             "signal_type": r.get("signal_type", ""),
                             "status": "",
                             "final_decision": r.get("final_decision", "BUY"),
-                            "rule_score": float(r.get("rule_score", 0)),
-                            "priority_score": float(r.get("priority_score", 0)),
+                            "rule_score": _safe_float(r.get("rule_score", 0)),
+                            "priority_score": _safe_float(r.get("priority_score", 0)),
                             "rule_reasons": r.get("rule_reasons", ""),
                             "llm_decision": r.get("llm_decision", ""),
                             "llm_reason": r.get("llm_reason", ""),
@@ -1914,8 +1932,8 @@ def run_backtest(
 
         hold_days = max(1, min(int(hold_days), 60))
         top_n = max(0, min(int(top_n), 20))
-        stop_loss_pct = min(0.0, float(stop_loss_pct))
-        take_profit_pct = max(0.0, float(take_profit_pct))
+        stop_loss_pct = min(0.0, _safe_float(stop_loss_pct))
+        take_profit_pct = max(0.0, _safe_float(take_profit_pct))
 
         _trades_df, summary = _run_backtest(
             start_dt=start_dt,

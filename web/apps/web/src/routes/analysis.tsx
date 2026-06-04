@@ -44,7 +44,7 @@ export function AnalysisPage() {
       <div className="shrink-0 border-b border-border/70 pb-4">
         <h1 className="mb-4 text-xl font-semibold">{t('analysis.title')}</h1>
         <MissingConfigBanner prerequisites={prerequisites} />
-        <SearchForm search={search} loading={runner.loading} disabled={disabled} onAnalyze={runner.handleAnalyze} onClearError={() => runner.setError('')} />
+        <SearchForm search={search} loading={runner.loading} klineReady={!!runner.earlyKline} disabled={disabled} onAnalyze={runner.handleAnalyze} onClearError={() => runner.setError('')} />
         {runner.error && <div className="mt-3 rounded-lg bg-red-50 px-4 py-2.5 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-200">{runner.error}</div>}
       </div>
       <AnalysisContent runner={runner} />
@@ -185,6 +185,7 @@ interface AnalysisRunnerState {
   step: AnalysisStep | null
   streamingReport: string
   earlyKline: { data: KlineData[]; symbol: string; name: string; valueSnapshot: ValueSnapshot } | null
+  klineLoading: boolean
   setError: Dispatch<SetStateAction<string>>
   handleAnalyze: () => void
 }
@@ -198,9 +199,38 @@ function useAnalysisRunner(search: SearchController, setHasModelConfig: Dispatch
   const [step, setStep] = useState<AnalysisStep | null>(null)
   const [streamingReport, setStreamingReport] = useState('')
   const [earlyKline, setEarlyKline] = useState<{ data: KlineData[]; symbol: string; name: string; valueSnapshot: ValueSnapshot } | null>(null)
+  const [klineLoading, setKlineLoading] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const streamBuf = useRef('')
   const rafRef = useRef(0)
+
+  // Auto-fetch K-line when symbol comes from URL (no LLM yet)
+  useEffect(() => {
+    if (!user?.id || !search.symbol || !isSupportedKlineCode(search.symbol)) return
+    let cancelled = false
+    setKlineLoading(true)
+    ;(async () => {
+      try {
+        const [dataKeys, resolved] = await Promise.all([
+          getUserDataKeys(user.id),
+          resolveAnalysisCode(search.symbol, search.selectedStock),
+        ])
+        if (cancelled || !resolved) return
+        const [stockInfoResult, klineData, valueSnapshot] = await Promise.all([
+          fetchStockName(resolved.code),
+          fetchKline(resolved.code, dataKeys, user.id),
+          fetchValueSnapshot(resolved.code, dataKeys).catch((): ValueSnapshot => ({ symbol: resolved.code, source: 'none', metrics: null, reason: 'not-found' })),
+        ])
+        if (cancelled) return
+        const name = resolved.stock?.name || stockInfoResult.data?.name || resolved.code
+        if (klineData.length > 0) {
+          setEarlyKline({ data: klineData, symbol: resolved.code, name, valueSnapshot })
+        }
+      } catch { /* K-line fetch failed silently — user can still try diagnose */ }
+      finally { if (!cancelled) setKlineLoading(false) }
+    })()
+    return () => { cancelled = true }
+  }, [user?.id, search.symbol, search.selectedStock?.analysisCode])
 
   async function handleAnalyze() {
     setStep('resolve')
@@ -211,29 +241,35 @@ function useAnalysisRunner(search: SearchController, setHasModelConfig: Dispatch
       const [config, dataKeys] = await Promise.all([loadLLMConfig(user!.id), getUserDataKeys(user!.id)])
       setHasModelConfig(Boolean(config?.api_key && config?.model))
       if (!config?.api_key || !config.model) throw new Error(t('analysis.missingPrefix', { items: t('analysis.modelRequirement') }))
-      setStep('kline')
-      const [stockInfoResult, klineData, valueSnapshot] = await Promise.all([
-        fetchStockName(resolved.code),
-        fetchKline(resolved.code, dataKeys, user!.id),
-        fetchValueSnapshot(resolved.code, dataKeys).catch((): ValueSnapshot => ({ symbol: resolved.code, source: 'none', metrics: null, reason: 'not-found' })),
-      ])
-      if (klineData.length === 0) throw new Error(t('analysis.noKlineData'))
-      const name = resolved.stock?.name || stockInfoResult.data?.name || resolved.code
-      setEarlyKline({ data: klineData, symbol: resolved.code, name, valueSnapshot })
+      // If K-line already loaded, skip re-fetch; otherwise fetch now
+      if (!earlyKline || earlyKline.symbol !== resolved.code) {
+        setStep('kline')
+        const [stockInfoResult, klineData, valueSnapshot] = await Promise.all([
+          fetchStockName(resolved.code),
+          fetchKline(resolved.code, dataKeys, user!.id),
+          fetchValueSnapshot(resolved.code, dataKeys).catch((): ValueSnapshot => ({ symbol: resolved.code, source: 'none', metrics: null, reason: 'not-found' })),
+        ])
+        if (klineData.length === 0) throw new Error(t('analysis.noKlineData'))
+        const name = resolved.stock?.name || stockInfoResult.data?.name || resolved.code
+        setEarlyKline({ data: klineData, symbol: resolved.code, name, valueSnapshot })
+      }
+      const currentKline = earlyKline && earlyKline.symbol === resolved.code ? earlyKline : null
+      const klineDataForLLM = currentKline?.data ?? []
+      const valueForLLM = currentKline?.valueSnapshot
       setStep('llm'); streamBuf.current = ''
       const onDelta = (chunk: string) => { streamBuf.current += chunk; scheduleFlush(streamBuf, rafRef, setStreamingReport) }
-      const report = await callLLM(config, resolved.code, name, buildKlinePayload(klineData), valueSnapshot, abort.signal, onDelta)
+      const report = await callLLM(config, resolved.code, currentKline?.name ?? resolved.code, buildKlinePayload(klineDataForLLM), valueForLLM ?? { symbol: resolved.code, source: 'none', metrics: null, reason: 'not-found' }, abort.signal, onDelta)
       cancelAnimationFrame(rafRef.current)
       if (abort.signal.aborted) return
       setStreamingReport(report)
-      setResult({ report, symbol: resolved.code, name, klineData, valueSnapshot })
+      setResult({ report, symbol: resolved.code, name: currentKline?.name ?? resolved.code, klineData: klineDataForLLM, valueSnapshot: valueForLLM ?? { symbol: resolved.code, source: 'none', metrics: null, reason: 'not-found' } })
     } catch (err) {
       if (abort.signal.aborted) return
       setError(err instanceof Error ? err.message : t('analysis.failed'))
     } finally { cancelAnimationFrame(rafRef.current); setLoading(false); setStep(null) }
   }
 
-  return { loading, result, error, step, streamingReport, earlyKline, setError, handleAnalyze }
+  return { loading, result, error, step, streamingReport, earlyKline, klineLoading, setError, handleAnalyze }
 }
 
 function startAnalysisRequest(
@@ -284,12 +320,14 @@ function MissingConfigBanner({ prerequisites }: { prerequisites: Prerequisites }
 function SearchForm({
   search,
   loading,
+  klineReady,
   disabled,
   onAnalyze,
   onClearError,
 }: {
   search: SearchController
   loading: boolean
+  klineReady?: boolean
   disabled: boolean
   onAnalyze: () => void
   onClearError: () => void
@@ -301,7 +339,7 @@ function SearchForm({
         <StockSearchBox search={search} onAnalyze={onAnalyze} onClearError={onClearError} />
         <button onClick={onAnalyze} disabled={disabled} className="flex h-10 shrink-0 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50">
           {loading ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
-          {loading ? t('analysis.analyzing') : t('analysis.start')}
+          {loading ? t('analysis.analyzing') : (klineReady ? t('analysis.aiDiagnose') : t('analysis.start'))}
         </button>
       </div>
       <p className="text-xs text-muted-foreground">
@@ -382,14 +420,18 @@ function LoadingSuggestion({ text }: { text: string }) {
 }
 
 function AnalysisContent({ runner }: { runner: AnalysisRunnerState }) {
-  const { result, loading, step, streamingReport, earlyKline } = runner
-  if (!result && !loading) return <EmptyAnalysisState />
+  const { t } = usePreferences()
+  const { result, loading, step, streamingReport, earlyKline, klineLoading } = runner
+  // Show early K-line even before AI diagnosis
+  if (!result && !loading && !earlyKline && !klineLoading) return <EmptyAnalysisState />
+  if (!result && klineLoading) return <KlineLoadingState />
 
   const kline = result?.klineData ?? earlyKline?.data
   const symbol = result?.symbol ?? earlyKline?.symbol
   const name = result?.name ?? earlyKline?.name
   const report = result?.report ?? streamingReport
   const valueSnapshot = result?.valueSnapshot ?? earlyKline?.valueSnapshot
+  const hasEarlyOnly = !!earlyKline && !result
 
   return (
     <div className="flex min-h-0 flex-1 flex-col pt-4">
@@ -397,6 +439,7 @@ function AnalysisContent({ runner }: { runner: AnalysisRunnerState }) {
       {symbol && name && (
         <div className="mb-3 flex shrink-0 items-center gap-2">
           <span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-medium text-primary">{symbol} {name}</span>
+          {hasEarlyOnly && <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-600 dark:text-amber-400">{t('analysis.klineReady')}</span>}
         </div>
       )}
       <div className={report ? 'min-h-0 flex-1 overflow-auto pr-1 xl:grid xl:gap-4 xl:overflow-hidden xl:pr-0 xl:grid-cols-[minmax(420px,0.9fr)_minmax(560px,1.1fr)] 2xl:grid-cols-[minmax(500px,0.85fr)_minmax(720px,1.15fr)]' : 'min-h-0 flex-1 overflow-auto pr-1'}>
@@ -405,6 +448,18 @@ function AnalysisContent({ runner }: { runner: AnalysisRunnerState }) {
           {valueSnapshot && <ValueSection snapshot={valueSnapshot} compact={Boolean(report)} />}
         </div>
         {report && <ReportSection report={report} />}
+      </div>
+    </div>
+  )
+}
+
+function KlineLoadingState() {
+  const { t } = usePreferences()
+  return (
+    <div className="flex flex-1 items-center justify-center py-16">
+      <div className="text-center">
+        <Loader2 size={32} className="mx-auto animate-spin text-muted-foreground" />
+        <p className="mt-3 text-sm text-muted-foreground">{t('analysis.loadingKline')}</p>
       </div>
     </div>
   )

@@ -118,6 +118,7 @@ function marketDataPlugin(): Plugin {
 }
 
 export default defineConfig({
+  base: '/moyan/',
   plugins: [react(), tailwindcss(), llmProxyPlugin(), marketDataPlugin()],
   resolve: {
     alias: {

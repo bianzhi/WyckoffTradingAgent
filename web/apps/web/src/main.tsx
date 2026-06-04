@@ -36,7 +36,7 @@ createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
       <PreferencesProvider>
-        <BrowserRouter>
+        <BrowserRouter basename="/moyan">
           <Suspense fallback={<WyckoffLoading />}>
             <Routes>
               <Route path="/login" element={<LoginPage />} />

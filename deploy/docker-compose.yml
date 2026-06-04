@@ -76,7 +76,7 @@ services:
     container_name: wyckoff-web
     restart: unless-stopped
     ports:
-      - "80:80"
+      - "8901:80"
     depends_on:
       api:
         condition: service_healthy

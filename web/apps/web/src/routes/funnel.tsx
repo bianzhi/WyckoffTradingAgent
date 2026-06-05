@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createChart, HistogramSeries, type HistogramData, type Time } from 'lightweight-charts'
-import { fetchFunnelSummary, fetchFunnelDates, fetchSignalQualityStats, downloadFunnelReport, fetchAgentHealth, type FunnelSummary, type SectorStat, type TriggerStat, type FunnelStockResult } from '@/lib/funnel-data'
+import { fetchFunnelSummary, fetchFunnelDates, fetchFunnelResult, fetchSignalQualityStats, downloadFunnelReport, fetchAgentHealth, type FunnelSummary, type SectorStat, type TriggerStat, type FunnelStockResult, type FunnelLayerCondition } from '@/lib/funnel-data'
 import { SkeletonChart, SkeletonCard } from '@/components/ux/skeleton'
 import { Breadcrumb } from '@/components/ux/breadcrumb'
 import { ScrollToTop } from '@/components/ux/scroll-top'
@@ -120,6 +120,14 @@ export function FunnelPage() {
     staleTime: 300_000,
   })
 
+  // ── 漏斗完整结果（Agent API，含真实层级条件+个股详情） ──────────────
+  const { data: funnelResult } = useQuery({
+    queryKey: ['funnel-result'],
+    queryFn: fetchFunnelResult,
+    staleTime: 300_000,
+    retry: 1,
+  })
+
   const { data: agentHealth } = useQuery({
     queryKey: ['agent-health'],
     queryFn: fetchAgentHealth,
@@ -172,6 +180,7 @@ export function FunnelPage() {
             await refetchSummary()
             queryClient.invalidateQueries({ queryKey: ['funnel-summary'] })
             queryClient.invalidateQueries({ queryKey: ['funnel-dates'] })
+            queryClient.invalidateQueries({ queryKey: ['funnel-result'] })
           } else if (body.last_result) {
             const lr = body.last_result as Record<string, unknown>
             setFunnelState('error')
@@ -295,11 +304,15 @@ export function FunnelPage() {
       />
       <FunnelRunPanel isZh={isZh} funnelState={funnelState} logs={funnelLogs} error={funnelError} />
 
-      {/* Layer pass rate chart */}
-      <section className="rounded-xl border border-border bg-card/50 p-4">
-        <h2 className="mb-3 text-sm font-semibold">{isZh ? '各层通过率' : 'Layer Pass Rates'}</h2>
-        <FunnelLayersChart layers={summary.layers} dataDate={summary.date} />
-      </section>
+      {/* Layer pass rate chart + 层级条件手风琴 */}
+      {funnelResult?.ok && funnelResult.layer_conditions ? (
+        <FunnelLayerConditions isZh={isZh} layers={funnelResult.layer_conditions} />
+      ) : (
+        <section className="rounded-xl border border-border bg-card/50 p-4">
+          <h2 className="mb-3 text-sm font-semibold">{isZh ? '各层通过率' : 'Layer Pass Rates'}</h2>
+          <FunnelLayersChart layers={summary.layers} dataDate={summary.date} />
+        </section>
+      )}
 
       {/* Sector heatmap + Trigger distribution */}
       <div className="grid gap-6 lg:grid-cols-2">
@@ -318,14 +331,21 @@ export function FunnelPage() {
       <SignalQualitySection isZh={isZh} />
 
       {/* Phase 4.0: 筛选结果个股列表 + 报告下载 */}
-      {summary.stocks.length > 0 && (
+      {funnelResult?.ok && funnelResult.stocks && funnelResult.stocks.length > 0 ? (
+        <FunnelStocksSection
+          isZh={isZh}
+          stocks={funnelResult.stocks}
+          date={funnelResult.date}
+          onDownloadReport={downloadFunnelReport}
+        />
+      ) : summary.stocks.length > 0 ? (
         <FunnelStocksSection
           isZh={isZh}
           stocks={summary.stocks}
           date={summary.date}
           onDownloadReport={downloadFunnelReport}
         />
-      )}
+      ) : null}
       <ScrollToTop />
     </div>
   )
@@ -883,6 +903,65 @@ const SIGNAL_LABELS: Record<string, string> = {
   evr: 'EVR', compression: '压缩', trend_pullback: '趋势回调',
 }
 
+function FunnelLayerConditions({ isZh, layers }: { isZh: boolean; layers: Record<string, FunnelLayerCondition> }) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const toggle = (key: string) => setExpanded(prev => ({ ...prev, [key]: !prev[key] }))
+
+  return (
+    <section className="rounded-xl border border-border bg-card/50 p-4">
+      <h2 className="mb-3 text-sm font-semibold">{isZh ? '各层筛选条件' : 'Layer Conditions'}</h2>
+      <div className="space-y-2">
+        {(['L1', 'L2', 'L3', 'L4', 'L5'] as const).map(key => {
+          const l = layers[key]
+          if (!l) return null
+          const open = expanded[key] ?? false
+          const criteria = LAYER_CRITERIA[key]
+          return (
+            <div key={key} className="rounded-lg border border-border/60 bg-background/50">
+              <button
+                type="button"
+                onClick={() => toggle(key)}
+                className="flex w-full items-center gap-2 p-3 text-left hover:bg-muted/30 transition-colors"
+              >
+                <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold text-emerald-400">{key}</span>
+                <span className="text-xs font-semibold flex-1">{l.label}</span>
+                <span className="text-[11px] tabular-nums text-muted-foreground">
+                  {isZh ? '通过' : 'Passed'} <b className="text-foreground">{l.passed}</b>
+                </span>
+                <span className={`text-[10px] text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`}>▼</span>
+              </button>
+              {open && (
+                <div className="border-t border-border/40 px-3 pb-3 pt-2 space-y-1.5">
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">{l.desc}</p>
+                  {criteria && (
+                    <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                      {criteria.params.map(p => (
+                        <div key={p.label} className="flex items-baseline gap-1.5 text-[11px]">
+                          <span className="text-muted-foreground shrink-0">{p.label}:</span>
+                          <span className="font-medium text-foreground">{p.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {l.detail && Object.keys(l.detail).length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {Object.entries(l.detail).map(([tag, count]) => (
+                        <span key={tag} className="rounded bg-muted px-1.5 py-0.5 text-[10px] tabular-nums">
+                          {key === 'L4' ? (SIGNAL_LABELS[tag] ?? tag) : tag}: <b>{count}</b>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 // ── Phase 4.0: 个股结果表格 + 报告下载 ───────────────────────────────────────
 
 function FunnelStocksSection({
@@ -1052,7 +1131,9 @@ function MultiSelect({
   )
 }
 
-function FunnelStockRow({ s, i }: { s: FunnelStockResult; i: number }) {
+function FunnelStockRow({ s, i, hasChannel, hasSignals, hasStage, hasRemark }: {
+  s: FunnelStockResult; i: number; hasChannel: boolean; hasSignals: boolean; hasStage: boolean; hasRemark: boolean
+}) {
   return (
     <tr key={s.code} className="border-b border-border/50 hover:bg-muted/20">
       <td className="px-2 py-1.5 text-muted-foreground tabular-nums">{i + 1}</td>
@@ -1066,26 +1147,32 @@ function FunnelStockRow({ s, i }: { s: FunnelStockResult; i: number }) {
           {s.name || '-'}
         </Link>
       </td>
-      <td className="px-2 py-1.5">
-        <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">{s.channel || '-'}</span>
-      </td>
+      {hasChannel && (
+        <td className="px-2 py-1.5">
+          <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">{s.channel || '-'}</span>
+        </td>
+      )}
       <td className="px-2 py-1.5 text-right font-mono tabular-nums font-semibold">{s.score.toFixed(1)}</td>
       <td className="px-2 py-1.5 text-right font-mono tabular-nums text-muted-foreground">
         {s.latest_close != null ? s.latest_close.toFixed(2) : '-'}
       </td>
-      <td className="px-2 py-1.5">
-        <div className="flex flex-wrap gap-0.5">
-          {s.signals.map(sig => (
-            <span key={sig} className="rounded bg-emerald-500/10 px-1 py-0.5 text-[10px] text-emerald-400">
-              {SIGNAL_LABELS[sig] ?? sig}
-            </span>
-          ))}
-        </div>
-      </td>
-      <td className="px-2 py-1.5 text-muted-foreground">{s.stage || '-'}</td>
-      <td className="px-2 py-1.5 text-[11px] text-muted-foreground max-w-[200px] truncate" title={s.remark || ''}>
-        {s.remark || '-'}
-      </td>
+      {hasSignals && (
+        <td className="px-2 py-1.5">
+          <div className="flex flex-wrap gap-0.5">
+            {s.signals.map(sig => (
+              <span key={sig} className="rounded bg-emerald-500/10 px-1 py-0.5 text-[10px] text-emerald-400">
+                {SIGNAL_LABELS[sig] ?? sig}
+              </span>
+            ))}
+          </div>
+        </td>
+      )}
+      {hasStage && <td className="px-2 py-1.5 text-muted-foreground">{s.stage || '-'}</td>}
+      {hasRemark && (
+        <td className="px-2 py-1.5 text-[11px] text-muted-foreground max-w-[200px] truncate" title={s.remark || ''}>
+          {s.remark || '-'}
+        </td>
+      )}
     </tr>
   )
 }
@@ -1165,6 +1252,12 @@ function FunnelStockTable({
 }) {
   const { sorted, toggleSort, sortArrow } = useStockSort(activeStocks)
 
+  // 检测哪些可选列有数据（全为空则隐藏）
+  const hasChannel = activeStocks.some(s => s.channel)
+  const hasSignals = activeStocks.some(s => s.signals.length > 0)
+  const hasStage = activeStocks.some(s => s.stage)
+  const hasRemark = activeStocks.some(s => s.remark)
+
   const th = (key: StockSortKey, label: string, align: 'left' | 'right' = 'left') => (
     <th
       className={`px-2 py-1.5 text-${align} cursor-pointer hover:text-foreground select-none whitespace-nowrap`}
@@ -1182,17 +1275,17 @@ function FunnelStockTable({
             <th className="px-2 py-1.5 text-left w-8">#</th>
             {th('code', isZh ? '代码' : 'Code')}
             {th('name', isZh ? '名称' : 'Name')}
-            {th('channel', isZh ? 'L2通道' : 'L2 Channel')}
+            {hasChannel && th('channel', isZh ? 'L2通道' : 'L2 Channel')}
             {th('score', isZh ? 'L3评分' : 'L3 Score', 'right')}
             {th('price', isZh ? '最新价' : 'Price', 'right')}
-            {th('signals', isZh ? 'L4信号' : 'L4 Signals')}
-            {th('stage', isZh ? 'L4阶段' : 'L4 Stage')}
-            {th('remark', isZh ? '备注' : 'Remark')}
+            {hasSignals && th('signals', isZh ? 'L4信号' : 'L4 Signals')}
+            {hasStage && th('stage', isZh ? 'L4阶段' : 'L4 Stage')}
+            {hasRemark && th('remark', isZh ? '备注' : 'Remark')}
           </tr>
         </thead>
         <tbody>
           {sorted.map((s, i) => (
-            <FunnelStockRow key={s.code} s={s} i={i} />
+            <FunnelStockRow key={s.code} s={s} i={i} hasChannel={hasChannel} hasSignals={hasSignals} hasStage={hasStage} hasRemark={hasRemark} />
           ))}
           {exitedStocks.length > 0 && (
             <FunnelExitedSection isZh={isZh} exitedStocks={exitedStocks} />

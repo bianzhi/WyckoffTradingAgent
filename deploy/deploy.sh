@@ -84,28 +84,14 @@ update() {
     exit 0
   fi
 
-  # Detect if web (nginx) or deploy configs changed — rebuild nginx too
-  local web_changed=false
-  if git diff --name-only HEAD@{1} HEAD 2>/dev/null | grep -qE '^(web/|deploy/(Dockerfile|nginx\.conf|docker-compose\.yml))'; then
-    web_changed=true
-    log "检测到前端或部署配置变更，将同时重建 nginx 容器"
-  fi
-
   log "构建 agent 容器..."
   $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build "${build_args[@]}" agent
 
-  if [[ "$web_changed" == true ]]; then
-    log "构建 nginx (前端) 容器..."
-    $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build "${build_args[@]}" nginx
-  fi
+  log "构建 nginx (前端) 容器..."
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build "${build_args[@]}" nginx
 
-  log "启动 agent..."
-  $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d agent
-
-  if [[ "$web_changed" == true ]]; then
-    log "重启 nginx..."
-    $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --force-recreate nginx
-  fi
+  log "启动服务..."
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --force-recreate
 
   log "等待健康检查..."
   for i in $(seq 1 30); do

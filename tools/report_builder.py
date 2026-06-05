@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 
+import numpy as np
 import pandas as pd
 
 # ── 环境变量配置 ──
@@ -243,7 +244,7 @@ def _build_supply_demand_summary(df: pd.DataFrame) -> str:
     volume = pd.to_numeric(df_s.get("volume"), errors="coerce")
     vol_ma20 = volume.rolling(20).mean()
     df_s["pct_chg_calc"] = close.pct_change() * 100
-    df_s["vol_ratio"] = volume / vol_ma20.replace(0, pd.NA)
+    df_s["vol_ratio"] = volume / vol_ma20.replace(0, np.nan)
     recent = df_s.tail(RECENT_DAYS).copy()
 
     pct = pd.to_numeric(recent.get("pct_chg_calc"), errors="coerce")
@@ -513,9 +514,9 @@ def generate_stock_payload(
     df["amount_ma20"] = amount.rolling(20).mean()
     df["pct_chg_calc"] = close.pct_change() * 100
     prev_close = close.shift(1)
-    amplitude_base = prev_close.where(prev_close > 0, close.where(close > 0, pd.NA))
-    df["amplitude_pct"] = ((high - low) / amplitude_base.replace(0, pd.NA) * 100).astype(float)
-    span = (high - low).replace(0, pd.NA)
+    amplitude_base = prev_close.where(prev_close > 0, close.where(close > 0, np.nan))
+    df["amplitude_pct"] = pd.to_numeric((high - low) / amplitude_base.replace(0, np.nan) * 100, errors="coerce")
+    span = (high - low).replace(0, np.nan)
     df["close_pos_pct"] = ((close - low) / span * 100).clip(lower=0, upper=100).fillna(50.0)
 
     latest = df.iloc[-1]

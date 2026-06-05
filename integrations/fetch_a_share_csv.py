@@ -12,6 +12,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 import akshare as ak
+import numpy as np
 import pandas as pd
 
 from utils import extract_symbols_from_text, safe_filename_part, stock_sector_em
@@ -364,7 +365,7 @@ def _build_export(df: pd.DataFrame, sector: str) -> pd.DataFrame:
     for col in ["成交量", "成交额"]:
         if col in out.columns:
             out[col] = pd.to_numeric(out[col], errors="coerce")
-    out["AvgPrice"] = out["成交额"] / out["成交量"].replace(0, pd.NA)
+    out["AvgPrice"] = out["成交额"] / out["成交量"].replace(0, np.nan)
     out["Sector"] = sector
 
     out = out.rename(

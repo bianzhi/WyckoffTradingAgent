@@ -10,6 +10,7 @@ import re
 import sys
 from datetime import date
 
+import numpy as np
 import pandas as pd
 
 
@@ -908,7 +909,7 @@ def run(
 
             vol_ma20 = volume.rolling(20).mean()
             amount_ma20 = amount.rolling(20).mean()
-            vol_ratio = volume / vol_ma20.replace(0, pd.NA)
+            vol_ratio = volume / vol_ma20.replace(0, np.nan)
             min_vol_ratio_5d = pd.to_numeric(vol_ratio.tail(5), errors="coerce").min()
             avg_amount_20_yi = (
                 _safe_float(amount_ma20.iloc[-1]) / 1e8

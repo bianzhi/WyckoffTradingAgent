@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+import numpy as np
 import pandas as pd
 
 
@@ -115,13 +116,14 @@ def _member_snapshot(df: pd.DataFrame) -> dict | None:
     vol_ma20 = volume.rolling(20).mean()
     pct = close.ffill().pct_change() * 100.0
     prev_close = close.shift(1)
-    amplitude = (high - low) / prev_close.replace(0, pd.NA) * 100.0
-    close_pos = ((close - low) / (high - low).replace(0, pd.NA) * 100.0).clip(0, 100).astype(float).fillna(50.0)
+    amplitude = (high - low) / prev_close.replace(0, np.nan) * 100.0
+    close_pos = ((close - low) / (high - low).replace(0, np.nan) * 100.0).clip(0, 100)
+    close_pos = pd.to_numeric(close_pos, errors="coerce").fillna(50.0)
 
     recent = pd.DataFrame(
         {
             "pct": pct,
-            "vol_ratio": volume / vol_ma20.replace(0, pd.NA),
+            "vol_ratio": volume / vol_ma20.replace(0, np.nan),
             "amplitude": amplitude,
             "close_pos": close_pos,
             "close": close,

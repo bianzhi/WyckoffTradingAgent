@@ -25,11 +25,16 @@ from dataclasses import asdict
 from datetime import datetime
 
 import pandas as pd
+
+
 def _safe_float(v, default=0.0):
     """安全 float 转换，pd.NA/NaN/None → default。"""
     import builtins
+
     try:
         if v is None:
+            return default
+        if pd.isna(v):
             return default
         if isinstance(v, (int, float)):
             try:
@@ -41,6 +46,7 @@ def _safe_float(v, default=0.0):
         return builtins.float(v)
     except (TypeError, ValueError, AttributeError):
         return default
+
 
 # Ensure project root is on sys.path for direct script invocation
 if __name__ == "__main__" or not __package__:

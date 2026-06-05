@@ -11,11 +11,16 @@ import os
 import pandas as pd
 
 from core.wyckoff_engine import FunnelConfig
+
+
 def _safe_float(v, default=0.0):
     """安全 float 转换，pd.NA/NaN/None → default。"""
     import builtins
+
     try:
         if v is None:
+            return default
+        if pd.isna(v):
             return default
         if isinstance(v, (int, float)):
             try:
@@ -27,6 +32,7 @@ def _safe_float(v, default=0.0):
         return builtins.float(v)
     except (TypeError, ValueError, AttributeError):
         return default
+
 
 # ── 环境变量配置 ──
 
@@ -351,10 +357,12 @@ def analyze_benchmark_and_tune_cfg(
         regime = "CRASH"
     elif PANIC_REPAIR_ENABLE:
         # 改进逻辑：支持连续反弹（前 1-2 天是 CRASH，最近 1-2 天反弹）
-        prev_panic = (main_prev_pct is not None and _safe_float(main_prev_pct) <= _safe_float(CRASH_MAIN_DAY_DROP_PCT)) or (
-            small_prev_pct is not None and _safe_float(small_prev_pct) <= _safe_float(CRASH_SMALL_DAY_DROP_PCT)
-        )
-        rebound_ok = (main_today_pct is not None and _safe_float(main_today_pct) >= _safe_float(PANIC_REPAIR_MAIN_REBOUND_PCT)) or (
+        prev_panic = (
+            main_prev_pct is not None and _safe_float(main_prev_pct) <= _safe_float(CRASH_MAIN_DAY_DROP_PCT)
+        ) or (small_prev_pct is not None and _safe_float(small_prev_pct) <= _safe_float(CRASH_SMALL_DAY_DROP_PCT))
+        rebound_ok = (
+            main_today_pct is not None and _safe_float(main_today_pct) >= _safe_float(PANIC_REPAIR_MAIN_REBOUND_PCT)
+        ) or (
             small_today_pct is not None and _safe_float(small_today_pct) >= _safe_float(PANIC_REPAIR_SMALL_REBOUND_PCT)
         )
         # 连续反弹：最近 2 日都反弹

@@ -25,6 +25,8 @@ def _safe_float(v: object, default: float = 0.0) -> float:
     try:
         if v is None:
             return default
+        if pd.isna(v):
+            return default
         if isinstance(v, (int, float)):
             if pd.isna(v):
                 return default
@@ -647,7 +649,7 @@ def layer2_strength_detailed(
             and _latest_trade_date(df_sorted) != bench_latest_date
         ):
             continue
-        close = df_sorted["close"].astype(float)
+        close = pd.to_numeric(df_sorted["close"], errors="coerce")
         ma_short = close.rolling(cfg.ma_short).mean()
         ma_long = close.rolling(cfg.ma_long).mean()
         last_ma_short = ma_short.iloc[-1]
@@ -734,7 +736,12 @@ def layer2_strength_detailed(
         momentum_ok = (bullish_alignment or holding_ma20) and momentum_rs_ok and momentum_rps_ok and momentum_bias_ok
 
         ambush_shape_ok = False
-        if cfg.enable_ambush_channel and pd.notna(last_ma_long) and _safe_float(last_ma_long) > 0 and pd.notna(last_close):
+        if (
+            cfg.enable_ambush_channel
+            and pd.notna(last_ma_long)
+            and _safe_float(last_ma_long) > 0
+            and pd.notna(last_close)
+        ):
             bias_200 = (_safe_float(last_close) - _safe_float(last_ma_long)) / _safe_float(last_ma_long)
             ret20 = _close_return_pct(close, 20)
             ambush_shape_ok = (
@@ -753,7 +760,9 @@ def layer2_strength_detailed(
             # 条件 1：低位区——现价在年内低点 +X% 以内
             lookback_w = max(int(cfg.accum_lookback_days), 2)
             period_low = _safe_float(_c.tail(lookback_w).min())
-            accum_low_ok = period_low > 0 and _safe_float(last_close) <= period_low * (1.0 + cfg.accum_price_from_low_max)
+            accum_low_ok = period_low > 0 and _safe_float(last_close) <= period_low * (
+                1.0 + cfg.accum_price_from_low_max
+            )
 
             # 条件 2：横盘振幅——近 N 日 high/low 振幅不超过阈值
             accum_range_ok = False
@@ -785,7 +794,9 @@ def layer2_strength_detailed(
             if accum_vol_ok and pd.notna(last_ma_short) and pd.notna(last_ma_long) and _safe_float(last_ma_long) > 0:
                 # MA50 与 MA200 的差距百分比：允许在 ±accum_ma_gap_max 之间
                 # 即 MA50 可以在 MA200 下方 N% 以内（即将穿），或在上方 N% 以内（刚穿）
-                ma_gap_pct = (_safe_float(last_ma_short) - _safe_float(last_ma_long)) / _safe_float(last_ma_long) * 100.0
+                ma_gap_pct = (
+                    (_safe_float(last_ma_short) - _safe_float(last_ma_long)) / _safe_float(last_ma_long) * 100.0
+                )
                 ma_gap_limit = cfg.accum_ma_gap_max * 100.0  # 配置值为小数（如 0.06 → 6%）
                 accum_ma_ok = -ma_gap_limit <= ma_gap_pct <= ma_gap_limit
 
@@ -823,7 +834,9 @@ def layer2_strength_detailed(
                 _c_rd = close
                 lookback_rd = max(int(cfg.dry_vol_ref_window), 250)
                 period_low_rd = _safe_float(_c_rd.tail(min(lookback_rd, len(_c_rd))).min())
-                if period_low_rd > 0 and _safe_float(last_close) <= period_low_rd * (1.0 + cfg.rs_div_price_from_low_max):
+                if period_low_rd > 0 and _safe_float(last_close) <= period_low_rd * (
+                    1.0 + cfg.rs_div_price_from_low_max
+                ):
                     # 大盘：近 N 日的最低收盘价 < 前 ref_window 日的最低收盘价（创新低）
                     bench_recent = bench_close.tail(cfg.rs_div_bench_window)
                     bench_ref = bench_close.tail(cfg.rs_div_bench_ref_window).iloc[: -cfg.rs_div_bench_window]
@@ -985,10 +998,14 @@ def _compute_sector_strength(
             continue
         ret20 = (_safe_float(close.iloc[-1]) - _safe_float(close.iloc[-21])) / _safe_float(close.iloc[-21]) * 100.0
         ret5 = (
-            (_safe_float(close.iloc[-1]) - _safe_float(close.iloc[-6])) / _safe_float(close.iloc[-6]) * 100.0 if len(close) > 5 else ret20
+            (_safe_float(close.iloc[-1]) - _safe_float(close.iloc[-6])) / _safe_float(close.iloc[-6]) * 100.0
+            if len(close) > 5
+            else ret20
         )
         ret3 = (
-            (_safe_float(close.iloc[-1]) - _safe_float(close.iloc[-4])) / _safe_float(close.iloc[-4]) * 100.0 if len(close) > 3 else ret5
+            (_safe_float(close.iloc[-1]) - _safe_float(close.iloc[-4])) / _safe_float(close.iloc[-4]) * 100.0
+            if len(close) > 3
+            else ret5
         )
         rows.append((sym, ret20, ret5, ret3))
     if not rows:
@@ -1520,7 +1537,11 @@ def _trend_pullback_peak_idx(close: pd.Series, cfg: FunnelConfig) -> int | None:
     peak_idx = int(recent.values.argmax())
     if peak_idx < 1 or peak <= 0:
         return None
-    trough = _safe_float(recent.iloc[peak_idx + 1 : -1].min()) if peak_idx + 1 < len(recent) - 1 else _safe_float(recent.iloc[-1])
+    trough = (
+        _safe_float(recent.iloc[peak_idx + 1 : -1].min())
+        if peak_idx + 1 < len(recent) - 1
+        else _safe_float(recent.iloc[-1])
+    )
     last_close = _safe_float(close.iloc[-1])
     pullback_pct = (peak - min(trough, last_close)) / peak * 100.0
     if pullback_pct < cfg.trend_pb_min_pullback_pct or pullback_pct > cfg.trend_pb_max_pullback_pct:
@@ -1541,7 +1562,11 @@ def _trend_pullback_vol_threshold(close: pd.Series, cfg: FunnelConfig, market_ca
 
     streak = 0
     for i in range(1, min(len(ma50), 60) + 1):
-        if pd.isna(ma50.iloc[-i]) or pd.isna(ma200.iloc[-i]) or _safe_float(ma50.iloc[-i]) <= _safe_float(ma200.iloc[-i]):
+        if (
+            pd.isna(ma50.iloc[-i])
+            or pd.isna(ma200.iloc[-i])
+            or _safe_float(ma50.iloc[-i]) <= _safe_float(ma200.iloc[-i])
+        ):
             break
         streak += 1
     if streak >= 20:
@@ -2311,7 +2336,9 @@ def allocate_ai_candidates(
 
     sos_hit_codes = [
         str(c).strip()
-        for c, _ in sorted(result.triggers.get("sos", []), key=lambda x: -_safe_float(x[1] if x[1] is not None else 0.0))
+        for c, _ in sorted(
+            result.triggers.get("sos", []), key=lambda x: -_safe_float(x[1] if x[1] is not None else 0.0)
+        )
         if str(c).strip()
     ]
     for code in _dedup_order(sos_hit_codes):

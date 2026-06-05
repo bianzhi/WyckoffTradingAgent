@@ -507,7 +507,7 @@ def _rank_etf_candidates(
                 "score": score,
             }
         )
-    rows.sort(key=lambda row: float(row.get("score", 0.0) or 0.0), reverse=True)
+    rows.sort(key=lambda row: _safe_float(row.get("score", 0.0)), reverse=True)
     return rows
 
 
@@ -611,7 +611,7 @@ def _append_etf_section(lines: list[str], etf_metrics: dict, etf_candidates: lis
         if channel:
             parts.append(channel)
         lines.append(
-            f"  {row.get('code')} {row.get('name')}  {float(row.get('score', 0.0) or 0.0):.2f}  {' | '.join(parts)}"
+            f"  {row.get('code')} {row.get('name')}  {_safe_float(row.get('score', 0.0)):.2f}  {' | '.join(parts)}"
         )
     omitted = len(etf_candidates) - len(display)
     if omitted > 0:
@@ -629,7 +629,7 @@ def _merge_trigger_maps(*trigger_maps: dict[str, list[tuple[str, float]]]) -> di
                 dedupe_key = (str(key), code_s)
                 if not code_s or dedupe_key in seen:
                     continue
-                bucket.append((code_s, float(score or 0.0)))
+                bucket.append((code_s, _safe_float(score)))
                 seen.add(dedupe_key)
     return merged
 
@@ -732,7 +732,7 @@ def _promote_l2_bypass_for_ai(
             selected_for_ai.append(code)
             selected_seen.add(code)
             added += 1
-        score_map.setdefault(code, float(code_to_total_score.get(code, 0.0) or 0.0))
+        score_map.setdefault(code, _safe_float(code_to_total_score.get(code, 0.0)))
         if code in track_seen:
             continue
         if code in accum_set or _is_accum_trigger(code_to_trigger_keys.get(code, [])):
@@ -965,6 +965,10 @@ def _safe_build_theme_radar(
 
 def _safe_float(value, default: float = 0.0) -> float:
     try:
+        if value is None:
+            return default
+        if pd.isna(value):
+            return default
         return float(value)
     except (TypeError, ValueError):
         return default

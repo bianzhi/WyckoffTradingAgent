@@ -6,14 +6,20 @@ L3 候选排名工具 + 触发器标签常量。
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from core.sector_rotation import SECTOR_STATE_SCORE_BONUS
+
+
 def _safe_float(v, default=0.0):
     """安全 float 转换，pd.NA/NaN/None → default。"""
     import builtins
+
     try:
         if v is None:
+            return default
+        if pd.isna(v):
             return default
         if isinstance(v, (int, float)):
             try:
@@ -25,6 +31,7 @@ def _safe_float(v, default=0.0):
         return builtins.float(v)
     except (TypeError, ValueError, AttributeError):
         return default
+
 
 # ── 全局常量 ──
 
@@ -116,7 +123,7 @@ def rank_l3_candidates(
             ret5 = calc_close_return_pct(close, 5)
             ret3 = calc_close_return_pct(close, 3)
             vol_ma20 = volume.rolling(20).mean()
-            vol_ratio = volume / vol_ma20.replace(0, pd.NA)
+            vol_ratio = volume / vol_ma20.replace(0, np.nan)
             min_vol_ratio_5d = pd.to_numeric(vol_ratio.tail(5), errors="coerce").min()
 
         rows.append(
@@ -153,7 +160,9 @@ def rank_l3_candidates(
     hot_sector_set = set(top_sectors or [])
     # 板块快速轮动期 hot_bonus 降低：Top3 板块次日有 49% 概率反转
     rank_df["hot_bonus"] = rank_df["industry"].isin(hot_sector_set).astype(float) * 0.02
-    rank_df["sector_bonus"] = rank_df["sector_state"].map(lambda x: _safe_float(SECTOR_STATE_SCORE_BONUS.get(str(x), 0.0)))
+    rank_df["sector_bonus"] = rank_df["sector_state"].map(
+        lambda x: _safe_float(SECTOR_STATE_SCORE_BONUS.get(str(x), 0.0))
+    )
     # 权重重新分配：降低滞后动量(q20)权重，提升 Wyckoff 触发(trigger_q)权重，
     # 加入 3 日短期动量(q3) 适配板块快速轮动。
     rank_df["watch_score"] = (

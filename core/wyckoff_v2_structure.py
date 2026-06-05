@@ -8,11 +8,16 @@ from typing import NamedTuple
 import pandas as pd
 
 from core.wyckoff_engine import FunnelConfig, _sorted_if_needed
+
+
 def _safe_float(v, default=0.0):
     """安全 float 转换，pd.NA/NaN/None → default。"""
     import builtins
+
     try:
         if v is None:
+            return default
+        if pd.isna(v):
             return default
         if isinstance(v, (int, float)):
             try:
@@ -141,8 +146,12 @@ def identify_trading_range(
 
     swing_lows = _swing_values(low, kind="low", window=swing_window)
     swing_highs = _swing_values(high, kind="high", window=swing_window)
-    support = _safe_float(pd.Series(swing_lows[-5:]).median()) if len(swing_lows) >= 2 else _safe_float(low.quantile(0.10))
-    resistance = _safe_float(pd.Series(swing_highs[-5:]).median()) if len(swing_highs) >= 2 else _safe_float(high.quantile(0.90))
+    support = (
+        _safe_float(pd.Series(swing_lows[-5:]).median()) if len(swing_lows) >= 2 else _safe_float(low.quantile(0.10))
+    )
+    resistance = (
+        _safe_float(pd.Series(swing_highs[-5:]).median()) if len(swing_highs) >= 2 else _safe_float(high.quantile(0.90))
+    )
     if support <= 0 or resistance <= support:
         return None
 

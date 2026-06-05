@@ -20,6 +20,7 @@ import pandas as pd
 def _safe_float(v, default=0.0):
     """安全 float 转换，pd.NA/NaN/None → default。"""
     import builtins
+
     try:
         if v is None:
             return default
@@ -33,6 +34,7 @@ def _safe_float(v, default=0.0):
         return builtins.float(v)
     except (TypeError, ValueError, AttributeError):
         return default
+
 
 logger = logging.getLogger(__name__)
 

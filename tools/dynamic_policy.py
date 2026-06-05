@@ -6,14 +6,20 @@ import os
 from statistics import mean
 from typing import Any
 
+import pandas as pd
+
 from core.signal_feedback import BLOCKED_REGISTRY_STATUSES, normalize_signal_type, signal_track
 from core.wyckoff_engine import fit_ai_candidate_quotas
-import pandas as pd
+
+
 def _safe_float(v, default=0.0):
     """安全 float 转换，pd.NA/NaN/None → default。"""
     import builtins
+
     try:
         if v is None:
+            return default
+        if pd.isna(v):
             return default
         if isinstance(v, (int, float)):
             try:

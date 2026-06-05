@@ -17,11 +17,16 @@ from typing import Any
 import pandas as pd
 
 from integrations.llm_client import call_llm
+
+
 def _safe_float(v, default=0.0):
     """安全 float 转换，pd.NA/NaN/None → default。"""
     import builtins
+
     try:
         if v is None:
+            return default
+        if pd.isna(v):
             return default
         if isinstance(v, (int, float)):
             try:
@@ -33,6 +38,7 @@ def _safe_float(v, default=0.0):
         return builtins.float(v)
     except (TypeError, ValueError, AttributeError):
         return default
+
 
 EFFICIENCY_PROVIDER = "efficiency"
 DEFAULT_MAX_OUTPUT_TOKENS = 2048

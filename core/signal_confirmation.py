@@ -5,11 +5,16 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
+
+
 def _safe_float(v, default=0.0):
     """安全 float 转换，pd.NA/NaN/None → default。"""
     import builtins
+
     try:
         if v is None:
+            return default
+        if pd.isna(v):
             return default
         if isinstance(v, (int, float)):
             try:
@@ -21,6 +26,7 @@ def _safe_float(v, default=0.0):
         return builtins.float(v)
     except (TypeError, ValueError, AttributeError):
         return default
+
 
 SIGNAL_TTL_DAYS: dict[str, int] = {
     "sos": 2,
@@ -207,7 +213,9 @@ def build_snap(
         zone = df_s.iloc[-(window + 2) : -2] if len(df_s) > window + 2 else df_s.iloc[:-2]
         snap["snap_support"] = _safe_float(zone["close"].min()) if len(zone) > 0 else _safe_float(last["low"])
     elif signal_type == "sos":
-        snap["snap_support"] = _safe_float(df_s["high"].tail(21).iloc[:-1].max()) if len(df_s) >= 21 else _safe_float(last["high"])
+        snap["snap_support"] = (
+            _safe_float(df_s["high"].tail(21).iloc[:-1].max()) if len(df_s) >= 21 else _safe_float(last["high"])
+        )
     elif signal_type == "lps":
         snap["snap_support"] = ma20
     else:

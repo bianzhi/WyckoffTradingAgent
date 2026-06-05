@@ -27,6 +27,7 @@ from urllib.parse import urlparse
 def _safe_float(v, default=0.0):
     """安全 float 转换，pd.NA/NaN/None → default。"""
     import builtins
+
     try:
         if v is None:
             return default
@@ -1040,7 +1041,9 @@ def _market_history_summary(df: Any) -> dict[str, Any]:
         "latest_volume_ratio_20d": _json_float(
             _safe_float(latest["volume"]) / _safe_float(recent_volume) if recent_volume else None
         ),
-        "recent_20d_volume_vs_prior": _json_float(_safe_float(recent_volume) / _safe_float(prior_volume) if prior_volume else None),
+        "recent_20d_volume_vs_prior": _json_float(
+            _safe_float(recent_volume) / _safe_float(prior_volume) if prior_volume else None
+        ),
         "max_drawdown_pct": _json_float(drawdown.min()),
         "up_days": int((df["pct_chg"] > 0).sum()),
         "down_days": int((df["pct_chg"] < 0).sum()),

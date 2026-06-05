@@ -8,12 +8,18 @@ trigger facts into readable, testable event labels.
 from __future__ import annotations
 
 from dataclasses import dataclass
+
 import pandas as pd
+
+
 def _safe_float(v, default=0.0):
     """安全 float 转换，pd.NA/NaN/None → default。"""
     import builtins
+
     try:
         if v is None:
+            return default
+        if pd.isna(v):
             return default
         if isinstance(v, (int, float)):
             try:

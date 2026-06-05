@@ -178,8 +178,12 @@ def compute_tail_features(df_1m: pd.DataFrame, daily_context: dict[str, Any] | N
     last30_ret_pct = _ret_pct(close, 30)
     last15_ret_pct = _ret_pct(close, 15)
     day_ret_pct = ((last_close / first_open - 1.0) * 100.0) if first_open > 0 else 0.0
-    tail30_volume_share = _safe_float(volume.tail(min(30, len(volume))).sum()) / total_volume if total_volume > 0 else 0.0
-    tail15_volume_share = _safe_float(volume.tail(min(15, len(volume))).sum()) / total_volume if total_volume > 0 else 0.0
+    tail30_volume_share = (
+        _safe_float(volume.tail(min(30, len(volume))).sum()) / total_volume if total_volume > 0 else 0.0
+    )
+    tail15_volume_share = (
+        _safe_float(volume.tail(min(15, len(volume))).sum()) / total_volume if total_volume > 0 else 0.0
+    )
     drop_from_high_pct = (last_close / day_high - 1.0) * 100.0 if day_high > 0 else 0.0
     dist_vwap_pct = (last_close / vwap - 1.0) * 100.0 if vwap > 0 else 0.0
 

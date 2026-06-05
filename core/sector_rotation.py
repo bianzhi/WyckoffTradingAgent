@@ -21,6 +21,7 @@ import pandas as pd
 def _safe_float(v, default=0.0):
     """安全 float 转换，pd.NA/NaN/None → default。"""
     import builtins
+
     try:
         if v is None:
             return default
@@ -34,6 +35,7 @@ def _safe_float(v, default=0.0):
         return builtins.float(v)
     except (TypeError, ValueError, AttributeError):
         return default
+
 
 SECTOR_STATE_LABELS: dict[str, str] = {
     "CONSENSUS_CLIMAX": "连续一致高潮",
@@ -141,8 +143,12 @@ def _member_snapshot(df: pd.DataFrame) -> dict | None:
     last_close = _safe_float(close.iloc[-1])
     last_ma20 = ma20.iloc[-1] if len(ma20) else pd.NA
     last_ma50 = ma50.iloc[-1] if len(ma50) else pd.NA
-    above_ma20 = bool(pd.notna(last_ma20) and _safe_float(last_ma20) > 0 and last_close >= _safe_float(last_ma20) * 0.99)
-    above_ma50 = bool(pd.notna(last_ma50) and _safe_float(last_ma50) > 0 and last_close >= _safe_float(last_ma50) * 0.99)
+    above_ma20 = bool(
+        pd.notna(last_ma20) and _safe_float(last_ma20) > 0 and last_close >= _safe_float(last_ma20) * 0.99
+    )
+    above_ma50 = bool(
+        pd.notna(last_ma50) and _safe_float(last_ma50) > 0 and last_close >= _safe_float(last_ma50) * 0.99
+    )
 
     climax_days = recent[
         (pd.to_numeric(recent["pct"], errors="coerce") >= 4.0)

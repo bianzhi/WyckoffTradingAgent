@@ -11,11 +11,16 @@ import sys
 from datetime import date
 
 import pandas as pd
+
+
 def _safe_float(v, default=0.0):
     """安全 float 转换，pd.NA/NaN/None → default。"""
     import builtins
+
     try:
         if v is None:
+            return default
+        if pd.isna(v):
             return default
         if isinstance(v, (int, float)):
             try:
@@ -27,6 +32,7 @@ def _safe_float(v, default=0.0):
         return builtins.float(v)
     except (TypeError, ValueError, AttributeError):
         return default
+
 
 # Ensure project root is on sys.path for direct script invocation
 if __name__ == "__main__" or not __package__:
@@ -905,7 +911,9 @@ def run(
             vol_ratio = volume / vol_ma20.replace(0, pd.NA)
             min_vol_ratio_5d = pd.to_numeric(vol_ratio.tail(5), errors="coerce").min()
             avg_amount_20_yi = (
-                _safe_float(amount_ma20.iloc[-1]) / 1e8 if len(amount_ma20) and pd.notna(amount_ma20.iloc[-1]) else pd.NA
+                _safe_float(amount_ma20.iloc[-1]) / 1e8
+                if len(amount_ma20) and pd.notna(amount_ma20.iloc[-1])
+                else pd.NA
             )
 
             candidate_rows.append(

@@ -13,13 +13,20 @@ import sys
 from dataclasses import asdict
 from datetime import date, timedelta
 
+import pandas as pd
+
 from core.holding_diagnostic import diagnose_one_stock
 from integrations.stock_hist_repository import get_stock_hist
+
+
 def _safe_float(v, default=0.0):
     """安全 float 转换，pd.NA/NaN/None → default。"""
     import builtins
+
     try:
         if v is None:
+            return default
+        if pd.isna(v):
             return default
         if isinstance(v, (int, float)):
             try:
@@ -36,7 +43,6 @@ def _safe_float(v, default=0.0):
 def _safe_value(v):
     """Convert numpy/pandas types to JSON-safe Python types."""
     import numpy as np
-    import pandas as pd
 
     if isinstance(v, (np.integer,)):
         return int(v)

@@ -8,11 +8,16 @@ from statistics import median
 from typing import Any
 
 import pandas as pd
+
+
 def _safe_float(v, default=0.0):
     """安全 float 转换，pd.NA/NaN/None → default。"""
     import builtins
+
     try:
         if v is None:
+            return default
+        if pd.isna(v):
             return default
         if isinstance(v, (int, float)):
             try:
@@ -24,6 +29,7 @@ def _safe_float(v, default=0.0):
         return builtins.float(v)
     except (TypeError, ValueError, AttributeError):
         return default
+
 
 THEME_ALIASES: dict[str, tuple[str, ...]] = {
     "芯片半导体": ("芯片", "半导体", "集成电路", "先进封装", "存储", "光刻胶", "第三代半导体", "semiconductor", "chip"),

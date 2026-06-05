@@ -266,9 +266,9 @@ def _build_stocks(triggers: dict, metrics: dict) -> list[dict]:
         try:
             if v is None:
                 return default
+            if pd.isna(v):
+                return default
             if isinstance(v, (int, float)):
-                if pd.isna(v):
-                    return default
                 return float(v)
             return float(v)
         except (TypeError, ValueError):

@@ -14,11 +14,16 @@ from importlib.util import find_spec
 from typing import Any
 
 import pandas as pd
+
+
 def _safe_float(v, default=0.0):
     """安全 float 转换，pd.NA/NaN/None → default。"""
     import builtins
+
     try:
         if v is None:
+            return default
+        if pd.isna(v):
             return default
         if isinstance(v, (int, float)):
             try:
@@ -30,6 +35,7 @@ def _safe_float(v, default=0.0):
         return builtins.float(v)
     except (TypeError, ValueError, AttributeError):
         return default
+
 
 SUPPORTED_WBT_ENGINES = {"legacy", "auto", "both", "wbt"}
 
@@ -140,7 +146,9 @@ def build_position_weight_frame(
 
     close_maps: dict[str, dict[date, float]] = {}
     for code in symbols:
-        from_cache = {d: _safe_float(v[3]) for d, v in (ohlc_cache.get(code) or {}).items() if v is not None and len(v) >= 4}
+        from_cache = {
+            d: _safe_float(v[3]) for d, v in (ohlc_cache.get(code) or {}).items() if v is not None and len(v) >= 4
+        }
         close_maps[code] = from_cache or _close_map_from_df(all_df_map.get(code))
 
     rows: list[dict[str, Any]] = []

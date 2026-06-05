@@ -14,16 +14,26 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import pandas as pd
+
 from integrations.llm_client import call_llm, provider_fallbacks, provider_route_chain, resolve_provider_name
 from integrations.supabase_portfolio import load_portfolio_state
 from integrations.tickflow_client import TickFlowClient
 from scripts.tail_buy_intraday_job import (
-import pandas as pd
+    _analyze_holdings_actions,
+    _build_holdings_markdown,
+)
+from utils.notify import send_to_telegram
+
+
 def _safe_float(v, default=0.0):
     """安全 float 转换，pd.NA/NaN/None → default。"""
     import builtins
+
     try:
         if v is None:
+            return default
+        if pd.isna(v):
             return default
         if isinstance(v, (int, float)):
             try:
@@ -35,10 +45,7 @@ def _safe_float(v, default=0.0):
         return builtins.float(v)
     except (TypeError, ValueError, AttributeError):
         return default
-    _analyze_holdings_actions,
-    _build_holdings_markdown,
-)
-from utils.notify import send_to_telegram
+
 
 TZ = ZoneInfo("Asia/Shanghai")
 

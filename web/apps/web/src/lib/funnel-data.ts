@@ -12,9 +12,11 @@ import { supabase } from './supabase'
 export interface FunnelLayerStats {
   layer: string
   label: string
+  desc: string
   count: number
   total: number
   passRate: number
+  detail?: Record<string, number>
 }
 
 export interface SectorStat {
@@ -165,7 +167,7 @@ function toStockResult(r: {
     if (reason.includes(keyword)) { channel = keyword; break }
   }
   return {
-    code: String(r.code),
+    code: String(r.code).padStart(6, '0'),
     name: r.name,
     channel,
     score: r.funnel_score ?? 0,
@@ -202,11 +204,34 @@ export async function fetchFunnelSummary(date?: string): Promise<FunnelSummary |
     L4: aiSelected.length,
   }
 
+  // L2 通道细分
+  const l2Detail: Record<string, number> = {}
+  for (const r of latest) {
+    if ((r.funnel_score ?? 0) >= 5 && r.recommend_reason) {
+      for (const keyword of Object.keys(TRIGGER_KEYWORDS)) {
+        if (r.recommend_reason.includes(keyword)) {
+          l2Detail[keyword] = (l2Detail[keyword] || 0) + 1
+          break
+        }
+      }
+    }
+  }
+
+  // L4 触发信号细分
+  const l4Detail: Record<string, number> = {}
+  for (const r of aiSelected) {
+    if (r.recommend_reason) {
+      for (const sig of parseSignals(r.recommend_reason)) {
+        l4Detail[sig] = (l4Detail[sig] || 0) + 1
+      }
+    }
+  }
+
   const layers: FunnelLayerStats[] = [
-    { layer: 'L1', label: '初筛', count: layerBreakdown.L1, total, passRate: 100 },
-    { layer: 'L2', label: '通道甄别', count: layerBreakdown.L2, total, passRate: safePct(layerBreakdown.L2, total) },
-    { layer: 'L3', label: '深度评分', count: layerBreakdown.L3, total, passRate: safePct(layerBreakdown.L3, total) },
-    { layer: 'L4', label: 'AI 精选', count: layerBreakdown.L4, total, passRate: safePct(layerBreakdown.L4, total) },
+    { layer: 'L1', label: '初筛', desc: '剔除ST/北交所/小市值/低成交额', count: layerBreakdown.L1, total, passRate: 100 },
+    { layer: 'L2', label: '通道甄别', desc: 'RS强弱对比+均线结构+成交量验证 → 主升/潜伏/吸筹/点火破局等通道', count: layerBreakdown.L2, total, passRate: safePct(layerBreakdown.L2, total), detail: l2Detail },
+    { layer: 'L3', label: '板块共振', desc: '概念/行业热度共振筛选+深度评分', count: layerBreakdown.L3, total, passRate: safePct(layerBreakdown.L3, total) },
+    { layer: 'L4', label: 'AI 精选', desc: 'Spring/LPS/EVR/SOS/Compression/TrendPullback 信号检测+AI筛选', count: layerBreakdown.L4, total, passRate: safePct(layerBreakdown.L4, total), detail: l4Detail },
   ]
 
   const { sectors, triggers } = computeSectorsAndTriggers(aiSelected)

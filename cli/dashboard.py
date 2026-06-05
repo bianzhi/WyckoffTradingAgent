@@ -240,12 +240,14 @@ def _build_and_persist_funnel(triggers: dict, metrics: dict) -> dict:
         else:
             recommend_date = int(datetime.now(CN_TZ).strftime("%Y%m%d"))
 
+        name_map = metrics.get("name_map", {}) or {}
+
         seen: dict[str, float] = {}
         for hits in triggers.values():
             for code, score in hits:
                 seen[code] = max(seen.get(code, 0.0), score)
         symbols_info = [
-            {"code": code, "name": "", "tag": "", "initial_price": 0.0, "score": score}
+            {"code": code, "name": name_map.get(code, ""), "tag": "", "initial_price": 0.0, "score": score}
             for code, score in sorted(seen.items())
         ]
         if symbols_info:

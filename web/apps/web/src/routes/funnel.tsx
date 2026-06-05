@@ -653,14 +653,30 @@ function FunnelLayersChart({ layers, dataDate }: { layers: FunnelSummary['layers
   return (
     <div>
       <div ref={containerRef} className="h-[220px] w-full overflow-hidden rounded-lg border border-border bg-background" />
-      <div className="mt-2 flex justify-around text-[11px] text-muted-foreground">
-        {layers.map(layer => (
-          <div key={layer.layer} className="text-center">
-            <div className="font-medium">{layer.label}</div>
-            <div>{layer.count} 只</div>
-            <div className="font-semibold text-foreground">{layer.passRate}%</div>
-          </div>
-        ))}
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {layers.map(layer => {
+          const layerColors: Record<string, string> = { L1: 'bg-blue-500', L2: 'bg-emerald-500', L3: 'bg-amber-500', L4: 'bg-red-500' }
+          const dot = layerColors[layer.layer] || 'bg-primary'
+          return (
+            <div key={layer.layer} className="rounded-lg border border-border/60 bg-background/50 p-2">
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className={`inline-block h-2 w-2 rounded-full ${dot}`} />
+                <span className="text-xs font-semibold">{layer.layer} · {layer.label}</span>
+                <span className="ml-auto text-[11px] font-mono tabular-nums">{layer.count}只 <span className="text-muted-foreground">{layer.passRate}%</span></span>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-snug">{layer.desc}</p>
+              {layer.detail && Object.keys(layer.detail).length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {Object.entries(layer.detail).map(([k, v]) => (
+                    <span key={k} className="rounded bg-muted/60 px-1.5 py-0.5 text-[10px] tabular-nums">
+                      {k} {v}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -976,7 +992,11 @@ function FunnelStockRow({ s, i }: { s: FunnelStockResult; i: number }) {
           {s.code}
         </Link>
       </td>
-      <td className="px-2 py-1.5 text-muted-foreground max-w-[120px] truncate" title={s.name}>{s.name || '-'}</td>
+      <td className="px-2 py-1.5 max-w-[120px] truncate" title={s.name}>
+        <Link to={`/analysis?code=${s.code}`} className="text-primary hover:underline truncate">
+          {s.name || '-'}
+        </Link>
+      </td>
       <td className="px-2 py-1.5">
         <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">{s.channel || '-'}</span>
       </td>
@@ -1076,12 +1096,13 @@ function FunnelStockTable({
 }) {
   const { sorted, toggleSort, sortArrow } = useStockSort(activeStocks)
 
-  const th = (key: StockSortKey, label: string, align: 'left' | 'right' = 'left') => (
+  const th = (key: StockSortKey, label: string, align: 'left' | 'right' = 'left', badge?: string) => (
     <th
       className={`px-2 py-1.5 text-${align} cursor-pointer hover:text-foreground select-none whitespace-nowrap`}
       onClick={() => toggleSort(key)}
     >
       {label}{sortArrow(key)}
+      {badge && <span className="ml-1 rounded bg-muted/60 px-1 py-0.5 text-[9px] align-middle">{badge}</span>}
     </th>
   )
 
@@ -1091,13 +1112,13 @@ function FunnelStockTable({
         <thead>
           <tr className="border-b border-border text-muted-foreground">
             <th className="px-2 py-1.5 text-left w-8">#</th>
-            {th('code', isZh ? '代码' : 'Code')}
-            {th('name', isZh ? '名称' : 'Name')}
-            {th('channel', isZh ? 'L2通道' : 'L2 Channel')}
-            {th('score', isZh ? '评分' : 'Score', 'right')}
+            {th('code', isZh ? '代码' : 'Code', 'left', 'L1')}
+            {th('name', isZh ? '名称' : 'Name', 'left', 'L1')}
+            {th('channel', isZh ? '通道' : 'Channel', 'left', 'L2')}
+            {th('score', isZh ? '评分' : 'Score', 'right', 'L3')}
             {th('price', isZh ? '最新价' : 'Price', 'right')}
-            {th('signals', isZh ? 'L4信号' : 'L4 Signals')}
-            {th('stage', isZh ? '阶段' : 'Stage')}
+            {th('signals', isZh ? '信号' : 'Signals', 'left', 'L4')}
+            {th('stage', isZh ? '阶段' : 'Stage', 'left', 'L4')}
             {th('remark', isZh ? '备注' : 'Remark')}
           </tr>
         </thead>

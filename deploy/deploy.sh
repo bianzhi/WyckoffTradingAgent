@@ -70,4 +70,4 @@ log "容器状态:"
 docker compose -f "$COMPOSE_FILE" ps
 
 echo ""
-echo "访问: http://$(hostname -I 2>/dev/null | awk '{print $1}' || hostname):8901/moyan/"
+echo "访问: http://$(hostname -I 2>/dev/null | awk '{print $1}' || hostname):8901/"

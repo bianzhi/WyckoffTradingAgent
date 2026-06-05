@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createChart, HistogramSeries, type HistogramData, type Time } from 'lightweight-charts'
-import { fetchFunnelSummary, fetchFunnelDates, fetchSignalQualityStats, fetchFunnelResult, downloadFunnelReport, fetchAgentHealth, type FunnelSummary, type SectorStat, type TriggerStat, type FunnelFullResult, type FunnelLayerCondition } from '@/lib/funnel-data'
+import { fetchFunnelSummary, fetchFunnelDates, fetchSignalQualityStats, downloadFunnelReport, fetchAgentHealth, type FunnelSummary, type SectorStat, type TriggerStat, type FunnelStockResult } from '@/lib/funnel-data'
 import { SkeletonChart, SkeletonCard } from '@/components/ux/skeleton'
 import { Breadcrumb } from '@/components/ux/breadcrumb'
 import { ScrollToTop } from '@/components/ux/scroll-top'
@@ -120,14 +120,6 @@ export function FunnelPage() {
     staleTime: 300_000,
   })
 
-  // ── Phase 4.0: 漏斗完整结果（个股+层级条件） ──────────────────────
-  const { data: funnelResult } = useQuery({
-    queryKey: ['funnel-result'],
-    queryFn: fetchFunnelResult,
-    staleTime: 300_000,
-    retry: 1,
-  })
-
   const { data: agentHealth } = useQuery({
     queryKey: ['agent-health'],
     queryFn: fetchAgentHealth,
@@ -180,7 +172,6 @@ export function FunnelPage() {
             await refetchSummary()
             queryClient.invalidateQueries({ queryKey: ['funnel-summary'] })
             queryClient.invalidateQueries({ queryKey: ['funnel-dates'] })
-            queryClient.invalidateQueries({ queryKey: ['funnel-result'] })
           } else if (body.last_result) {
             const lr = body.last_result as Record<string, unknown>
             setFunnelState('error')
@@ -326,17 +317,12 @@ export function FunnelPage() {
       {/* Phase 2.4: 信号质量面板 */}
       <SignalQualitySection isZh={isZh} />
 
-      {/* Phase 4.0: 层级筛选条件 */}
-      {funnelResult?.ok && funnelResult.layer_conditions && (
-        <FunnelLayerConditions isZh={isZh} layers={funnelResult.layer_conditions} />
-      )}
-
       {/* Phase 4.0: 筛选结果个股列表 + 报告下载 */}
-      {funnelResult?.ok && funnelResult.stocks && funnelResult.stocks.length > 0 && (
+      {summary.stocks.length > 0 && (
         <FunnelStocksSection
           isZh={isZh}
-          stocks={funnelResult.stocks}
-          date={funnelResult.date}
+          stocks={summary.stocks}
+          date={summary.date}
           onDownloadReport={downloadFunnelReport}
         />
       )}
@@ -807,104 +793,9 @@ function SignalQualitySection({ isZh }: { isZh: boolean }) {
 
 // ── Phase 4.0: 层级筛选条件组件 ──────────────────────────────────────────────
 
-const LAYER_CRITERIA: Record<string, { params: { label: string; value: string }[] }> = {
-  L1: { params: [
-    { label: '板块限制', value: '沪深主板+创业板' },
-    { label: 'ST/退市', value: '剔除' },
-    { label: '最小市值', value: '≥ 35 亿' },
-    { label: '最小日均成交额', value: '≥ 5000 万' },
-    { label: 'ROE底线', value: '≥ -10%（剔除严重亏损）' },
-    { label: '资产负债率', value: '≤ 85%' },
-  ]},
-  L2: { params: [
-    { label: 'MA均线', value: 'MA50 / MA200' },
-    { label: 'RS强弱', value: '10日RS≥2%, 3日RS≥1%' },
-    { label: 'RPS动量', value: 'RPS50≥65, RPS120≥70' },
-    { label: 'RPS斜率', value: '≥ 0.5%/天' },
-    { label: '七通道策略', value: '主升/潜伏/吸筹/地量/护盘/延续/点火' },
-  ]},
-  L3: { params: [
-    { label: '板块共振', value: '行业/概念热度Top-N过滤' },
-    { label: '样本门槛', value: '单板块≥3只，分位数≥70%' },
-    { label: 'ETF增强', value: '36只行业ETF注入板块权重' },
-  ]},
-  L4: { params: [
-    { label: 'Spring', value: 'TR内破低反收+放量' },
-    { label: 'LPS', value: '回踩支撑缩量确认' },
-    { label: 'SOS', value: '放量突破阻力位' },
-    { label: 'EVR', value: 'Effort vs Result 背离' },
-    { label: 'Compression', value: '波动率压缩至极限' },
-    { label: 'TrendPullback', value: '趋势回调至支撑位' },
-  ]},
-  L5: { params: [
-    { label: '波动率止损', value: 'ATR(10)×2 动态跟踪' },
-    { label: '时间止损', value: '持仓>20日且无新高' },
-    { label: '派发预警', value: '高位放量+价格停滞' },
-  ]},
-}
-
 const SIGNAL_LABELS: Record<string, string> = {
   sos: '点火突破', spring: 'Spring', lps: 'LPS',
   evr: 'EVR', compression: '压缩', trend_pullback: '趋势回调',
-}
-
-function FunnelLayerConditions({ isZh, layers }: { isZh: boolean; layers: Record<string, FunnelLayerCondition> }) {
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
-  const toggle = (key: string) => setExpanded(prev => ({ ...prev, [key]: !prev[key] }))
-
-  return (
-    <section className="rounded-xl border border-border bg-card/50 p-4">
-      <h2 className="mb-3 text-sm font-semibold">{isZh ? '各层筛选条件' : 'Layer Conditions'}</h2>
-      <div className="space-y-2">
-        {(['L1', 'L2', 'L3', 'L4', 'L5'] as const).map(key => {
-          const l = layers[key]
-          if (!l) return null
-          const open = expanded[key] ?? false
-          const criteria = LAYER_CRITERIA[key]
-          return (
-            <div key={key} className="rounded-lg border border-border/60 bg-background/50">
-              <button
-                type="button"
-                onClick={() => toggle(key)}
-                className="flex w-full items-center gap-2 p-3 text-left hover:bg-muted/30 transition-colors"
-              >
-                <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold text-emerald-400">{key}</span>
-                <span className="text-xs font-semibold flex-1">{l.label}</span>
-                <span className="text-[11px] tabular-nums text-muted-foreground">
-                  {isZh ? '通过' : 'Passed'} <b className="text-foreground">{l.passed}</b>
-                </span>
-                <span className={`text-[10px] text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`}>▼</span>
-              </button>
-              {open && (
-                <div className="border-t border-border/40 px-3 pb-3 pt-2 space-y-1.5">
-                  <p className="text-[11px] leading-relaxed text-muted-foreground">{l.desc}</p>
-                  {criteria && (
-                    <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
-                      {criteria.params.map(p => (
-                        <div key={p.label} className="flex items-baseline gap-1.5 text-[11px]">
-                          <span className="text-muted-foreground shrink-0">{p.label}:</span>
-                          <span className="font-medium text-foreground">{p.value}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {l.detail && Object.keys(l.detail).length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {Object.entries(l.detail).map(([tag, count]) => (
-                        <span key={tag} className="rounded bg-muted px-1.5 py-0.5 text-[10px] tabular-nums">
-                          {key === 'L4' ? (SIGNAL_LABELS[tag] ?? tag) : tag}: <b>{count}</b>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-    </section>
-  )
 }
 
 // ── Phase 4.0: 个股结果表格 + 报告下载 ───────────────────────────────────────
@@ -913,7 +804,7 @@ function FunnelStocksSection({
   isZh, stocks, date, onDownloadReport,
 }: {
   isZh: boolean
-  stocks: FunnelFullResult['stocks']
+  stocks: FunnelStockResult[]
   date: string
   onDownloadReport: () => void
 }) {
@@ -1076,7 +967,7 @@ function MultiSelect({
   )
 }
 
-function FunnelStockRow({ s, i }: { s: FunnelFullResult['stocks'][number]; i: number }) {
+function FunnelStockRow({ s, i }: { s: FunnelStockResult; i: number }) {
   return (
     <tr key={s.code} className="border-b border-border/50 hover:bg-muted/20">
       <td className="px-2 py-1.5 text-muted-foreground tabular-nums">{i + 1}</td>
@@ -1112,7 +1003,7 @@ function FunnelStockRow({ s, i }: { s: FunnelFullResult['stocks'][number]; i: nu
 
 function FunnelExitedSection({ isZh, exitedStocks }: {
   isZh: boolean
-  exitedStocks: FunnelFullResult['stocks']
+  exitedStocks: FunnelStockResult[]
 }) {
   return (
     <>
@@ -1144,7 +1035,7 @@ function FunnelExitedSection({ isZh, exitedStocks }: {
 
 type StockSortKey = 'code' | 'name' | 'channel' | 'score' | 'price' | 'signals' | 'stage' | 'remark'
 
-function useStockSort(activeStocks: FunnelFullResult['stocks']) {
+function useStockSort(activeStocks: FunnelStockResult[]) {
   const [sortBy, setSortBy] = useState<StockSortKey>('score')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
@@ -1180,8 +1071,8 @@ function FunnelStockTable({
   isZh, activeStocks, exitedStocks,
 }: {
   isZh: boolean
-  activeStocks: FunnelFullResult['stocks']
-  exitedStocks: FunnelFullResult['stocks']
+  activeStocks: FunnelStockResult[]
+  exitedStocks: FunnelStockResult[]
 }) {
   const { sorted, toggleSort, sortArrow } = useStockSort(activeStocks)
 

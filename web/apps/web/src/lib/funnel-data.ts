@@ -37,6 +37,7 @@ export interface FunnelSummary {
   triggers: TriggerStat[]
   totalScanned: number
   aiCount: number
+  stocks: FunnelStockResult[]
 }
 
 // ── Phase 4.0: 漏斗完整结果类型 ──────────────────────────────────────────────
@@ -116,7 +117,7 @@ function guessSector(name: string): string {
 async function fetchRecommendations(date?: string) {
   let query = supabase
     .from('recommendation_tracking')
-    .select('code, name, recommend_date, funnel_score, recommend_reason, is_ai_recommended')
+    .select('code, name, recommend_date, funnel_score, recommend_reason, is_ai_recommended, initial_price, current_price, change_pct')
     .order('recommend_date', { ascending: false })
     .limit(500)
 
@@ -128,32 +129,74 @@ async function fetchRecommendations(date?: string) {
   return (data || []) as Array<{
     code: number
     name: string
-    recommend_date: string
+    recommend_date: number
     funnel_score: number | null
     recommend_reason: string | null
     is_ai_recommended: boolean
+    initial_price: number | null
+    current_price: number | null
+    change_pct: number | null
   }>
+}
+
+// Parse signal list from recommend_reason text
+function parseSignals(reason: string): string[] {
+  const signals: string[] = []
+  if (/Spring/i.test(reason) || /spring/i.test(reason)) signals.push('spring')
+  if (/LPS/i.test(reason)) signals.push('lps')
+  if (/SOS/i.test(reason) || /点火/i.test(reason)) signals.push('sos')
+  if (/压缩|compression/i.test(reason)) signals.push('compression')
+  if (/趋势回调|pullback/i.test(reason)) signals.push('trend_pullback')
+  if (/EVR|effort/i.test(reason)) signals.push('evr')
+  return signals
+}
+
+function toStockResult(r: {
+  code: number
+  name: string
+  funnel_score: number | null
+  recommend_reason: string | null
+  current_price: number | null
+}): FunnelStockResult {
+  const reason = r.recommend_reason || ''
+  // Try to parse channel keywords from reason
+  let channel = ''
+  for (const [keyword] of Object.entries(TRIGGER_KEYWORDS)) {
+    if (reason.includes(keyword)) { channel = keyword; break }
+  }
+  return {
+    code: String(r.code),
+    name: r.name,
+    channel,
+    score: r.funnel_score ?? 0,
+    signals: parseSignals(reason),
+    stage: '',
+    latest_close: r.current_price,
+    exit_signal: '',
+    remark: reason,
+  }
 }
 
 export async function fetchFunnelSummary(date?: string): Promise<FunnelSummary | null> {
   const rows = await fetchRecommendations(date)
   if (rows.length === 0) return null
 
-  // Find latest date
-  const dateCounts = new Map<string, number>()
+  // Group by date to find the target date
+  const dateCounts = new Map<number, number>()
   for (const r of rows) {
     dateCounts.set(r.recommend_date, (dateCounts.get(r.recommend_date) || 0) + 1)
   }
-  const latestDate = [...dateCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || ''
+  // If date specified, use it; otherwise pick the one with most entries
+  const targetDate = date
+    ? Number(date)
+    : ([...dateCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || 0)
 
-  // Filter to latest date
-  const latest = rows.filter(r => r.recommend_date === latestDate)
+  const latest = rows.filter(r => r.recommend_date === targetDate)
   const aiSelected = latest.filter(r => r.is_ai_recommended)
 
-  // Layer stats (estimated from scores)
   const total = latest.length
   const layerBreakdown = {
-    L1: latest.length, // all in latest date passed L1
+    L1: latest.length,
     L2: latest.filter(r => (r.funnel_score ?? 0) >= 5).length,
     L3: latest.filter(r => (r.funnel_score ?? 0) >= 10).length,
     L4: aiSelected.length,
@@ -169,12 +212,13 @@ export async function fetchFunnelSummary(date?: string): Promise<FunnelSummary |
   const { sectors, triggers } = computeSectorsAndTriggers(aiSelected)
 
   return {
-    date: latestDate,
+    date: String(targetDate),
     layers,
     sectors,
     triggers,
     totalScanned: total,
     aiCount: aiSelected.length,
+    stocks: latest.map(toStockResult),
   }
 }
 

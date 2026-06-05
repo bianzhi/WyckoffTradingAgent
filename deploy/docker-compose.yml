@@ -39,6 +39,7 @@ services:
       target: agent
       additional_contexts:
         root: ..
+        deploy: ../deploy
     container_name: wyckoff-agent
     restart: unless-stopped
     env_file:

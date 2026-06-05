@@ -1045,7 +1045,7 @@ def _append_theme_reasons(code_to_reasons: dict[str, list[str]], badge_map: dict
 def _apply_theme_bonus_to_scores(score_map: dict[str, float], bonus_map: dict[str, float]) -> None:
     for code, bonus in bonus_map.items():
         if code in score_map:
-            score_map[code] = float(score_map.get(code, 0.0) or 0.0) + float(bonus)
+            score_map[code] = _safe_float(score_map.get(code, 0.0) or 0.0) + _safe_float(bonus)
 
 
 def _promote_theme_l4_for_ai(
@@ -1059,13 +1059,13 @@ def _promote_theme_l4_for_ai(
     score_map: dict[str, float],
 ) -> int:
     ranked = [code for code in formal_hit_set if code in theme_bonus_map]
-    ranked.sort(key=lambda c: (-float(code_to_total_score.get(c, 0.0) or 0.0), c))
+    ranked.sort(key=lambda c: (-_safe_float(code_to_total_score.get(c, 0.0) or 0.0), c))
     ranked = ranked if FUNNEL_THEME_RADAR_PROMOTE_CAP <= 0 else ranked[:FUNNEL_THEME_RADAR_PROMOTE_CAP]
     selected_seen = set(selected_for_ai)
     track_seen = set(trend_selected) | set(accum_selected)
     added = 0
     for code in ranked:
-        score_map.setdefault(code, float(code_to_total_score.get(code, 0.0) or 0.0))
+        score_map.setdefault(code, _safe_float(code_to_total_score.get(code, 0.0) or 0.0))
         if code not in selected_seen:
             selected_for_ai.append(code)
             selected_seen.add(code)
@@ -1087,7 +1087,7 @@ def _rerank_selected_codes(codes: list[str], score_map: dict[str, float]) -> lis
         if code not in seen:
             deduped.append(code)
             seen.add(code)
-    return sorted(deduped, key=lambda c: (-float(score_map.get(c, 0.0) or 0.0), c))
+    return sorted(deduped, key=lambda c: (-_safe_float(score_map.get(c, 0.0) or 0.0), c))
 
 
 def _theme_report_fields(code: str, candidate_map: dict[str, dict], bonus_map: dict[str, float]) -> dict:
@@ -1504,7 +1504,7 @@ def run_funnel_job(
                 continue
             last_close = close_series.iloc[-1]
             if pd.notna(last_close):
-                latest_close_map[str(sym).strip()] = float(last_close)
+                latest_close_map[str(sym).strip()] = _safe_float(last_close)
         except Exception:
             logger.debug("close price parse failed for %s", sym, exc_info=True)
             continue
@@ -1563,7 +1563,7 @@ def run_funnel_job(
         "by_trigger": {k: len(v) for k, v in triggers.items()},
         "benchmark_context": benchmark_context,
         "latest_close_map": latest_close_map,
-        "min_funnel_score": float(getattr(cfg, "min_funnel_score", 0.0) or 0.0),
+        "min_funnel_score": _safe_float(getattr(cfg, "min_funnel_score", 0.0) or 0.0),
         # L2 旁路观察池
         "l2_bypass_pool": l2_bypass_pool,
         "l2_bypass_triggers": bypass_triggers,
@@ -1722,7 +1722,7 @@ def run(
     if use_full_formal_l4_selection or use_legacy_selection:
         selected_for_ai = list(formal_sorted_codes)
         trend_selected, accum_selected = _split_selected_tracks(selected_for_ai, code_to_trigger_keys)
-        score_map = {c: float(code_to_best_score.get(c, 0.0)) for c in formal_sorted_codes}
+        score_map = {c: _safe_float(code_to_best_score.get(c, 0.0)) for c in formal_sorted_codes}
         ai_policy = {
             "total_cap": len(formal_sorted_codes),
             "trend_quota": len(trend_selected),
@@ -1803,7 +1803,7 @@ def run(
             f"cap={FUNNEL_THEME_RADAR_PROMOTE_CAP or 'unlimited'}, l4_hit={theme_l4_count}"
         )
 
-    min_funnel_score = float(metrics.get("min_funnel_score", 0.0) or 0.0)
+    min_funnel_score = _safe_float(metrics.get("min_funnel_score", 0.0) or 0.0)
     if score_map and min_funnel_score > 0:
         before = len(selected_for_ai)
         selected_for_ai = [c for c in selected_for_ai if score_map.get(c, 0.0) >= min_funnel_score]
@@ -1841,8 +1841,8 @@ def run(
             _cum3 = benchmark_context.get("recent3_cum_pct") or 0
             bench_line = (
                 f"{benchmark_context.get('regime')} | "
-                f"收盘 {float(_close):.2f} | MA50 {float(_ma50):.2f} | MA200 {float(_ma200):.2f} | "
-                f"近3日 {float(_cum3):+.2f}%"
+                f"收盘 {_safe_float(_close):.2f} | MA50 {_safe_float(_ma50):.2f} | MA200 {_safe_float(_ma200):.2f} | "
+                f"近3日 {_safe_float(_cum3):+.2f}%"
             )
             pv_line = str(
                 benchmark_context.get("market_pv_outlook") or benchmark_context.get("market_pv_summary") or pv_line
@@ -1998,10 +1998,10 @@ def run(
                 "tag": _candidate_reason_text(c, code_to_reasons, theme_badge_map),
                 "track": _infer_track(c),
                 "stage": _legacy_stage(c),
-                "score": float(
+                "score": _safe_float(
                     code_to_total_score.get(c, 0.0) or (metrics.get("layer3_score_map", {}) or {}).get(c, 0.0)
                 ),
-                "priority_score": float(code_to_best_score.get(c, 0.0)),
+                "priority_score": _safe_float(code_to_best_score.get(c, 0.0)),
                 "priority_rank": idx + 1,
                 "selection_source": (
                     "strategic_l2_bypass"
@@ -2011,7 +2011,7 @@ def run(
                     else "l4_hit"
                 ),
                 "selection_is_fill": False,
-                "initial_price": float(latest_close_map.get(c, 0.0) or 0.0),
+                "initial_price": _safe_float(latest_close_map.get(c, 0.0) or 0.0),
                 "industry": str(sector_map.get(c, "") or "未知行业"),
                 "sector_state_code": str(
                     (sector_rotation_map.get(str(sector_map.get(c, "") or "未知行业"), {}) or {}).get("state", "")
@@ -2105,8 +2105,8 @@ def run(
         _ma200 = benchmark_context.get("ma200") or 0
         _cum3 = benchmark_context.get("recent3_cum_pct") or 0
         bench_line = (
-            f"{benchmark_context.get('regime')} | 收盘 {float(_close):.2f} | "
-            f"MA50 {float(_ma50):.2f} | MA200 {float(_ma200):.2f} | 近3日 {float(_cum3):+.2f}%"
+            f"{benchmark_context.get('regime')} | 收盘 {_safe_float(_close):.2f} | "
+            f"MA50 {_safe_float(_ma50):.2f} | MA200 {_safe_float(_ma200):.2f} | 近3日 {_safe_float(_cum3):+.2f}%"
         )
         pv_line = str(
             benchmark_context.get("market_pv_outlook") or benchmark_context.get("market_pv_summary") or pv_line
@@ -2150,8 +2150,8 @@ def run(
         lines.append("")
 
     def _display_score(code: str) -> float:
-        trigger_score = float(code_to_total_score.get(code, 0.0) or 0.0)
-        return trigger_score if trigger_score > 0 else float(score_map.get(code, 0.0) or 0.0)
+        trigger_score = _safe_float(code_to_total_score.get(code, 0.0) or 0.0)
+        return trigger_score if trigger_score > 0 else _safe_float(score_map.get(code, 0.0) or 0.0)
 
     if formal_sorted_codes:
         lines.append("**正式L4展开**: 以下列出全部正式L4；标记 →AI 的进入 Step3 研报")
@@ -2261,12 +2261,12 @@ def run(
             ).strip(" |"),
             "track": ("Trend" if c in trend_selected else "Accum" if c in accum_selected else ""),
             "stage": _stage_name(c),
-            "score": float(_display_score(c)),
-            "priority_score": float(score_map.get(c, 0.0)),
+            "score": _safe_float(_display_score(c)),
+            "priority_score": _safe_float(score_map.get(c, 0.0)),
             "priority_rank": idx + 1,
             "selection_source": _selection_source(c),
             "selection_is_fill": _selection_source(c) == "l3_fill",
-            "initial_price": float(latest_close_map.get(c, 0.0) or 0.0),
+            "initial_price": _safe_float(latest_close_map.get(c, 0.0) or 0.0),
             "industry": str(sector_map.get(c, "") or "未知行业"),
             "sector_state_code": str(
                 (sector_rotation_map.get(str(sector_map.get(c, "") or "未知行业"), {}) or {}).get("state", "")

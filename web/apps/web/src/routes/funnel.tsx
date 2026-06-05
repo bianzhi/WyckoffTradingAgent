@@ -653,31 +653,64 @@ function FunnelLayersChart({ layers, dataDate }: { layers: FunnelSummary['layers
   return (
     <div>
       <div ref={containerRef} className="h-[220px] w-full overflow-hidden rounded-lg border border-border bg-background" />
-      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {layers.map(layer => {
-          const layerColors: Record<string, string> = { L1: 'bg-blue-500', L2: 'bg-emerald-500', L3: 'bg-amber-500', L4: 'bg-red-500' }
-          const dot = layerColors[layer.layer] || 'bg-primary'
-          return (
-            <div key={layer.layer} className="rounded-lg border border-border/60 bg-background/50 p-2">
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className={`inline-block h-2 w-2 rounded-full ${dot}`} />
-                <span className="text-xs font-semibold">{layer.layer} · {layer.label}</span>
-                <span className="ml-auto text-[11px] font-mono tabular-nums">{layer.count}只 <span className="text-muted-foreground">{layer.passRate}%</span></span>
+      <FunnelLayerAccordion layers={layers} />
+    </div>
+  )
+}
+
+function FunnelLayerAccordion({ layers }: { layers: FunnelSummary['layers'] }) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const toggle = (key: string) => setExpanded(prev => ({ ...prev, [key]: !prev[key] }))
+
+  // L5 不在 summary.layers 中，手动补充
+  const allLayers = [...layers]
+
+  return (
+    <div className="mt-3 space-y-2">
+      {allLayers.map(layer => {
+        const open = expanded[layer.layer] ?? false
+        const criteria = LAYER_CRITERIA[layer.layer]
+        return (
+          <div key={layer.layer} className="rounded-lg border border-border/60 bg-background/50">
+            <button
+              type="button"
+              onClick={() => toggle(layer.layer)}
+              className="flex w-full items-center gap-2 p-3 text-left hover:bg-muted/30 transition-colors"
+            >
+              <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold text-emerald-400">{layer.layer}</span>
+              <span className="text-xs font-semibold flex-1">{layer.label}</span>
+              <span className="text-[11px] tabular-nums text-muted-foreground">
+                通过 <b className="text-foreground">{layer.count}</b> 只 · {layer.passRate}%
+              </span>
+              <span className={`text-[10px] text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`}>▼</span>
+            </button>
+            {open && (
+              <div className="border-t border-border/40 px-3 pb-3 pt-2 space-y-1.5">
+                <p className="text-[11px] leading-relaxed text-muted-foreground">{layer.desc}</p>
+                {criteria && (
+                  <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                    {criteria.params.map(p => (
+                      <div key={p.label} className="flex items-baseline gap-1.5 text-[11px]">
+                        <span className="text-muted-foreground shrink-0">{p.label}:</span>
+                        <span className="font-medium text-foreground">{p.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {layer.detail && Object.keys(layer.detail).length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {Object.entries(layer.detail).map(([tag, count]) => (
+                      <span key={tag} className="rounded bg-muted px-1.5 py-0.5 text-[10px] tabular-nums">
+                        {layer.layer === 'L4' ? (SIGNAL_LABELS[tag] ?? tag) : tag}: <b>{count}</b>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
-              <p className="text-[11px] text-muted-foreground leading-snug">{layer.desc}</p>
-              {layer.detail && Object.keys(layer.detail).length > 0 && (
-                <div className="mt-1.5 flex flex-wrap gap-1">
-                  {Object.entries(layer.detail).map(([k, v]) => (
-                    <span key={k} className="rounded bg-muted/60 px-1.5 py-0.5 text-[10px] tabular-nums">
-                      {k} {v}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -808,6 +841,42 @@ function SignalQualitySection({ isZh }: { isZh: boolean }) {
 }
 
 // ── Phase 4.0: 层级筛选条件组件 ──────────────────────────────────────────────
+
+const LAYER_CRITERIA: Record<string, { params: { label: string; value: string }[] }> = {
+  L1: { params: [
+    { label: '板块限制', value: '沪深主板+创业板' },
+    { label: 'ST/退市', value: '剔除' },
+    { label: '最小市值', value: '≥ 35 亿' },
+    { label: '最小日均成交额', value: '≥ 5000 万' },
+    { label: 'ROE底线', value: '≥ -10%（剔除严重亏损）' },
+    { label: '资产负债率', value: '≤ 85%' },
+  ]},
+  L2: { params: [
+    { label: 'MA均线', value: 'MA50 / MA200' },
+    { label: 'RS强弱', value: '10日RS≥2%, 3日RS≥1%' },
+    { label: 'RPS动量', value: 'RPS50≥65, RPS120≥70' },
+    { label: 'RPS斜率', value: '≥ 0.5%/天' },
+    { label: '七通道策略', value: '主升/潜伏/吸筹/地量/护盘/延续/点火' },
+  ]},
+  L3: { params: [
+    { label: '板块共振', value: '行业/概念热度Top-N过滤' },
+    { label: '样本门槛', value: '单板块≥3只，分位数≥70%' },
+    { label: 'ETF增强', value: '36只行业ETF注入板块权重' },
+  ]},
+  L4: { params: [
+    { label: 'Spring', value: 'TR内破低反收+放量' },
+    { label: 'LPS', value: '回踩支撑缩量确认' },
+    { label: 'SOS', value: '放量突破阻力位' },
+    { label: 'EVR', value: 'Effort vs Result 背离' },
+    { label: 'Compression', value: '波动率压缩至极限' },
+    { label: 'TrendPullback', value: '趋势回调至支撑位' },
+  ]},
+  L5: { params: [
+    { label: '波动率止损', value: 'ATR(10)×2 动态跟踪' },
+    { label: '时间止损', value: '持仓>20日且无新高' },
+    { label: '派发预警', value: '高位放量+价格停滞' },
+  ]},
+}
 
 const SIGNAL_LABELS: Record<string, string> = {
   sos: '点火突破', spring: 'Spring', lps: 'LPS',
@@ -1096,13 +1165,12 @@ function FunnelStockTable({
 }) {
   const { sorted, toggleSort, sortArrow } = useStockSort(activeStocks)
 
-  const th = (key: StockSortKey, label: string, align: 'left' | 'right' = 'left', badge?: string) => (
+  const th = (key: StockSortKey, label: string, align: 'left' | 'right' = 'left') => (
     <th
       className={`px-2 py-1.5 text-${align} cursor-pointer hover:text-foreground select-none whitespace-nowrap`}
       onClick={() => toggleSort(key)}
     >
       {label}{sortArrow(key)}
-      {badge && <span className="ml-1 rounded bg-muted/60 px-1 py-0.5 text-[9px] align-middle">{badge}</span>}
     </th>
   )
 
@@ -1112,13 +1180,13 @@ function FunnelStockTable({
         <thead>
           <tr className="border-b border-border text-muted-foreground">
             <th className="px-2 py-1.5 text-left w-8">#</th>
-            {th('code', isZh ? '代码' : 'Code', 'left', 'L1')}
-            {th('name', isZh ? '名称' : 'Name', 'left', 'L1')}
-            {th('channel', isZh ? '通道' : 'Channel', 'left', 'L2')}
-            {th('score', isZh ? '评分' : 'Score', 'right', 'L3')}
+            {th('code', isZh ? '代码' : 'Code')}
+            {th('name', isZh ? '名称' : 'Name')}
+            {th('channel', isZh ? 'L2通道' : 'L2 Channel')}
+            {th('score', isZh ? 'L3评分' : 'L3 Score', 'right')}
             {th('price', isZh ? '最新价' : 'Price', 'right')}
-            {th('signals', isZh ? '信号' : 'Signals', 'left', 'L4')}
-            {th('stage', isZh ? '阶段' : 'Stage', 'left', 'L4')}
+            {th('signals', isZh ? 'L4信号' : 'L4 Signals')}
+            {th('stage', isZh ? 'L4阶段' : 'L4 Stage')}
             {th('remark', isZh ? '备注' : 'Remark')}
           </tr>
         </thead>

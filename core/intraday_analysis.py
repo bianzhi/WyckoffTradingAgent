@@ -77,7 +77,7 @@ def infer_session_vwap(close: pd.Series, total_volume: float, total_amount: floa
         if v <= 0:
             continue
         rel_err = abs(v - ref_price) / max(ref_price, 1e-8)
-        candidates.append((rel_err, float(v), float(scale)))
+        candidates.append((rel_err, _safe_float(v), _safe_float(scale)))
     if not candidates:
         return last_close, 1.0
     candidates.sort(key=lambda x: x[0])
@@ -87,15 +87,21 @@ def infer_session_vwap(close: pd.Series, total_volume: float, total_amount: floa
     return best_vwap, candidates[0][2]
 
 
-def _safe_float(raw: Any, default: float = 0.0) -> float:
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
     try:
-        if raw is None:
+        if v is None:
             return default
-        text = str(raw).strip()
-        if not text:
-            return default
-        return float(text)
-    except Exception:
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
         return default
 
 
@@ -107,8 +113,8 @@ def _compute_trend(df: pd.DataFrame, min_bars: int = 4) -> str:
         return "flat"
     x = np.arange(len(close), dtype=float)
     y = close.values.astype(float)
-    slope = float(np.polyfit(x, y, 1)[0])
-    mean_price = float(y.mean()) if y.mean() != 0 else 1.0
+    slope = _safe_float(np.polyfit(x, y, 1)[0])
+    mean_price = _safe_float(y.mean()) if y.mean() != 0 else 1.0
     pct_slope = slope / mean_price * 100.0
     if pct_slope > 0.03:
         return "up"
@@ -122,9 +128,9 @@ def _compute_volume_concentration(df: pd.DataFrame) -> str:
         return "even"
     close = df["close"].values.astype(float)
     volume = df["volume"].fillna(0.0).values.astype(float)
-    mid = float(np.median(close))
-    vol_above = float(volume[close >= mid].sum())
-    vol_below = float(volume[close < mid].sum())
+    mid = _safe_float(np.median(close))
+    vol_above = _safe_float(volume[close >= mid].sum())
+    vol_below = _safe_float(volume[close < mid].sum())
     total = vol_above + vol_below
     if total <= 0:
         return "even"
@@ -146,11 +152,11 @@ def compute_vol_price_corr(df: pd.DataFrame) -> float:
     vol_chg = np.diff(volume)
     if len(price_chg) < 10:
         return 0.0
-    std_p = float(np.std(price_chg))
-    std_v = float(np.std(vol_chg))
+    std_p = _safe_float(np.std(price_chg))
+    std_v = _safe_float(np.std(vol_chg))
     if std_p < 1e-9 or std_v < 1e-9:
         return 0.0
-    corr = float(np.corrcoef(price_chg, vol_chg)[0, 1])
+    corr = _safe_float(np.corrcoef(price_chg, vol_chg)[0, 1])
     return round(corr, 3) if np.isfinite(corr) else 0.0
 
 
@@ -162,10 +168,10 @@ def compute_effort_vs_result(df: pd.DataFrame) -> float:
     volume = df["volume"].fillna(0.0).values.astype(float)
     n = len(close)
     window = min(20, n // 2)
-    recent_vol = float(volume[-window:].mean())
-    earlier_vol = float(volume[:-window].mean()) if n > window else recent_vol
-    recent_range = float(np.abs(np.diff(close[-window:])).mean())
-    earlier_range = float(np.abs(np.diff(close[:-window])).mean()) if n > window else recent_range
+    recent_vol = _safe_float(volume[-window:].mean())
+    earlier_vol = _safe_float(volume[:-window].mean()) if n > window else recent_vol
+    recent_range = _safe_float(np.abs(np.diff(close[-window:])).mean())
+    earlier_range = _safe_float(np.abs(np.diff(close[:-window])).mean()) if n > window else recent_range
     if earlier_vol < 1e-9 or earlier_range < 1e-9:
         return 0.0
     vol_ratio = recent_vol / earlier_vol
@@ -187,8 +193,8 @@ def compute_smart_money_score(df: pd.DataFrame) -> float:
     late_close = close[-30:]
     late_vol = volume[-30:]
     late_ret = (late_close[-1] - late_close[0]) / max(late_close[0], 1e-8) * 100
-    early_vol_sum = float(early_vol.sum())
-    late_vol_sum = float(late_vol.sum())
+    early_vol_sum = _safe_float(early_vol.sum())
+    late_vol_sum = _safe_float(late_vol.sum())
     vol_shift = (late_vol_sum / max(early_vol_sum, 1e-8)) - 1.0
     if late_ret > 0 and vol_shift > 0.1:
         return round(min((late_ret + vol_shift * 20), 100.0), 1)
@@ -313,20 +319,20 @@ def _ret_pct(close: pd.Series, lookback: int) -> float:
 def _build_profile(bars: int, feat: dict[str, Any], **kwargs: Any) -> IntradayProfile:
     return IntradayProfile(
         bars=bars,
-        last_close=float(feat["last_close"]),
-        vwap=float(round(feat["vwap"], 3)),
-        vwap_pos=float(round(feat["vwap_pos"], 3)),
-        close_pos=float(round(feat["close_pos"], 3)),
+        last_close=_safe_float(feat["last_close"]),
+        vwap=_safe_float(round(feat["vwap"], 3)),
+        vwap_pos=_safe_float(round(feat["vwap_pos"], 3)),
+        close_pos=_safe_float(round(feat["close_pos"], 3)),
         trend_short=kwargs["trend_short"],
         trend_mid=kwargs["trend_mid"],
-        momentum_30m=float(round(feat["momentum_30m"], 3)),
-        momentum_15m=float(round(feat["momentum_15m"], 3)),
+        momentum_30m=_safe_float(round(feat["momentum_30m"], 3)),
+        momentum_15m=_safe_float(round(feat["momentum_15m"], 3)),
         volume_concentration=kwargs["vol_conc"],
-        vol_price_corr=float(kwargs["vpc"]),
-        effort_vs_result=float(kwargs["evr"]),
-        smart_money_score=float(kwargs["sms"]),
-        spring_quality=float(round(kwargs["spring_q"], 1)) if kwargs["spring_q"] is not None else None,
-        strength_score=float(round(kwargs["strength"], 1)),
+        vol_price_corr=_safe_float(kwargs["vpc"]),
+        effort_vs_result=_safe_float(kwargs["evr"]),
+        smart_money_score=_safe_float(kwargs["sms"]),
+        spring_quality=_safe_float(round(kwargs["spring_q"], 1)) if kwargs["spring_q"] is not None else None,
+        strength_score=_safe_float(round(kwargs["strength"], 1)),
     )
 
 
@@ -361,8 +367,8 @@ def _compute_price_features(df: pd.DataFrame) -> dict[str, Any]:
     day_low = _safe_float(low.min(), last_close)
     day_range = max(day_high - day_low, 1e-8)
     close_pos = max(0.0, min(1.0, (last_close - day_low) / day_range))
-    total_volume = float(volume.sum())
-    total_amount = float(amount.sum())
+    total_volume = _safe_float(volume.sum())
+    total_amount = _safe_float(amount.sum())
     vwap, _ = infer_session_vwap(close, total_volume, total_amount)
     vwap_pos = (last_close / vwap - 1.0) * 100.0 if vwap > 0 else 0.0
     return {
@@ -464,12 +470,12 @@ def _detect_platform_breakout(df: pd.DataFrame) -> tuple[bool, float]:
     split = int(n * 0.7)
     close = df["close"].values.astype(float)
     high = df["high"].fillna(df["close"]).values.astype(float)
-    consol_high = float(high[:split].max())
-    consol_low = float(df["low"].fillna(df["close"]).values[:split].astype(float).min())
+    consol_high = _safe_float(high[:split].max())
+    consol_low = _safe_float(df["low"].fillna(df["close"]).values[:split].astype(float).min())
     consol_range = consol_high - consol_low
     if consol_range <= 0:
         return False, 0.0
-    last_close = float(close[-1])
+    last_close = _safe_float(close[-1])
     threshold = consol_high * 1.005
     if last_close >= threshold:
         strength = (last_close - consol_high) / consol_high * 100.0
@@ -482,14 +488,14 @@ def _detect_vwap_reclaim(df: pd.DataFrame) -> tuple[bool, float]:
     close = df["close"].ffill()
     volume = df["volume"].fillna(0.0)
     amount = df["amount"].fillna(close * volume)
-    total_vol = float(volume.sum())
-    total_amt = float(amount.sum())
+    total_vol = _safe_float(volume.sum())
+    total_amt = _safe_float(amount.sum())
     vwap, _ = infer_session_vwap(close, total_vol, total_amt)
     if vwap <= 0:
         return False, 0.0
-    last_close = float(close.iloc[-1])
+    last_close = _safe_float(close.iloc[-1])
     half = len(close) // 2
-    first_half_below = float(close.iloc[:half].mean()) < vwap
+    first_half_below = _safe_float(close.iloc[:half].mean()) < vwap
     now_above = last_close > vwap
     if first_half_below and now_above:
         dist = (last_close / vwap - 1.0) * 100.0
@@ -504,8 +510,8 @@ def _detect_trend_establishment(df: pd.DataFrame) -> tuple[str, float]:
         return "flat", 0.0
     close = df["close"].values.astype(float)
     x = np.arange(n, dtype=float)
-    slope = float(np.polyfit(x, close, 1)[0])
-    mean_price = float(close.mean()) if close.mean() != 0 else 1.0
+    slope = _safe_float(np.polyfit(x, close, 1)[0])
+    mean_price = _safe_float(close.mean()) if close.mean() != 0 else 1.0
     pct_slope = slope / mean_price * 100.0
     recent = close[-max(n // 2, 5) :]
     up_bars = sum(1 for i in range(1, len(recent)) if recent[i] > recent[i - 1])
@@ -524,8 +530,8 @@ def _validate_volume_support(df: pd.DataFrame, is_breakout: bool) -> tuple[bool,
         return False, 1.0
     volume = df["volume"].fillna(0.0).values.astype(float)
     split = int(n * 0.7)
-    consol_vol = float(volume[:split].mean()) if split > 0 else 1.0
-    breakout_vol = float(volume[split:].mean()) if n > split else consol_vol
+    consol_vol = _safe_float(volume[:split].mean()) if split > 0 else 1.0
+    breakout_vol = _safe_float(volume[split:].mean()) if n > split else consol_vol
     if consol_vol < 1e-9:
         return False, 1.0
     ratio = breakout_vol / consol_vol
@@ -606,10 +612,10 @@ def analyze_rescue_structure(
                 score = min(score + 5.0, 100.0)
                 reasons.append("30m趋势共振确认")
     return IntradayRescueResult(
-        rescue_score=float(round(score, 1)),
+        rescue_score=_safe_float(round(score, 1)),
         rescue_reasons=reasons,
-        vol_price_corr=float(vpc),
-        trend_strength=float(abs(trend_slope)),
+        vol_price_corr=_safe_float(vpc),
+        trend_strength=_safe_float(abs(trend_slope)),
         breakout_confirmed=breakout and vol_confirmed,
         vwap_reclaim=vwap_reclaim,
         bars_analyzed=len(df),

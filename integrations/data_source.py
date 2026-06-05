@@ -36,6 +36,23 @@ from integrations.tickflow_notice import (
     record_tickflow_limit_event,
 )
 
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
+
 logger = logging.getLogger(__name__)
 
 _BAOSTOCK_LOGGED = False
@@ -245,13 +262,13 @@ def _to_float_or_none(v: Any) -> float | None:
     if v is None or pd.isna(v):
         return None
     try:
-        return float(v)
+        return _safe_float(v)
     except Exception:
         try:
             s = str(v).strip().replace(",", "")
             if s.endswith("%"):
                 s = s[:-1]
-            return float(s)
+            return _safe_float(s)
         except Exception:
             return None
 
@@ -289,9 +306,9 @@ def _normalize_spot_turnover(
     """
     if close_v is None or volume_v is None or amount_v is None:
         return (None, None, False)
-    close = float(close_v)
-    vol_raw = float(volume_v)
-    amt_raw = float(amount_v)
+    close = _safe_float(close_v)
+    vol_raw = _safe_float(volume_v)
+    amt_raw = _safe_float(amount_v)
     if close <= 0 or vol_raw <= 0 or amt_raw <= 0:
         return (None, None, False)
 
@@ -316,7 +333,7 @@ def _normalize_spot_turnover(
 
     rel_err, vol_shares, amt_yuan = best
     if rel_err <= max(_SPOT_TURNOVER_MAX_REL_ERR, 0.0):
-        return (float(vol_shares), float(amt_yuan), True)
+        return (_safe_float(vol_shares), _safe_float(amt_yuan), True)
     return (None, None, False)
 
 
@@ -1233,7 +1250,7 @@ def fetch_market_cap_map() -> dict[str, float]:
     try:
         if _MARKET_CAP_CACHE.exists() and (time.time() - _MARKET_CAP_CACHE.stat().st_mtime) < _CACHE_TTL:
             with open(_MARKET_CAP_CACHE, encoding="utf-8") as f:
-                return {k: float(v) for k, v in json.load(f).items()}
+                return {k: _safe_float(v) for k, v in json.load(f).items()}
     except Exception as e:
         _debug_source_fail("market_cap_cache_read", e)
 
@@ -1244,7 +1261,7 @@ def fetch_market_cap_map() -> dict[str, float]:
         try:
             if _MARKET_CAP_CACHE.exists():
                 with open(_MARKET_CAP_CACHE, encoding="utf-8") as f:
-                    return {k: float(v) for k, v in json.load(f).items()}
+                    return {k: _safe_float(v) for k, v in json.load(f).items()}
         except Exception as e:
             _debug_source_fail("market_cap_cache_fallback_read", e)
         return {}
@@ -1264,7 +1281,7 @@ def fetch_market_cap_map() -> dict[str, float]:
                     sym = _ts_code_to_symbol(str(row["ts_code"]))
                     total_mv = row.get("total_mv")
                     if sym and pd.notna(total_mv):
-                        mapping[sym] = float(total_mv) / 10000.0  # 万元 -> 亿元
+                        mapping[sym] = _safe_float(total_mv) / 10000.0  # 万元 -> 亿元
                 break
         except Exception as e:
             _debug_source_fail(f"tushare_daily_basic[{trade_date}]", e)
@@ -1299,9 +1316,9 @@ def _try_parse_financial_row(df, ts_code: str) -> tuple[str, dict] | None:
     roe_val = row.get("roe")
     debt_val = row.get("debt_to_assets")
     if pd.notna(roe_val):
-        entry["roe"] = float(roe_val)
+        entry["roe"] = _safe_float(roe_val)
     if pd.notna(debt_val):
-        entry["debt_to_asset_ratio"] = float(debt_val)
+        entry["debt_to_asset_ratio"] = _safe_float(debt_val)
     return (code, entry) if entry else None
 
 
@@ -1606,8 +1623,8 @@ def _fetch_concept_heat_from_ths() -> list[dict[str, Any]]:
         items.append(
             {
                 "name": name,
-                "pct": float(item.get("199112", 0)),
-                "net_inflow": float(item.get("zjjlr", 0)),
+                "pct": _safe_float(item.get("199112", 0)),
+                "net_inflow": _safe_float(item.get("zjjlr", 0)),
                 "cid": str(item.get("cid", "")),
             }
         )

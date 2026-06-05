@@ -259,7 +259,7 @@ def _build_supply_demand_summary(df: pd.DataFrame) -> str:
     key_low = pd.to_numeric(key_zone.get("low"), errors="coerce").dropna()
     zone_text = ""
     if not key_high.empty and not key_low.empty:
-        zone_text = f"，近{key_window}日区间=[{float(key_low.min()):.2f}, {float(key_high.max()):.2f}]"
+        zone_text = f"，近{key_window}日区间=[{_safe_float(key_low.min()):.2f}, {_safe_float(key_high.max()):.2f}]"
 
     extra_tags: list[str] = []
     if not breakout_days.empty:
@@ -279,12 +279,22 @@ def _build_supply_demand_summary(df: pd.DataFrame) -> str:
     return summary + "\n"
 
 
-def _safe_float(value: object) -> float | None:
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
     try:
-        value_float = float(value)
-    except (TypeError, ValueError):
-        return None
-    return None if pd.isna(value_float) else value_float
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 
 def _springboard_codes(grade: str | None) -> list[str]:
@@ -314,10 +324,10 @@ def _build_trading_range_line(df: pd.DataFrame, close_val: float) -> str:
     lows = pd.to_numeric(base.get("low"), errors="coerce").dropna()
     if highs.empty or lows.empty:
         return ""
-    creek = float(highs.max())
-    ice = float(lows.min())
+    creek = _safe_float(highs.max())
+    ice = _safe_float(lows.min())
     width = creek - ice
-    pos = None if width <= 0 else max(0.0, min(100.0, (float(close_val) - ice) / width * 100))
+    pos = None if width <= 0 else max(0.0, min(100.0, (_safe_float(close_val) - ice) / width * 100))
     pos_text = "NA" if pos is None else f"{pos:.0f}%"
     return f"  [结构支撑/阻力] Creek(箱体上沿):{creek:.2f}, Ice(箱体下沿):{ice:.2f}, 区间位置:{pos_text}\n"
 
@@ -413,7 +423,7 @@ def _build_recent_slice(df: pd.DataFrame) -> str:
         amp_text = f"{amp:.1f}%" if amp is not None else "NA"
         close_pos_text = f"{close_pos:.0f}%" if close_pos is not None else "NA"
         recent_lines.append(
-            f"    {date_str}: 收{float(row['close']):.2f} ({pct:+.1f}%), "
+            f"    {date_str}: 收{_safe_float(row['close']):.2f} ({pct:+.1f}%), "
             f"振幅:{amp_text}, 收位:{close_pos_text}, 量比:{vol_ratio:.1f}x{tag_text}"
         )
     return "\n".join(recent_lines) + "\n"
@@ -434,7 +444,7 @@ def _build_highlight_section(df: pd.DataFrame) -> str:
         if vol_ratio >= HIGHLIGHT_VOL_RATIO:
             tag_parts.append(f"量比{vol_ratio:.1f}x")
         date_str = str(row.get("date", ""))[5:10]
-        highlights.append(f"    {date_str}: 收{float(row['close']):.2f} ({', '.join(tag_parts)})")
+        highlights.append(f"    {date_str}: 收{_safe_float(row['close']):.2f} ({', '.join(tag_parts)})")
     return "\n  [近60日异动高光]:\n" + "\n".join(highlights) + "\n" if highlights else ""
 
 
@@ -524,9 +534,9 @@ def generate_stock_payload(
         bias_200 = (close_val - ma200_val) / ma200_val * 100
         extra_parts.append(f"年线乖离:{bias_200:.1f}%")
     if pd.notna(market_cap_val):
-        extra_parts.append(f"市值:{float(market_cap_val):.0f}亿")
+        extra_parts.append(f"市值:{_safe_float(market_cap_val):.0f}亿")
     if pd.notna(avg_amount_val):
-        extra_parts.append(f"20日均成交:{float(avg_amount_val):.2f}亿")
+        extra_parts.append(f"20日均成交:{_safe_float(avg_amount_val):.2f}亿")
     extra_text = ", ".join(extra_parts)
     if extra_text:
         background = f"  [结构背景] 现价:{close_val:.2f}, {extra_text}"

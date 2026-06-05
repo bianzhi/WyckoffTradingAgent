@@ -6,6 +6,22 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 import pandas as pd
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 
 @dataclass(frozen=True)
@@ -103,7 +119,7 @@ def check_kline_quality(
         if int(bad_ohlc.sum()):
             issues.append(_issue("error", "ohlc_inconsistent", "OHLC 高低价关系不合理", int(bad_ohlc.sum())))
         returns = close_s.pct_change().abs()
-        extreme = int((returns > float(extreme_pct_threshold)).sum())
+        extreme = int((returns > _safe_float(extreme_pct_threshold)).sum())
         if extreme:
             issues.append(_issue("warning", "extreme_return", "相邻收盘涨跌幅异常偏大", extreme))
 
@@ -119,7 +135,7 @@ def check_kline_quality(
         symbol=symbol_s,
         rows=rows,
         ok=error_count == 0,
-        score=float(score),
+        score=_safe_float(score),
         issues=tuple(issues),
     )
 

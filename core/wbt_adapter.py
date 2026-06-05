@@ -14,6 +14,22 @@ from importlib.util import find_spec
 from typing import Any
 
 import pandas as pd
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 SUPPORTED_WBT_ENGINES = {"legacy", "auto", "both", "wbt"}
 
@@ -68,7 +84,7 @@ def _close_map_from_df(df: pd.DataFrame | None) -> dict[date, float]:
     work["date"] = pd.to_datetime(work["date"], errors="coerce").dt.date
     work["close"] = pd.to_numeric(work["close"], errors="coerce")
     work = work.dropna(subset=["date", "close"]).sort_values("date")
-    return {row.date: float(row.close) for row in work.itertuples(index=False)}
+    return {row.date: _safe_float(row.close) for row in work.itertuples(index=False)}
 
 
 def build_position_weight_frame(
@@ -124,7 +140,7 @@ def build_position_weight_frame(
 
     close_maps: dict[str, dict[date, float]] = {}
     for code in symbols:
-        from_cache = {d: float(v[3]) for d, v in (ohlc_cache.get(code) or {}).items() if v is not None and len(v) >= 4}
+        from_cache = {d: _safe_float(v[3]) for d, v in (ohlc_cache.get(code) or {}).items() if v is not None and len(v) >= 4}
         close_maps[code] = from_cache or _close_map_from_df(all_df_map.get(code))
 
     rows: list[dict[str, Any]] = []
@@ -143,8 +159,8 @@ def build_position_weight_frame(
                 {
                     "dt": pd.Timestamp(day),
                     "symbol": code,
-                    "weight": float(weight),
-                    "price": float(last_price),
+                    "weight": _safe_float(weight),
+                    "price": _safe_float(last_price),
                 }
             )
 
@@ -208,7 +224,7 @@ def evaluate_nav_with_wbt(
         wb = WeightBacktest(
             data,
             digits=6,
-            fee_rate=float(fee_rate),
+            fee_rate=_safe_float(fee_rate),
             n_jobs=max(int(n_jobs), 1),
             weight_type="ts",
             yearly_days=int(yearly_days),
@@ -275,14 +291,14 @@ def _daily_return_mdd_pct(daily_return: pd.DataFrame | None) -> float | None:
     nav = pd.concat([pd.Series([1.0]), nav], ignore_index=True)
     peak = nav.cummax()
     drawdown = nav / peak - 1.0
-    return float(drawdown.min() * 100.0)
+    return _safe_float(drawdown.min() * 100.0)
 
 
 def _float_or_none(value: Any) -> float | None:
     try:
         if value is None or value == "":
             return None
-        return float(value)
+        return _safe_float(value)
     except Exception:
         return None
 

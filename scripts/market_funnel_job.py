@@ -17,6 +17,22 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 if __name__ == "__main__" or not __package__:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -103,7 +119,7 @@ def _float_env(name: str, default: float, *, minimum: float = 0.0) -> float:
     if not raw:
         return max(default, minimum)
     try:
-        return max(float(raw), minimum)
+        return max(_safe_float(raw), minimum)
     except ValueError:
         return max(default, minimum)
 
@@ -160,7 +176,7 @@ def _row_float(row: dict[str, Any], *keys: str) -> float | None:
             value = ext.get(key.split(".", 1)[1])
         try:
             if value is not None and pd.notna(value):
-                return float(value)
+                return _safe_float(value)
         except Exception:
             continue
     return None
@@ -204,10 +220,10 @@ def _rank_quotes(
             {
                 "symbol": symbol,
                 "name": _quote_name(row, symbol),
-                "last_price": float(last_price),
-                "amount": float(amount),
-                "volume": float(_row_float(row, "volume") or 0.0),
-                "change_pct": float(_quote_change_pct(row)),
+                "last_price": _safe_float(last_price),
+                "amount": _safe_float(amount),
+                "volume": _safe_float(_row_float(row, "volume") or 0.0),
+                "change_pct": _safe_float(_quote_change_pct(row)),
             }
         )
     rows.sort(key=lambda item: (item["amount"], abs(item["change_pct"]), item["volume"]), reverse=True)
@@ -333,9 +349,9 @@ def _latest_history_snapshot(df: pd.DataFrame | None) -> tuple[float | None, int
         work = work[work["close"] > 0].sort_values("date")
         if not work.empty:
             latest = work.iloc[-1]
-            return (float(latest["close"]), int(latest["date"].strftime("%Y%m%d")))
+            return (_safe_float(latest["close"]), int(latest["date"].strftime("%Y%m%d")))
     close = pd.to_numeric(df["close"], errors="coerce").dropna()
-    return (float(close.iloc[-1]), None) if not close.empty else (None, None)
+    return (_safe_float(close.iloc[-1]), None) if not close.empty else (None, None)
 
 
 def _candidate_rows(
@@ -351,7 +367,7 @@ def _candidate_rows(
                 symbol,
                 {"symbol": symbol, "name": name_map.get(symbol, symbol), "score": 0.0, "triggers": []},
             )
-            item["score"] = float(item["score"]) + float(score)
+            item["score"] = _safe_float(item["score"]) + _safe_float(score)
             item["triggers"].append(TRIGGER_LABELS.get(trigger, trigger))
     out = list(rows.values())
     for item in out:
@@ -359,7 +375,7 @@ def _candidate_rows(
         item["latest_close"] = latest_close
         if latest_trade_date is not None:
             item["latest_trade_date"] = latest_trade_date
-    out.sort(key=lambda item: float(item["score"]), reverse=True)
+    out.sort(key=lambda item: _safe_float(item["score"]), reverse=True)
     return out
 
 
@@ -380,7 +396,7 @@ def _fmt_number(value: Any) -> str:
 
 def _fmt_float(value: Any, digits: int = 2) -> str:
     try:
-        return f"{float(value):.{digits}f}"
+        return f"{_safe_float(value):.{digits}f}"
     except (TypeError, ValueError):
         return "-"
 
@@ -491,8 +507,8 @@ def _upsert_funnel_to_tracking(candidates: list[dict[str, Any]], market: str) ->
                 "code": str(c.get("symbol", "")).strip(),
                 "name": str(c.get("name", "")).strip(),
                 "tag": ",".join(c.get("triggers") or []),
-                "score": float(c.get("score") or 0),
-                "latest_close": float(c.get("latest_close") or 0),
+                "score": _safe_float(c.get("score") or 0),
+                "latest_close": _safe_float(c.get("latest_close") or 0),
             }
         )
     if not rows_by_date:

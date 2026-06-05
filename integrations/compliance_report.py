@@ -17,6 +17,22 @@ from typing import Any
 import pandas as pd
 
 from integrations.llm_client import call_llm
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 EFFICIENCY_PROVIDER = "efficiency"
 DEFAULT_MAX_OUTPUT_TOKENS = 2048
@@ -83,7 +99,7 @@ def fmt_pct(value: Any) -> str:
     num = pd.to_numeric(value, errors="coerce")
     if pd.isna(num):
         return "待更新"
-    x = float(num)
+    x = _safe_float(num)
     sign = "+" if x >= 0 else ""
     return f"{sign}{x:.2f}%"
 
@@ -92,7 +108,7 @@ def _fmt_number(value: Any, digits: int = 2) -> str:
     num = pd.to_numeric(value, errors="coerce")
     if pd.isna(num):
         return "待更新"
-    return f"{float(num):.{digits}f}"
+    return f"{_safe_float(num):.{digits}f}"
 
 
 def _regime_label(regime: Any) -> str:
@@ -254,7 +270,7 @@ def build_public_payload(
                 {
                     "industry": str(row["industry"]),
                     "sample_count": int(row["sample_count"]),
-                    "score_bucket": _score_bucket(float(row["avg_score"])),
+                    "score_bucket": _score_bucket(_safe_float(row["avg_score"])),
                 }
                 for _, row in grouped.iterrows()
             ]

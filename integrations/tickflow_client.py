@@ -21,24 +21,41 @@ from integrations.tickflow_notice import (
     record_tickflow_limit_event,
 )
 
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
+
 TICKFLOW_BASE_URL = "https://api.tickflow.org"
 TICKFLOW_TIMEOUT_SECONDS = max(int(os.getenv("TICKFLOW_TIMEOUT_SECONDS", "12")), 3)
 TICKFLOW_MAX_RETRIES = max(int(os.getenv("TICKFLOW_MAX_RETRIES", "3")), 1)
-TICKFLOW_RETRY_BACKOFF_SECONDS = max(float(os.getenv("TICKFLOW_RETRY_BACKOFF_SECONDS", "1.5")), 0.1)
-TICKFLOW_RATE_LIMIT_MAX_SLEEP_SECONDS = max(float(os.getenv("TICKFLOW_RATE_LIMIT_MAX_SLEEP_SECONDS", "90")), 1.0)
+TICKFLOW_RETRY_BACKOFF_SECONDS = max(_safe_float(os.getenv("TICKFLOW_RETRY_BACKOFF_SECONDS", "1.5")), 0.1)
+TICKFLOW_RATE_LIMIT_MAX_SLEEP_SECONDS = max(_safe_float(os.getenv("TICKFLOW_RATE_LIMIT_MAX_SLEEP_SECONDS", "90")), 1.0)
 TICKFLOW_KLINE_RATE_LIMIT_PER_MIN = max(int(os.getenv("TICKFLOW_KLINE_RATE_LIMIT_PER_MIN", "100")), 0)
 _TICKFLOW_QUOTES_MAX_SYMBOLS = 50
 TICKFLOW_QUOTES_BATCH_SIZE = min(
     max(int(os.getenv("TICKFLOW_QUOTES_BATCH_SIZE", str(_TICKFLOW_QUOTES_MAX_SYMBOLS))), 1),
     _TICKFLOW_QUOTES_MAX_SYMBOLS,
 )
-TICKFLOW_QUOTES_BATCH_SLEEP = max(float(os.getenv("TICKFLOW_QUOTES_BATCH_SLEEP", "0.25")), 0.0)
+TICKFLOW_QUOTES_BATCH_SLEEP = max(_safe_float(os.getenv("TICKFLOW_QUOTES_BATCH_SLEEP", "0.25")), 0.0)
 TICKFLOW_KLINE_BATCH_SIZE = max(int(os.getenv("TICKFLOW_KLINE_BATCH_SIZE", "100")), 1)
-TICKFLOW_KLINE_BATCH_SLEEP = max(float(os.getenv("TICKFLOW_KLINE_BATCH_SLEEP", "0.55")), 0.0)
+TICKFLOW_KLINE_BATCH_SLEEP = max(_safe_float(os.getenv("TICKFLOW_KLINE_BATCH_SLEEP", "0.55")), 0.0)
 TICKFLOW_INTRADAY_BATCH_SIZE = max(int(os.getenv("TICKFLOW_INTRADAY_BATCH_SIZE", "200")), 1)
-TICKFLOW_INTRADAY_BATCH_SLEEP = max(float(os.getenv("TICKFLOW_INTRADAY_BATCH_SLEEP", "1.05")), 0.0)
+TICKFLOW_INTRADAY_BATCH_SLEEP = max(_safe_float(os.getenv("TICKFLOW_INTRADAY_BATCH_SLEEP", "1.05")), 0.0)
 TICKFLOW_FINANCIAL_BATCH_SIZE = max(int(os.getenv("TICKFLOW_FINANCIAL_BATCH_SIZE", "100")), 1)
-TICKFLOW_FINANCIAL_BATCH_SLEEP = max(float(os.getenv("TICKFLOW_FINANCIAL_BATCH_SLEEP", "2.1")), 0.0)
+TICKFLOW_FINANCIAL_BATCH_SLEEP = max(_safe_float(os.getenv("TICKFLOW_FINANCIAL_BATCH_SLEEP", "2.1")), 0.0)
 
 _PERIOD_SET = {"1m", "5m", "10m", "15m", "30m", "60m", "1d", "1w", "1M", "1Q", "1Y"}
 _CN_TZ = "Asia/Shanghai"
@@ -198,7 +215,7 @@ def _retry_or_raise_http(
 def _rate_limit_delay_seconds(body: str, retry_after: str | None) -> float | None:
     if retry_after:
         try:
-            seconds = float(retry_after)
+            seconds = _safe_float(retry_after)
         except ValueError:
             seconds = 0.0
         if seconds > 0:
@@ -207,7 +224,7 @@ def _rate_limit_delay_seconds(body: str, retry_after: str | None) -> float | Non
     match = _RATE_LIMIT_WAIT_RE.search(body)
     if not match:
         return None
-    value = float(match.group(1))
+    value = _safe_float(match.group(1))
     unit = str(match.group(2) or "ms").lower()
     if unit in {"ms", "毫秒"}:
         value /= 1000.0
@@ -298,7 +315,7 @@ class TickFlowClient:
         self.base_url = str(self.base_url or TICKFLOW_BASE_URL).strip().rstrip("/")
         self.timeout_seconds = max(int(self.timeout_seconds), 3)
         self.max_retries = max(int(self.max_retries), 1)
-        self.retry_backoff_seconds = max(float(self.retry_backoff_seconds), 0.1)
+        self.retry_backoff_seconds = max(_safe_float(self.retry_backoff_seconds), 0.1)
         if not self.api_key:
             raise ValueError("TICKFLOW_API_KEY 未配置")
 

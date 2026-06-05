@@ -6,6 +6,22 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 import pandas as pd
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 
 @dataclass(frozen=True)
@@ -66,7 +82,7 @@ def evaluate_signal_lifecycle(
 
     signal_pos = min(max(signal_pos, 0), len(work) - 1)
     signal_close = close.iloc[signal_pos]
-    base_price = float(entry_price) if entry_price is not None else float(signal_close)
+    base_price = _safe_float(entry_price) if entry_price is not None else _safe_float(signal_close)
     if base_price <= 0 or pd.isna(base_price):
         base_price = None
 
@@ -88,15 +104,15 @@ def evaluate_signal_lifecycle(
             outcomes.append(HorizonOutcome(horizon=horizon, status="invalid", return_pct=None, max_drawdown_pct=None))
             continue
         path = low.iloc[signal_pos + 1 : end_pos + 1].dropna()
-        min_path_price = min(base_price, float(path.min()) if not path.empty else float(future_close))
-        ret = (float(future_close) - base_price) / base_price * 100.0
+        min_path_price = min(base_price, _safe_float(path.min()) if not path.empty else _safe_float(future_close))
+        ret = (_safe_float(future_close) - base_price) / base_price * 100.0
         mdd = (min_path_price - base_price) / base_price * 100.0
         outcomes.append(
             HorizonOutcome(
                 horizon=horizon,
                 status="done",
-                return_pct=float(ret),
-                max_drawdown_pct=float(mdd),
+                return_pct=_safe_float(ret),
+                max_drawdown_pct=_safe_float(mdd),
             )
         )
 

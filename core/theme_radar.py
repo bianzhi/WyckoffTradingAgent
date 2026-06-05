@@ -8,6 +8,22 @@ from statistics import median
 from typing import Any
 
 import pandas as pd
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 THEME_ALIASES: dict[str, tuple[str, ...]] = {
     "芯片半导体": ("芯片", "半导体", "集成电路", "先进封装", "存储", "光刻胶", "第三代半导体", "semiconductor", "chip"),
@@ -189,23 +205,23 @@ def _rank_metric(rows: dict[str, dict[str, Any]], field: str) -> dict[str, float
 
 
 def _stock_structure_score(row: dict[str, Any]) -> float:
-    ma_score = sum(float(row.get(k, 0.0) or 0.0) for k in ("above_ma60", "above_ma120", "above_ma200")) / 3
-    drawdown = _clamp(1.0 - max(float(row.get("drawdown120") or 0.0), 0.0) / 35.0)
+    ma_score = sum(_safe_float(row.get(k, 0.0) or 0.0) for k in ("above_ma60", "above_ma120", "above_ma200")) / 3
+    drawdown = _clamp(1.0 - max(_safe_float(row.get("drawdown120") or 0.0), 0.0) / 35.0)
     return _clamp(0.35 * row.get("rps120", 0.0) + 0.25 * row.get("rps250", 0.0) + 0.25 * ma_score + 0.15 * drawdown)
 
 
 def _stock_leader_score(row: dict[str, Any]) -> float:
     rps_score = (
-        0.20 * float(row.get("rps60", 0.0) or 0.0)
-        + 0.35 * float(row.get("rps120", 0.0) or 0.0)
-        + 0.45 * float(row.get("rps250", 0.0) or 0.0)
+        0.20 * _safe_float(row.get("rps60", 0.0) or 0.0)
+        + 0.35 * _safe_float(row.get("rps120", 0.0) or 0.0)
+        + 0.45 * _safe_float(row.get("rps250", 0.0) or 0.0)
     )
-    ret60 = _clamp((float(row.get("ret60") or 0.0) - 20.0) / 60.0)
-    ret120 = _clamp((float(row.get("ret120") or 0.0) - 35.0) / 100.0)
-    ret250 = _clamp((float(row.get("ret250") or 0.0) - 50.0) / 160.0)
+    ret60 = _clamp((_safe_float(row.get("ret60") or 0.0) - 20.0) / 60.0)
+    ret120 = _clamp((_safe_float(row.get("ret120") or 0.0) - 35.0) / 100.0)
+    ret250 = _clamp((_safe_float(row.get("ret250") or 0.0) - 50.0) / 160.0)
     absolute_score = 0.25 * ret60 + 0.45 * ret120 + 0.30 * ret250
-    near_high = float(row.get("near_high_120d", 0.0) or 0.0)
-    structure = float(row.get("structure_score", 0.0) or 0.0)
+    near_high = _safe_float(row.get("near_high_120d", 0.0) or 0.0)
+    structure = _safe_float(row.get("structure_score", 0.0) or 0.0)
     return _clamp(0.45 * rps_score + 0.25 * absolute_score + 0.15 * near_high + 0.15 * structure)
 
 
@@ -217,8 +233,8 @@ def _heat_by_theme(concept_heat: list[dict[str, Any]]) -> dict[str, dict[str, An
             continue
         bucket = heat.setdefault(theme, {"score": 0.0, "concepts": [], "pct": 0.0, "inflow": 0.0})
         score = _heat_item_score(item, rank)
-        bucket["score"] = max(float(bucket["score"]), score)
-        bucket["pct"] = max(float(bucket["pct"]), _as_float(item.get("pct")) or 0.0)
+        bucket["score"] = max(_safe_float(bucket["score"]), score)
+        bucket["pct"] = max(_safe_float(bucket["pct"]), _as_float(item.get("pct")) or 0.0)
         bucket["inflow"] += _as_float(item.get("net_inflow")) or 0.0
         bucket["concepts"].append(str(item.get("name", "")))
     return heat
@@ -289,8 +305,8 @@ def _score_theme(
     features: dict[str, dict[str, Any]],
 ) -> ThemeScore:
     market = _theme_market_metrics(_theme_members(theme, concept_map, sector_map), features)
-    heat_score = float((heat.get(theme) or {}).get("score") or 0.0)
-    persistence = float((history.get(theme) or {}).get("score") or 0.0)
+    heat_score = _safe_float((heat.get(theme) or {}).get("score") or 0.0)
+    persistence = _safe_float((history.get(theme) or {}).get("score") or 0.0)
     catalyst = _catalyst_score(events.get(theme, []))
     crowding = _crowding_score(market, heat.get(theme) or {})
     score = _clamp(
@@ -341,22 +357,22 @@ def _theme_market_metrics(members: list[str], features: dict[str, dict[str, Any]
             "breadth_score": 0.0,
             "ret20": 0.0,
         }
-    structures = sorted((float(row["structure_score"]) for row in rows), reverse=True)[:20]
-    leaders = sorted((float(row["leader_score"]) for row in rows), reverse=True)[:20]
+    structures = sorted((_safe_float(row["structure_score"]) for row in rows), reverse=True)[:20]
+    leaders = sorted((_safe_float(row["leader_score"]) for row in rows), reverse=True)[:20]
     breadth = [_breadth_unit(row) for row in rows]
     ret20_values = [_as_float(row.get("ret20")) or 0.0 for row in rows]
     return {
-        "member_count": float(len(rows)),
-        "leader_count": float(sum(1 for row in rows if float(row.get("leader_score", 0.0) or 0.0) >= 0.70)),
-        "leader_score": float(median(leaders)),
-        "structure_score": float(median(structures)),
-        "breadth_score": float(sum(breadth) / len(breadth)),
-        "ret20": float(median(ret20_values)),
+        "member_count": _safe_float(len(rows)),
+        "leader_count": _safe_float(sum(1 for row in rows if _safe_float(row.get("leader_score", 0.0) or 0.0) >= 0.70)),
+        "leader_score": _safe_float(median(leaders)),
+        "structure_score": _safe_float(median(structures)),
+        "breadth_score": _safe_float(sum(breadth) / len(breadth)),
+        "ret20": _safe_float(median(ret20_values)),
     }
 
 
 def _breadth_unit(row: dict[str, Any]) -> float:
-    ma = sum(float(row.get(k, 0.0) or 0.0) for k in ("above_ma60", "above_ma120", "above_ma200")) / 3
+    ma = sum(_safe_float(row.get(k, 0.0) or 0.0) for k in ("above_ma60", "above_ma120", "above_ma200")) / 3
     trend = 1.0 if (_as_float(row.get("ret60")) or 0.0) > 0 else 0.0
     return 0.70 * ma + 0.30 * trend
 
@@ -369,8 +385,8 @@ def _catalyst_score(events: list[dict[str, Any]]) -> float:
 
 
 def _crowding_score(market: dict[str, float], heat: dict[str, Any]) -> float:
-    ret20_score = _clamp((float(market.get("ret20", 0.0)) - 35.0) / 35.0)
-    pct_score = _clamp((float(heat.get("pct", 0.0) or 0.0) - 7.0) / 6.0)
+    ret20_score = _clamp((_safe_float(market.get("ret20", 0.0)) - 35.0) / 35.0)
+    pct_score = _clamp((_safe_float(heat.get("pct", 0.0) or 0.0) - 7.0) / 6.0)
     return max(ret20_score, pct_score)
 
 
@@ -441,10 +457,10 @@ def _candidate_rows(
 def _candidate_from_row(row: dict[str, Any], theme: ThemeScore, score: float) -> StrategicCandidate:
     reasons = [
         f"RPS60/120/250={row.get('rps60', 0.0):.2f}/{row.get('rps120', 0.0):.2f}/{row.get('rps250', 0.0):.2f}",
-        f"Ret60/120/250={float(row.get('ret60') or 0.0):.0f}%/{float(row.get('ret120') or 0.0):.0f}%/{float(row.get('ret250') or 0.0):.0f}%",
+        f"Ret60/120/250={_safe_float(row.get('ret60') or 0.0):.0f}%/{_safe_float(row.get('ret120') or 0.0):.0f}%/{_safe_float(row.get('ret250') or 0.0):.0f}%",
         f"主题内排名={int(row.get('theme_rank') or 0)}",
         f"近120日新高={int(bool(row.get('near_high_120d')))} / 距新高{int(row.get('breakout_age_days') or 0)}日",
-        f"DD120={float(row.get('drawdown120') or 0.0):.1f}%",
+        f"DD120={_safe_float(row.get('drawdown120') or 0.0):.1f}%",
     ]
     return StrategicCandidate(
         code=str(row["code"]),
@@ -452,11 +468,11 @@ def _candidate_from_row(row: dict[str, Any], theme: ThemeScore, score: float) ->
         theme=theme.theme,
         theme_score=theme.score,
         stock_score=round(score, 4),
-        leader_score=round(float(row.get("leader_score") or 0.0), 4),
+        leader_score=round(_safe_float(row.get("leader_score") or 0.0), 4),
         theme_rank=int(row.get("theme_rank") or 0),
-        ret60=round(float(row.get("ret60") or 0.0), 4),
-        ret120=round(float(row.get("ret120") or 0.0), 4),
-        ret250=round(float(row.get("ret250") or 0.0), 4),
+        ret60=round(_safe_float(row.get("ret60") or 0.0), 4),
+        ret120=round(_safe_float(row.get("ret120") or 0.0), 4),
+        ret250=round(_safe_float(row.get("ret250") or 0.0), 4),
         near_high_120d=bool(row.get("near_high_120d")),
         breakout_age_days=int(row.get("breakout_age_days") or 0),
         state=theme.state,
@@ -467,8 +483,8 @@ def _candidate_from_row(row: dict[str, Any], theme: ThemeScore, score: float) ->
 def _ret_pct(close: pd.Series, lookback: int) -> float:
     if len(close) <= lookback:
         return 0.0
-    start = float(close.iloc[-lookback - 1])
-    end = float(close.iloc[-1])
+    start = _safe_float(close.iloc[-lookback - 1])
+    end = _safe_float(close.iloc[-1])
     return 0.0 if start <= 0 else (end - start) / start * 100.0
 
 
@@ -476,15 +492,15 @@ def _above_ma(close: pd.Series, window: int) -> float:
     if close.empty:
         return 0.0
     ma = close.rolling(window, min_periods=max(3, min(window, len(close)))).mean().iloc[-1]
-    return 1.0 if pd.notna(ma) and float(close.iloc[-1]) >= float(ma) else 0.0
+    return 1.0 if pd.notna(ma) and _safe_float(close.iloc[-1]) >= _safe_float(ma) else 0.0
 
 
 def _drawdown_pct(close: pd.Series, lookback: int) -> float:
     recent = close.tail(max(lookback, 1))
     if recent.empty:
         return 0.0
-    high = float(recent.max())
-    return 0.0 if high <= 0 else (float(recent.iloc[-1]) / high - 1.0) * -100.0
+    high = _safe_float(recent.max())
+    return 0.0 if high <= 0 else (_safe_float(recent.iloc[-1]) / high - 1.0) * -100.0
 
 
 def _near_high(close: pd.Series, lookback: int, tolerance_pct: float = 12.0) -> float:
@@ -502,7 +518,7 @@ def _days_since_high(close: pd.Series, lookback: int) -> int:
 
 def _as_float(value: Any) -> float | None:
     try:
-        result = float(value)
+        result = _safe_float(value)
     except (TypeError, ValueError):
         return None
     if pd.isna(result):
@@ -511,4 +527,4 @@ def _as_float(value: Any) -> float | None:
 
 
 def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
-    return max(low, min(high, float(value)))
+    return max(low, min(high, _safe_float(value)))

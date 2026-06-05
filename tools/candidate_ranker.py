@@ -9,6 +9,22 @@ from __future__ import annotations
 import pandas as pd
 
 from core.sector_rotation import SECTOR_STATE_SCORE_BONUS
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 # ── 全局常量 ──
 
@@ -48,8 +64,8 @@ def calc_close_return_pct(close_series: pd.Series, lookback: int) -> float | Non
     lb = max(int(lookback), 1)
     if len(s) <= lb:
         return None
-    start = float(s.iloc[-lb - 1])
-    end = float(s.iloc[-1])
+    start = _safe_float(s.iloc[-lb - 1])
+    end = _safe_float(s.iloc[-1])
     if start <= 0:
         return None
     return (end - start) / start * 100.0
@@ -78,7 +94,7 @@ def rank_l3_candidates(
     trigger_score_map: dict[str, float] = {}
     for key in TRIGGER_LABELS:
         for code, score in triggers.get(key, []):
-            trigger_score_map[code] = max(trigger_score_map.get(code, 0.0), float(score))
+            trigger_score_map[code] = max(trigger_score_map.get(code, 0.0), _safe_float(score))
 
     rows: list[dict] = []
     channel_map = l2_channel_map or {}
@@ -111,7 +127,7 @@ def rank_l3_candidates(
                 "ret5": ret5,
                 "ret3": ret3,
                 "min_vol_ratio_5d": min_vol_ratio_5d,
-                "trigger_score": float(trigger_score_map.get(code, 0.0)),
+                "trigger_score": _safe_float(trigger_score_map.get(code, 0.0)),
                 "l2_channel": l2_channel,
                 "sector_state": sector_state,
             }
@@ -121,7 +137,7 @@ def rank_l3_candidates(
     for col, fill_default in (("ret20", 0.0), ("ret5", 0.0), ("ret3", 0.0), ("min_vol_ratio_5d", 1.0)):
         rank_df[col] = pd.to_numeric(rank_df[col], errors="coerce")
         if rank_df[col].notna().any():
-            rank_df[col] = rank_df[col].fillna(float(rank_df[col].median()))
+            rank_df[col] = rank_df[col].fillna(_safe_float(rank_df[col].median()))
         else:
             rank_df[col] = rank_df[col].fillna(fill_default)
 
@@ -132,12 +148,12 @@ def rank_l3_candidates(
     if rank_df["trigger_score"].nunique(dropna=False) > 1:
         rank_df["trigger_q"] = rank_df["trigger_score"].rank(pct=True, ascending=True, method="average")
     else:
-        rank_df["trigger_q"] = rank_df["trigger_score"].apply(lambda x: 1.0 if float(x) > 0 else 0.0)
+        rank_df["trigger_q"] = rank_df["trigger_score"].apply(lambda x: 1.0 if _safe_float(x) > 0 else 0.0)
 
     hot_sector_set = set(top_sectors or [])
     # 板块快速轮动期 hot_bonus 降低：Top3 板块次日有 49% 概率反转
     rank_df["hot_bonus"] = rank_df["industry"].isin(hot_sector_set).astype(float) * 0.02
-    rank_df["sector_bonus"] = rank_df["sector_state"].map(lambda x: float(SECTOR_STATE_SCORE_BONUS.get(str(x), 0.0)))
+    rank_df["sector_bonus"] = rank_df["sector_state"].map(lambda x: _safe_float(SECTOR_STATE_SCORE_BONUS.get(str(x), 0.0)))
     # 权重重新分配：降低滞后动量(q20)权重，提升 Wyckoff 触发(trigger_q)权重，
     # 加入 3 日短期动量(q3) 适配板块快速轮动。
     rank_df["watch_score"] = (
@@ -152,5 +168,5 @@ def rank_l3_candidates(
 
     rank_df = rank_df.sort_values("watch_score", ascending=False).reset_index(drop=True)
     ranked_symbols = rank_df["code"].astype(str).tolist()
-    score_map = {str(r["code"]): float(r["watch_score"]) for _, r in rank_df.iterrows()}
+    score_map = {str(r["code"]): _safe_float(r["watch_score"]) for _, r in rank_df.iterrows()}
     return (ranked_symbols, score_map)

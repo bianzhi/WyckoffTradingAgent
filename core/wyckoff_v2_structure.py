@@ -8,6 +8,22 @@ from typing import NamedTuple
 import pandas as pd
 
 from core.wyckoff_engine import FunnelConfig, _sorted_if_needed
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 
 @dataclass(frozen=True)
@@ -45,13 +61,13 @@ def _last_ref_volume_ratio(volume: pd.Series, window: int) -> float | None:
     ref = _to_numeric(volume).tail(window + 1).iloc[:-1].dropna()
     if ref.empty:
         return None
-    ref_mean = float(ref.mean())
+    ref_mean = _safe_float(ref.mean())
     if ref_mean <= 0:
         return None
     last = volume.iloc[-1]
     if pd.isna(last):
         return None
-    return float(last) / ref_mean
+    return _safe_float(last) / ref_mean
 
 
 def _recent_ref_volume_ratio(volume: pd.Series, recent_n: int, ref_n: int) -> float | None:
@@ -63,10 +79,10 @@ def _recent_ref_volume_ratio(volume: pd.Series, recent_n: int, ref_n: int) -> fl
     ref = _to_numeric(volume).tail(ref_n + recent_n).iloc[:-recent_n].dropna()
     if recent.empty or ref.empty:
         return None
-    ref_max = float(ref.max())
+    ref_max = _safe_float(ref.max())
     if ref_max <= 0:
         return None
-    return float(recent.max()) / ref_max
+    return _safe_float(recent.max()) / ref_max
 
 
 def _swing_values(series: pd.Series, *, kind: str, window: int) -> list[float]:
@@ -82,10 +98,10 @@ def _swing_values(series: pd.Series, *, kind: str, window: int) -> list[float]:
         span = values.iloc[i - w : i + w + 1].dropna()
         if span.empty:
             continue
-        if (kind == "low" and float(current) <= float(span.min())) or (
-            kind == "high" and float(current) >= float(span.max())
+        if (kind == "low" and _safe_float(current) <= _safe_float(span.min())) or (
+            kind == "high" and _safe_float(current) >= _safe_float(span.max())
         ):
-            out.append(float(current))
+            out.append(_safe_float(current))
     return out
 
 
@@ -125,13 +141,13 @@ def identify_trading_range(
 
     swing_lows = _swing_values(low, kind="low", window=swing_window)
     swing_highs = _swing_values(high, kind="high", window=swing_window)
-    support = float(pd.Series(swing_lows[-5:]).median()) if len(swing_lows) >= 2 else float(low.quantile(0.10))
-    resistance = float(pd.Series(swing_highs[-5:]).median()) if len(swing_highs) >= 2 else float(high.quantile(0.90))
+    support = _safe_float(pd.Series(swing_lows[-5:]).median()) if len(swing_lows) >= 2 else _safe_float(low.quantile(0.10))
+    resistance = _safe_float(pd.Series(swing_highs[-5:]).median()) if len(swing_highs) >= 2 else _safe_float(high.quantile(0.90))
     if support <= 0 or resistance <= support:
         return None
 
     width_pct = (resistance - support) / support * 100.0
-    max_width = min(max(float(getattr(cfg, "spring_tr_max_range_pct", 30.0)) * 1.5, 24.0), 55.0)
+    max_width = min(max(_safe_float(getattr(cfg, "spring_tr_max_range_pct", 30.0)) * 1.5, 24.0), 55.0)
     if width_pct < 4.0 or width_pct > max_width:
         return None
 
@@ -139,8 +155,8 @@ def identify_trading_range(
     last_close = close.dropna().iloc[-1]
     if first_close <= 0:
         return None
-    drift_pct = abs((float(last_close) - float(first_close)) / float(first_close) * 100.0)
-    max_drift = max(float(getattr(cfg, "spring_tr_max_drift_pct", 12.0)) * 1.5, 18.0)
+    drift_pct = abs((_safe_float(last_close) - _safe_float(first_close)) / _safe_float(first_close) * 100.0)
+    max_drift = max(_safe_float(getattr(cfg, "spring_tr_max_drift_pct", 12.0)) * 1.5, 18.0)
     if drift_pct > max_drift:
         return None
 
@@ -162,13 +178,13 @@ def identify_trading_range(
         width_pct=width_pct,
         support_tests=support_tests,
         resistance_tests=resistance_tests,
-        quality_score=float(quality_score),
+        quality_score=_safe_float(quality_score),
     )
 
 
 def _infer_stage(df: pd.DataFrame, tr: TradingRange, trigger_keys: set[str]) -> str:
     close = _to_numeric(df["close"])
-    last_close = float(close.iloc[-1])
+    last_close = _safe_float(close.iloc[-1])
     width = tr.resistance - tr.support
     if last_close >= tr.resistance:
         return "Markup"
@@ -213,22 +229,22 @@ def detect_structure_triggers(
 
         ranges[sym] = tr
         width = tr.resistance - tr.support
-        last_close = float(close.iloc[-1])
-        last_low = float(low.iloc[-1])
-        prev_low = float(low.iloc[-2]) if len(low) >= 2 else last_low
-        last_pct = float(pct_chg.iloc[-1]) if pd.notna(pct_chg.iloc[-1]) else 0.0
+        last_close = _safe_float(close.iloc[-1])
+        last_low = _safe_float(low.iloc[-1])
+        prev_low = _safe_float(low.iloc[-2]) if len(low) >= 2 else last_low
+        last_pct = _safe_float(pct_chg.iloc[-1]) if pd.notna(pct_chg.iloc[-1]) else 0.0
         hit_keys: set[str] = set()
 
         vol_ratio_sos = _last_ref_volume_ratio(volume, max(int(cfg.sos_vol_window), 5))
         if vol_ratio_sos is not None:
-            breakout_tolerance = float(getattr(cfg, "sos_breakout_tolerance", 0.01))
+            breakout_tolerance = _safe_float(getattr(cfg, "sos_breakout_tolerance", 0.01))
             structure_breakout = last_close >= tr.resistance * (1.0 - breakout_tolerance)
-            enough_push = last_pct >= float(getattr(cfg, "sos_pct_min", 6.0))
-            enough_volume = vol_ratio_sos >= float(getattr(cfg, "sos_vol_ratio", 2.0))
+            enough_push = last_pct >= _safe_float(getattr(cfg, "sos_pct_min", 6.0))
+            enough_volume = vol_ratio_sos >= _safe_float(getattr(cfg, "sos_vol_ratio", 2.0))
             if structure_breakout and enough_push and enough_volume:
                 score = vol_ratio_sos + max((last_close - tr.resistance) / tr.resistance * 100.0, 0.0)
                 score += tr.quality_score
-                triggers["sos"].append((sym, float(score)))
+                triggers["sos"].append((sym, _safe_float(score)))
                 hit_keys.add("sos")
 
         vol_ratio_spring = _last_ref_volume_ratio(volume, 5)
@@ -240,11 +256,11 @@ def detect_structure_triggers(
             and pierced
             and recovered
             and still_in_range
-            and vol_ratio_spring >= float(getattr(cfg, "spring_vol_ratio", 1.1))
+            and vol_ratio_spring >= _safe_float(getattr(cfg, "spring_vol_ratio", 1.1))
         ):
             recovery = (last_close - tr.support) / tr.support * 100.0
             score = recovery + tr.quality_score
-            triggers["spring"].append((sym, float(score)))
+            triggers["spring"].append((sym, _safe_float(score)))
             hit_keys.add("spring")
 
         dry_ratio = _recent_ref_volume_ratio(
@@ -253,11 +269,11 @@ def detect_structure_triggers(
             max(int(getattr(cfg, "lps_vol_ref_window", 60)), 10),
         )
         recent_lows = low.tail(max(int(getattr(cfg, "lps_lookback", 3)), 1))
-        near_support = float(recent_lows.min()) <= tr.support + width * 0.35
+        near_support = _safe_float(recent_lows.min()) <= tr.support + width * 0.35
         holds_support = last_close > tr.support
-        if dry_ratio is not None and near_support and holds_support and dry_ratio <= float(cfg.lps_vol_dry_ratio):
+        if dry_ratio is not None and near_support and holds_support and dry_ratio <= _safe_float(cfg.lps_vol_dry_ratio):
             score = (1.0 - dry_ratio) + tr.quality_score
-            triggers["lps"].append((sym, float(score)))
+            triggers["lps"].append((sym, _safe_float(score)))
             hit_keys.add("lps")
 
         vol_ratio_evr = _last_ref_volume_ratio(volume, max(int(cfg.evr_vol_window), 10))
@@ -265,13 +281,13 @@ def detect_structure_triggers(
         if (
             getattr(cfg, "enable_evr_trigger", False)
             and vol_ratio_evr is not None
-            and vol_ratio_evr >= float(cfg.evr_vol_ratio)
+            and vol_ratio_evr >= _safe_float(cfg.evr_vol_ratio)
             and in_lower_range
-            and -float(cfg.evr_max_drop) <= last_pct <= float(cfg.evr_max_rise)
+            and -_safe_float(cfg.evr_max_drop) <= last_pct <= _safe_float(cfg.evr_max_rise)
             and last_close >= tr.support * 0.98
         ):
             score = vol_ratio_evr + tr.quality_score
-            triggers["evr"].append((sym, float(score)))
+            triggers["evr"].append((sym, _safe_float(score)))
             hit_keys.add("evr")
 
         stage_map[sym] = _infer_stage(df_s, tr, hit_keys)

@@ -5,6 +5,22 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 SIGNAL_TTL_DAYS: dict[str, int] = {
     "sos": 2,
@@ -110,12 +126,12 @@ def _compute_support_level(
     last = df_s.iloc[-1]
     if signal_type in ("spring", "compression"):
         zone = df_s.iloc[-(window + 2) : -2] if len(df_s) > window + 2 else df_s.iloc[:-2]
-        return float(zone["close"].min()) if len(zone) > 0 else float(last["low"])
+        return _safe_float(zone["close"].min()) if len(zone) > 0 else _safe_float(last["low"])
     if signal_type == "sos":
-        return float(df_s["high"].tail(21).iloc[:-1].max()) if len(df_s) >= 21 else float(last["high"])
+        return _safe_float(df_s["high"].tail(21).iloc[:-1].max()) if len(df_s) >= 21 else _safe_float(last["high"])
     if signal_type == "lps":
-        return float(df_s["close"].rolling(20).mean().iloc[-1]) if len(df_s) >= 20 else float(last["close"])
-    return float(df_s["low"].tail(20).min())
+        return _safe_float(df_s["close"].rolling(20).mean().iloc[-1]) if len(df_s) >= 20 else _safe_float(last["close"])
+    return _safe_float(df_s["low"].tail(20).min())
 
 
 def score_springboard_abc(
@@ -173,15 +189,15 @@ def build_snap(
     """从 OHLCV DataFrame 最后一根 K 线构建价格快照。"""
     df_s = df.sort_values("date") if "date" in df.columns else df
     last = df_s.iloc[-1]
-    ma20 = float(df_s["close"].rolling(20).mean().iloc[-1]) if len(df_s) >= 20 else float(last["close"])
-    ma50 = float(df_s["close"].rolling(50).mean().iloc[-1]) if len(df_s) >= 50 else float(last["close"])
+    ma20 = _safe_float(df_s["close"].rolling(20).mean().iloc[-1]) if len(df_s) >= 20 else _safe_float(last["close"])
+    ma50 = _safe_float(df_s["close"].rolling(50).mean().iloc[-1]) if len(df_s) >= 50 else _safe_float(last["close"])
 
     snap = {
-        "snap_open": float(last["open"]),
-        "snap_high": float(last["high"]),
-        "snap_low": float(last["low"]),
-        "snap_close": float(last["close"]),
-        "snap_volume": float(last["volume"]),
+        "snap_open": _safe_float(last["open"]),
+        "snap_high": _safe_float(last["high"]),
+        "snap_low": _safe_float(last["low"]),
+        "snap_close": _safe_float(last["close"]),
+        "snap_volume": _safe_float(last["volume"]),
         "snap_ma20": ma20,
         "snap_ma50": ma50,
     }
@@ -189,13 +205,13 @@ def build_snap(
     if signal_type in ("spring", "compression"):
         window = 60 if cfg is None else getattr(cfg, "spring_support_window", 60)
         zone = df_s.iloc[-(window + 2) : -2] if len(df_s) > window + 2 else df_s.iloc[:-2]
-        snap["snap_support"] = float(zone["close"].min()) if len(zone) > 0 else float(last["low"])
+        snap["snap_support"] = _safe_float(zone["close"].min()) if len(zone) > 0 else _safe_float(last["low"])
     elif signal_type == "sos":
-        snap["snap_support"] = float(df_s["high"].tail(21).iloc[:-1].max()) if len(df_s) >= 21 else float(last["high"])
+        snap["snap_support"] = _safe_float(df_s["high"].tail(21).iloc[:-1].max()) if len(df_s) >= 21 else _safe_float(last["high"])
     elif signal_type == "lps":
         snap["snap_support"] = ma20
     else:
-        snap["snap_support"] = float(last["low"])
+        snap["snap_support"] = _safe_float(last["low"])
 
     return snap
 
@@ -204,14 +220,14 @@ def build_today_ohlcv(df: pd.DataFrame) -> dict[str, float]:
     """从 DataFrame 最后一根 K 线构建 today_ohlcv dict。"""
     df_s = df.sort_values("date") if "date" in df.columns else df
     last = df_s.iloc[-1]
-    ma20 = float(df_s["close"].rolling(20).mean().iloc[-1]) if len(df_s) >= 20 else float(last["close"])
-    ma50 = float(df_s["close"].rolling(50).mean().iloc[-1]) if len(df_s) >= 50 else float(last["close"])
+    ma20 = _safe_float(df_s["close"].rolling(20).mean().iloc[-1]) if len(df_s) >= 20 else _safe_float(last["close"])
+    ma50 = _safe_float(df_s["close"].rolling(50).mean().iloc[-1]) if len(df_s) >= 50 else _safe_float(last["close"])
     return {
-        "open": float(last["open"]),
-        "high": float(last["high"]),
-        "low": float(last["low"]),
-        "close": float(last["close"]),
-        "volume": float(last["volume"]),
+        "open": _safe_float(last["open"]),
+        "high": _safe_float(last["high"]),
+        "low": _safe_float(last["low"]),
+        "close": _safe_float(last["close"]),
+        "volume": _safe_float(last["volume"]),
         "ma20": ma20,
         "ma50": ma50,
     }

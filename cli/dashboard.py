@@ -490,7 +490,16 @@ def _run_funnel_background(payload: dict | None = None) -> dict:
         return result
     except Exception as e:
         elapsed = time.time() - start
-        result = {"ok": False, "error": str(e), "elapsed_s": round(elapsed, 1), "progress_logs": list(_funnel_logs)}
+        logger.exception("funnel failed: %s", e)
+        import traceback as _tb
+
+        result = {
+            "ok": False,
+            "error": str(e),
+            "error_traceback": _tb.format_exc(),
+            "elapsed_s": round(elapsed, 1),
+            "progress_logs": list(_funnel_logs),
+        }
         _funnel_last_result = result
         return result
     finally:

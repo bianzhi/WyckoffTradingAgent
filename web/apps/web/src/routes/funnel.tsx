@@ -1131,9 +1131,7 @@ function MultiSelect({
   )
 }
 
-function FunnelStockRow({ s, i, hasChannel, hasSignals, hasStage, hasRemark }: {
-  s: FunnelStockResult; i: number; hasChannel: boolean; hasSignals: boolean; hasStage: boolean; hasRemark: boolean
-}) {
+function FunnelStockRow({ s, i }: { s: FunnelStockResult; i: number }) {
   return (
     <tr key={s.code} className="border-b border-border/50 hover:bg-muted/20">
       <td className="px-2 py-1.5 text-muted-foreground tabular-nums">{i + 1}</td>
@@ -1147,32 +1145,26 @@ function FunnelStockRow({ s, i, hasChannel, hasSignals, hasStage, hasRemark }: {
           {s.name || '-'}
         </Link>
       </td>
-      {hasChannel && (
-        <td className="px-2 py-1.5">
-          <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">{s.channel || '-'}</span>
-        </td>
-      )}
+      <td className="px-2 py-1.5">
+        <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">{s.channel || '-'}</span>
+      </td>
       <td className="px-2 py-1.5 text-right font-mono tabular-nums font-semibold">{s.score.toFixed(1)}</td>
       <td className="px-2 py-1.5 text-right font-mono tabular-nums text-muted-foreground">
         {s.latest_close != null ? s.latest_close.toFixed(2) : '-'}
       </td>
-      {hasSignals && (
-        <td className="px-2 py-1.5">
-          <div className="flex flex-wrap gap-0.5">
-            {s.signals.map(sig => (
-              <span key={sig} className="rounded bg-emerald-500/10 px-1 py-0.5 text-[10px] text-emerald-400">
-                {SIGNAL_LABELS[sig] ?? sig}
-              </span>
-            ))}
-          </div>
-        </td>
-      )}
-      {hasStage && <td className="px-2 py-1.5 text-muted-foreground">{s.stage || '-'}</td>}
-      {hasRemark && (
-        <td className="px-2 py-1.5 text-[11px] text-muted-foreground max-w-[200px] truncate" title={s.remark || ''}>
-          {s.remark || '-'}
-        </td>
-      )}
+      <td className="px-2 py-1.5">
+        <div className="flex flex-wrap gap-0.5">
+          {s.signals.map(sig => (
+            <span key={sig} className="rounded bg-emerald-500/10 px-1 py-0.5 text-[10px] text-emerald-400">
+              {SIGNAL_LABELS[sig] ?? sig}
+            </span>
+          ))}
+        </div>
+      </td>
+      <td className="px-2 py-1.5 text-muted-foreground">{s.stage || '-'}</td>
+      <td className="px-2 py-1.5 text-[11px] text-muted-foreground max-w-[200px] truncate" title={s.remark || ''}>
+        {s.remark || '-'}
+      </td>
     </tr>
   )
 }
@@ -1252,12 +1244,6 @@ function FunnelStockTable({
 }) {
   const { sorted, toggleSort, sortArrow } = useStockSort(activeStocks)
 
-  // 检测哪些可选列有数据（全为空则隐藏）
-  const hasChannel = activeStocks.some(s => s.channel)
-  const hasSignals = activeStocks.some(s => s.signals.length > 0)
-  const hasStage = activeStocks.some(s => s.stage)
-  const hasRemark = activeStocks.some(s => s.remark)
-
   const th = (key: StockSortKey, label: string, align: 'left' | 'right' = 'left') => (
     <th
       className={`px-2 py-1.5 text-${align} cursor-pointer hover:text-foreground select-none whitespace-nowrap`}
@@ -1275,17 +1261,17 @@ function FunnelStockTable({
             <th className="px-2 py-1.5 text-left w-8">#</th>
             {th('code', isZh ? '代码' : 'Code')}
             {th('name', isZh ? '名称' : 'Name')}
-            {hasChannel && th('channel', isZh ? 'L2通道' : 'L2 Channel')}
+            {th('channel', isZh ? 'L2通道' : 'L2 Channel')}
             {th('score', isZh ? 'L3评分' : 'L3 Score', 'right')}
             {th('price', isZh ? '最新价' : 'Price', 'right')}
-            {hasSignals && th('signals', isZh ? 'L4信号' : 'L4 Signals')}
-            {hasStage && th('stage', isZh ? 'L4阶段' : 'L4 Stage')}
-            {hasRemark && th('remark', isZh ? '备注' : 'Remark')}
+            {th('signals', isZh ? 'L4信号' : 'L4 Signals')}
+            {th('stage', isZh ? 'L4阶段' : 'L4 Stage')}
+            {th('remark', isZh ? '备注' : 'Remark')}
           </tr>
         </thead>
         <tbody>
           {sorted.map((s, i) => (
-            <FunnelStockRow key={s.code} s={s} i={i} hasChannel={hasChannel} hasSignals={hasSignals} hasStage={hasStage} hasRemark={hasRemark} />
+            <FunnelStockRow key={s.code} s={s} i={i} />
           ))}
           {exitedStocks.length > 0 && (
             <FunnelExitedSection isZh={isZh} exitedStocks={exitedStocks} />

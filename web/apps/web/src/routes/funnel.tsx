@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createChart, HistogramSeries, type HistogramData, type Time } from 'lightweight-charts'
 import { fetchFunnelSummary, fetchFunnelDates, fetchSignalQualityStats, fetchFunnelResult, downloadFunnelReport, fetchAgentHealth, type FunnelSummary, type SectorStat, type TriggerStat, type FunnelFullResult, type FunnelLayerCondition } from '@/lib/funnel-data'
@@ -1080,9 +1081,9 @@ function FunnelStockRow({ s, i }: { s: FunnelFullResult['stocks'][number]; i: nu
     <tr key={s.code} className="border-b border-border/50 hover:bg-muted/20">
       <td className="px-2 py-1.5 text-muted-foreground tabular-nums">{i + 1}</td>
       <td className="px-2 py-1.5">
-        <a href={`/analysis?code=${s.code}`} className="font-mono font-medium text-primary hover:underline">
+        <Link to={`/analysis?code=${s.code}`} className="font-mono font-medium text-primary hover:underline">
           {s.code}
-        </a>
+        </Link>
       </td>
       <td className="px-2 py-1.5 text-muted-foreground max-w-[120px] truncate" title={s.name}>{s.name || '-'}</td>
       <td className="px-2 py-1.5">

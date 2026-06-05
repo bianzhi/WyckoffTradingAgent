@@ -45,7 +45,6 @@ services:
       - .env.production
     environment:
       - PYTHONUNBUFFERED=1
-    user: root
     ports:
       - "8080:8080"
     volumes:

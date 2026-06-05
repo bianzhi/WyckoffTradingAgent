@@ -65,11 +65,12 @@ RUN pnpm --filter @wyckoff/api deploy --prod --legacy /prod
 # ── Stage 3: API Runtime ──────────────────────
 FROM node:22-slim AS api
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN rm -rf /var/cache/apt/archives/* /var/lib/apt/lists/* \
+    && sed -i 's|http://deb.debian.org|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip wget \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-RUN addgroup --system wyckoff && adduser --system --no-create-home --group wyckoff
+    && apt-get clean && rm -rf /var/lib/apt/lists/* \
+    && addgroup --system wyckoff && adduser --system --no-create-home --group wyckoff
 
 WORKDIR /app
 
@@ -118,10 +119,12 @@ RUN rm -rf /var/cache/apt/archives/* /var/lib/apt/lists/* \
 COPY --from=root pyproject.toml requirements.txt ./
 
 RUN --mount=type=cache,id=pip,target=/root/.cache/pip \
-    pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt
+    pip install --no-cache-dir \
+    -i https://mirrors.aliyun.com/pypi/simple/ \
+    --trusted-host mirrors.aliyun.com \
+    -r requirements.txt
 
 # Install the wyckoff package itself
-COPY --from=root pyproject.toml ./
 COPY --from=root cli/ cli/
 COPY --from=root agents/ agents/
 COPY --from=root core/ core/
@@ -133,16 +136,27 @@ COPY --from=root data/ data/
 COPY --from=root mcp_server.py AGENTS.md ./
 
 RUN --mount=type=cache,id=pip,target=/root/.cache/pip \
-    pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ -e . --no-deps
+    pip install --no-cache-dir \
+    -i https://mirrors.aliyun.com/pypi/simple/ \
+    --trusted-host mirrors.aliyun.com \
+    . --no-deps
 
 FROM python-base AS agent
 
 RUN addgroup --system wyckoff && adduser --system --group wyckoff
 
+# gosu for dropping from root → wyckoff at runtime
+RUN apt-get update && apt-get install -y --no-install-recommends gosu \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # Ensure volume mount points and home are writable by the wyckoff user
 RUN mkdir -p /app/data /app/logs /home/wyckoff && chown -R wyckoff:wyckoff /app/data /app/logs /home/wyckoff
 
-USER wyckoff
+COPY --from=deploy entrypoint-agent.sh /entrypoint.sh
+
+# Start as root so entrypoint can chown volume mounts, then drop to wyckoff
+ENTRYPOINT ["/entrypoint.sh"]
+
 ENV HOME=/home/wyckoff
 WORKDIR /app
 

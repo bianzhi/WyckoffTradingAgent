@@ -46,7 +46,7 @@ log "构建 nginx (前端) ..."
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build "${BUILD_ARGS[@]}" nginx
 
 log "构建 api ..."
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build "${BUILD_ARGS[@]}" api 2>/dev/null || log "api 构建跳过（可能已用旧版）"
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build "${BUILD_ARGS[@]}" api
 
 # ── 启动全部服务 ──
 log "启动所有服务..."
@@ -70,4 +70,4 @@ log "容器状态:"
 docker compose -f "$COMPOSE_FILE" ps
 
 echo ""
-echo "访问: http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'YOUR_IP'):8901/moyan/"
+echo "访问: http://$(hostname -I 2>/dev/null | awk '{print $1}' || hostname):8901/moyan/"

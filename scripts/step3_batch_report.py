@@ -11,6 +11,22 @@ import sys
 from datetime import date
 
 import pandas as pd
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 # Ensure project root is on sys.path for direct script invocation
 if __name__ == "__main__" or not __package__:
@@ -381,7 +397,7 @@ def _build_fallback_sections(selected_df: pd.DataFrame) -> str:
         name = str(row.get("name", code))
         tag = str(row.get("tag", ""))
         score = row.get("wyckoff_score")
-        score_text = f"{float(score):.3f}" if pd.notna(score) else "-"
+        score_text = f"{_safe_float(score):.3f}" if pd.notna(score) else "-"
         lines.append(
             f"- `{code} {name}` | 标签: {tag or '-'} | 量化分: {score_text} | 仍需条件: 回踩结构战区时需缩量确认。"
         )
@@ -396,8 +412,8 @@ def _safe_return(series: pd.Series, lookback: int = 10) -> float | None:
     s = pd.to_numeric(series, errors="coerce").dropna()
     if len(s) <= lookback:
         return None
-    start = float(s.iloc[-lookback - 1])
-    end = float(s.iloc[-1])
+    start = _safe_float(s.iloc[-lookback - 1])
+    end = _safe_float(s.iloc[-1])
     if start == 0:
         return None
     return (end - start) / start * 100.0
@@ -479,7 +495,7 @@ def ultimate_compressor(
         lambda r: _format_mainline_tag(str(r.get("industry", "")), bool(r.get("is_hot_mainline"))),
         axis=1,
     )
-    df["dynamic_bonus"] = df["is_hot_mainline"].map(lambda v: float(bonus_rate) if bool(v) else 0.0)
+    df["dynamic_bonus"] = df["is_hot_mainline"].map(lambda v: _safe_float(bonus_rate) if bool(v) else 0.0)
     df["wyckoff_score"] = df["base_wyckoff_score"] * (1.0 + df["dynamic_bonus"])
 
     # 先全局排序，再做行业拥挤度限制
@@ -876,8 +892,8 @@ def run(
             latest_close = close.iloc[-1] if len(close) else pd.NA
             latest_ma200 = ma200.iloc[-1] if len(ma200) else pd.NA
             bias_200 = pd.NA
-            if pd.notna(latest_close) and pd.notna(latest_ma200) and float(latest_ma200) != 0:
-                bias_200 = (float(latest_close) - float(latest_ma200)) / float(latest_ma200) * 100.0
+            if pd.notna(latest_close) and pd.notna(latest_ma200) and _safe_float(latest_ma200) != 0:
+                bias_200 = (_safe_float(latest_close) - _safe_float(latest_ma200)) / _safe_float(latest_ma200) * 100.0
 
             stock_ret_10 = _safe_return(close, lookback=10)
             rs_10 = stock_ret_10
@@ -889,7 +905,7 @@ def run(
             vol_ratio = volume / vol_ma20.replace(0, pd.NA)
             min_vol_ratio_5d = pd.to_numeric(vol_ratio.tail(5), errors="coerce").min()
             avg_amount_20_yi = (
-                float(amount_ma20.iloc[-1]) / 1e8 if len(amount_ma20) and pd.notna(amount_ma20.iloc[-1]) else pd.NA
+                _safe_float(amount_ma20.iloc[-1]) / 1e8 if len(amount_ma20) and pd.notna(amount_ma20.iloc[-1]) else pd.NA
             )
 
             candidate_rows.append(
@@ -1150,7 +1166,7 @@ def run(
         policy_text = str(policy_val).strip() if isinstance(policy_val, str) and str(policy_val).strip() else None
         _exit_sig = str(row.get("exit_signal", "")).strip() or None
         _exit_price_raw = pd.to_numeric(row.get("exit_price"), errors="coerce")
-        _exit_price = float(_exit_price_raw) if pd.notna(_exit_price_raw) else None
+        _exit_price = _safe_float(_exit_price_raw) if pd.notna(_exit_price_raw) else None
         _exit_reason = str(row.get("exit_reason", "")).strip() or None
         payload = generate_stock_payload(
             stock_code=code,

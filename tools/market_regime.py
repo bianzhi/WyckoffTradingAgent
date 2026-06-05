@@ -11,31 +11,47 @@ import os
 import pandas as pd
 
 from core.wyckoff_engine import FunnelConfig
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 # ── 环境变量配置 ──
 
 BREADTH_MA_WINDOW = int(os.getenv("FUNNEL_BREADTH_MA_WINDOW", "20"))
-BREADTH_RISK_OFF_THRESHOLD = float(os.getenv("FUNNEL_BREADTH_RISK_OFF_PCT", "20.0"))
-BREADTH_RISK_ON_THRESHOLD = float(os.getenv("FUNNEL_BREADTH_RISK_ON_PCT", "60.0"))
-BREADTH_RISK_ON_MIN_DELTA = float(os.getenv("FUNNEL_BREADTH_RISK_ON_DELTA", "0.0"))
-BREADTH_CLIFF_DROP_PCT = float(os.getenv("FUNNEL_BREADTH_CLIFF_DROP_PCT", "-10.0"))
+BREADTH_RISK_OFF_THRESHOLD = _safe_float(os.getenv("FUNNEL_BREADTH_RISK_OFF_PCT", "20.0"))
+BREADTH_RISK_ON_THRESHOLD = _safe_float(os.getenv("FUNNEL_BREADTH_RISK_ON_PCT", "60.0"))
+BREADTH_RISK_ON_MIN_DELTA = _safe_float(os.getenv("FUNNEL_BREADTH_RISK_ON_DELTA", "0.0"))
+BREADTH_CLIFF_DROP_PCT = _safe_float(os.getenv("FUNNEL_BREADTH_CLIFF_DROP_PCT", "-10.0"))
 SMALLCAP_BENCH_CODE = os.getenv("FUNNEL_SMALLCAP_BENCH_CODE", "399006").strip() or "399006"
-CRASH_MAIN_DAY_DROP_PCT = float(os.getenv("FUNNEL_CRASH_MAIN_DAY_DROP_PCT", "-1.3"))
-CRASH_SMALL_DAY_DROP_PCT = float(os.getenv("FUNNEL_CRASH_SMALL_DAY_DROP_PCT", "-2.5"))
-CRASH_BREADTH_RATIO_PCT = float(os.getenv("FUNNEL_CRASH_BREADTH_RATIO_PCT", "15.0"))
-CRASH_BREADTH_DELTA_PCT = float(os.getenv("FUNNEL_CRASH_BREADTH_DELTA_PCT", "-20.0"))
-PANIC_REPAIR_MIN_AVG_AMOUNT_WAN = float(os.getenv("FUNNEL_PANIC_REPAIR_MIN_AVG_AMOUNT_WAN", "7000.0"))
-RISK_OFF_MIN_AVG_AMOUNT_WAN = float(os.getenv("FUNNEL_RISK_OFF_MIN_AVG_AMOUNT_WAN", "8000.0"))
-RISK_OFF_DEEP_MIN_AVG_AMOUNT_WAN = float(os.getenv("FUNNEL_RISK_OFF_DEEP_MIN_AVG_AMOUNT_WAN", "10000.0"))
-CRASH_MIN_AVG_AMOUNT_WAN = float(os.getenv("FUNNEL_CRASH_MIN_AVG_AMOUNT_WAN", "12000.0"))
+CRASH_MAIN_DAY_DROP_PCT = _safe_float(os.getenv("FUNNEL_CRASH_MAIN_DAY_DROP_PCT", "-1.3"))
+CRASH_SMALL_DAY_DROP_PCT = _safe_float(os.getenv("FUNNEL_CRASH_SMALL_DAY_DROP_PCT", "-2.5"))
+CRASH_BREADTH_RATIO_PCT = _safe_float(os.getenv("FUNNEL_CRASH_BREADTH_RATIO_PCT", "15.0"))
+CRASH_BREADTH_DELTA_PCT = _safe_float(os.getenv("FUNNEL_CRASH_BREADTH_DELTA_PCT", "-20.0"))
+PANIC_REPAIR_MIN_AVG_AMOUNT_WAN = _safe_float(os.getenv("FUNNEL_PANIC_REPAIR_MIN_AVG_AMOUNT_WAN", "7000.0"))
+RISK_OFF_MIN_AVG_AMOUNT_WAN = _safe_float(os.getenv("FUNNEL_RISK_OFF_MIN_AVG_AMOUNT_WAN", "8000.0"))
+RISK_OFF_DEEP_MIN_AVG_AMOUNT_WAN = _safe_float(os.getenv("FUNNEL_RISK_OFF_DEEP_MIN_AVG_AMOUNT_WAN", "10000.0"))
+CRASH_MIN_AVG_AMOUNT_WAN = _safe_float(os.getenv("FUNNEL_CRASH_MIN_AVG_AMOUNT_WAN", "12000.0"))
 PANIC_REPAIR_ENABLE = os.getenv("FUNNEL_PANIC_REPAIR_ENABLE", "1").strip().lower() in {
     "1",
     "true",
     "yes",
     "on",
 }
-PANIC_REPAIR_MAIN_REBOUND_PCT = float(os.getenv("FUNNEL_PANIC_REPAIR_MAIN_REBOUND_PCT", "0.8"))
-PANIC_REPAIR_SMALL_REBOUND_PCT = float(os.getenv("FUNNEL_PANIC_REPAIR_SMALL_REBOUND_PCT", "1.5"))
+PANIC_REPAIR_MAIN_REBOUND_PCT = _safe_float(os.getenv("FUNNEL_PANIC_REPAIR_MAIN_REBOUND_PCT", "0.8"))
+PANIC_REPAIR_SMALL_REBOUND_PCT = _safe_float(os.getenv("FUNNEL_PANIC_REPAIR_SMALL_REBOUND_PCT", "1.5"))
 FUNNEL_EVR_POLICY = os.getenv("FUNNEL_EVR_POLICY", "all_regimes").strip().lower()
 
 _PV_OUTLOOK_FALLBACK: dict[str, str] = {
@@ -151,10 +167,10 @@ def calc_market_breadth(
         if len(close) < (w + 1):
             continue
 
-        c_now = float(close.iloc[-1])
-        ma_now = float(close.iloc[1:].mean())
-        c_prev = float(close.iloc[-2])
-        ma_prev = float(close.iloc[:-1].mean())
+        c_now = _safe_float(close.iloc[-1])
+        ma_now = _safe_float(close.iloc[1:].mean())
+        c_prev = _safe_float(close.iloc[-2])
+        ma_prev = _safe_float(close.iloc[:-1].mean())
 
         valid_now += 1
         if c_now >= ma_now:
@@ -245,25 +261,25 @@ def analyze_benchmark_and_tune_cfg(
         b["pct_chg"] = pd.to_numeric(b["pct_chg"], errors="coerce")
         b["volume"] = pd.to_numeric(b.get("volume"), errors="coerce")
         if len(b) >= 60:
-            close = float(b["close"].iloc[-1])
-            ma50 = float(b["close"].rolling(50).mean().iloc[-1])
-            ma200 = float(b["close"].rolling(200).mean().iloc[-1])
+            close = _safe_float(b["close"].iloc[-1])
+            ma50 = _safe_float(b["close"].rolling(50).mean().iloc[-1])
+            ma200 = _safe_float(b["close"].rolling(200).mean().iloc[-1])
             ma50_prev = b["close"].rolling(50).mean().shift(5).iloc[-1]
-            ma50_slope_5d = None if pd.isna(ma50_prev) else float(ma50 - ma50_prev)
+            ma50_slope_5d = None if pd.isna(ma50_prev) else _safe_float(ma50 - ma50_prev)
             recent3 = b["pct_chg"].dropna().tail(3)
-            recent3_list = [float(x) for x in recent3.tolist()]
+            recent3_list = [_safe_float(x) for x in recent3.tolist()]
             if not recent3.empty:
-                recent3_cum = float(((recent3 / 100.0 + 1.0).prod() - 1.0) * 100.0)
+                recent3_cum = _safe_float(((recent3 / 100.0 + 1.0).prod() - 1.0) * 100.0)
             if recent3_list:
-                main_today_pct = float(recent3_list[-1])
+                main_today_pct = _safe_float(recent3_list[-1])
                 if len(recent3_list) >= 2:
-                    main_prev_pct = float(recent3_list[-2])
+                    main_prev_pct = _safe_float(recent3_list[-2])
             vol = b["volume"].dropna()
             if len(vol) >= 20:
-                main_vol_ma20 = float(vol.tail(20).mean())
-                main_vol_ma5 = float(vol.tail(5).mean())
+                main_vol_ma20 = _safe_float(vol.tail(20).mean())
+                main_vol_ma5 = _safe_float(vol.tail(5).mean())
                 if main_vol_ma20 > 0:
-                    main_vol_ratio_5_20 = float(main_vol_ma5 / main_vol_ma20)
+                    main_vol_ratio_5_20 = _safe_float(main_vol_ma5 / main_vol_ma20)
                     if main_vol_ratio_5_20 >= 1.15:
                         main_volume_state = "放量"
                     elif main_vol_ratio_5_20 <= 0.85:
@@ -276,15 +292,15 @@ def analyze_benchmark_and_tune_cfg(
         s["close"] = pd.to_numeric(s["close"], errors="coerce")
         s["pct_chg"] = pd.to_numeric(s["pct_chg"], errors="coerce")
         if len(s) >= 10:
-            small_close = float(s["close"].iloc[-1])
+            small_close = _safe_float(s["close"].iloc[-1])
             s_recent3 = s["pct_chg"].dropna().tail(3)
-            small_recent3_list = [float(x) for x in s_recent3.tolist()]
+            small_recent3_list = [_safe_float(x) for x in s_recent3.tolist()]
             if not s_recent3.empty:
-                small_recent3_cum = float(((s_recent3 / 100.0 + 1.0).prod() - 1.0) * 100.0)
+                small_recent3_cum = _safe_float(((s_recent3 / 100.0 + 1.0).prod() - 1.0) * 100.0)
             if small_recent3_list:
-                small_today_pct = float(small_recent3_list[-1])
+                small_today_pct = _safe_float(small_recent3_list[-1])
                 if len(small_recent3_list) >= 2:
-                    small_prev_pct = float(small_recent3_list[-2])
+                    small_prev_pct = _safe_float(small_recent3_list[-2])
 
     regime = "NEUTRAL"
     if (
@@ -311,42 +327,42 @@ def analyze_benchmark_and_tune_cfg(
         breadth_delta = breadth.get("delta_pct")
         breadth_sample = int(breadth.get("sample_size") or 0)
     if breadth_ratio is not None:
-        if float(breadth_ratio) <= BREADTH_RISK_OFF_THRESHOLD:
+        if _safe_float(breadth_ratio) <= BREADTH_RISK_OFF_THRESHOLD:
             regime = "RISK_OFF"
-        elif float(breadth_ratio) >= BREADTH_RISK_ON_THRESHOLD and (
-            breadth_delta is None or float(breadth_delta) >= BREADTH_RISK_ON_MIN_DELTA
+        elif _safe_float(breadth_ratio) >= BREADTH_RISK_ON_THRESHOLD and (
+            breadth_delta is None or _safe_float(breadth_delta) >= BREADTH_RISK_ON_MIN_DELTA
         ):
             regime = "RISK_ON"
         # 强力悬崖检测 (Breadth Cliff Drop): 赚了指数不赚钱，暗流涌动的隐性雪崩
-        if breadth_delta is not None and float(breadth_delta) <= BREADTH_CLIFF_DROP_PCT:
+        if breadth_delta is not None and _safe_float(breadth_delta) <= BREADTH_CLIFF_DROP_PCT:
             regime = "RISK_OFF"
 
     panic_reasons: list[str] = []
-    if main_today_pct is not None and float(main_today_pct) <= float(CRASH_MAIN_DAY_DROP_PCT):
+    if main_today_pct is not None and _safe_float(main_today_pct) <= _safe_float(CRASH_MAIN_DAY_DROP_PCT):
         panic_reasons.append(f"main_day_drop={main_today_pct:.2f}%<=阈值{CRASH_MAIN_DAY_DROP_PCT:.2f}%")
-    if small_today_pct is not None and float(small_today_pct) <= float(CRASH_SMALL_DAY_DROP_PCT):
+    if small_today_pct is not None and _safe_float(small_today_pct) <= _safe_float(CRASH_SMALL_DAY_DROP_PCT):
         panic_reasons.append(f"smallcap_day_drop={small_today_pct:.2f}%<=阈值{CRASH_SMALL_DAY_DROP_PCT:.2f}%")
-    if breadth_ratio is not None and float(breadth_ratio) <= float(CRASH_BREADTH_RATIO_PCT):
-        panic_reasons.append(f"breadth_ratio={float(breadth_ratio):.2f}%<=阈值{CRASH_BREADTH_RATIO_PCT:.2f}%")
-    if breadth_delta is not None and float(breadth_delta) <= float(CRASH_BREADTH_DELTA_PCT):
-        panic_reasons.append(f"breadth_delta={float(breadth_delta):.2f}%<=阈值{CRASH_BREADTH_DELTA_PCT:.2f}%")
+    if breadth_ratio is not None and _safe_float(breadth_ratio) <= _safe_float(CRASH_BREADTH_RATIO_PCT):
+        panic_reasons.append(f"breadth_ratio={_safe_float(breadth_ratio):.2f}%<=阈值{CRASH_BREADTH_RATIO_PCT:.2f}%")
+    if breadth_delta is not None and _safe_float(breadth_delta) <= _safe_float(CRASH_BREADTH_DELTA_PCT):
+        panic_reasons.append(f"breadth_delta={_safe_float(breadth_delta):.2f}%<=阈值{CRASH_BREADTH_DELTA_PCT:.2f}%")
     repair_reasons: list[str] = []
     if panic_reasons:
         regime = "CRASH"
     elif PANIC_REPAIR_ENABLE:
         # 改进逻辑：支持连续反弹（前 1-2 天是 CRASH，最近 1-2 天反弹）
-        prev_panic = (main_prev_pct is not None and float(main_prev_pct) <= float(CRASH_MAIN_DAY_DROP_PCT)) or (
-            small_prev_pct is not None and float(small_prev_pct) <= float(CRASH_SMALL_DAY_DROP_PCT)
+        prev_panic = (main_prev_pct is not None and _safe_float(main_prev_pct) <= _safe_float(CRASH_MAIN_DAY_DROP_PCT)) or (
+            small_prev_pct is not None and _safe_float(small_prev_pct) <= _safe_float(CRASH_SMALL_DAY_DROP_PCT)
         )
-        rebound_ok = (main_today_pct is not None and float(main_today_pct) >= float(PANIC_REPAIR_MAIN_REBOUND_PCT)) or (
-            small_today_pct is not None and float(small_today_pct) >= float(PANIC_REPAIR_SMALL_REBOUND_PCT)
+        rebound_ok = (main_today_pct is not None and _safe_float(main_today_pct) >= _safe_float(PANIC_REPAIR_MAIN_REBOUND_PCT)) or (
+            small_today_pct is not None and _safe_float(small_today_pct) >= _safe_float(PANIC_REPAIR_SMALL_REBOUND_PCT)
         )
         # 连续反弹：最近 2 日都反弹
         continuous_rebound = False
         if main_today_pct is not None and main_prev_pct is not None:
             continuous_rebound = (
-                float(main_today_pct) >= float(PANIC_REPAIR_MAIN_REBOUND_PCT) * 0.5
-                and float(main_prev_pct) >= float(PANIC_REPAIR_MAIN_REBOUND_PCT) * 0.5
+                _safe_float(main_today_pct) >= _safe_float(PANIC_REPAIR_MAIN_REBOUND_PCT) * 0.5
+                and _safe_float(main_prev_pct) >= _safe_float(PANIC_REPAIR_MAIN_REBOUND_PCT) * 0.5
             )
 
         if (prev_panic and rebound_ok) or continuous_rebound:

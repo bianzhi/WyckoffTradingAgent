@@ -14,6 +14,22 @@ import numpy as np
 import pandas as pd
 
 from integrations.data_source import fetch_stock_hist
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 
 def _daily_returns(close: pd.Series) -> pd.Series:
@@ -27,8 +43,8 @@ def _portfolio_value(positions: list[dict], prices: dict[str, float]) -> float:
     total = 0.0
     for p in positions:
         code = str(p.get("code", "")).strip()
-        shares = float(p.get("shares", 0) or 0)
-        price = prices.get(code) or float(p.get("cost_price", 0) or 0)
+        shares = _safe_float(p.get("shares", 0) or 0)
+        price = prices.get(code) or _safe_float(p.get("cost_price", 0) or 0)
         total += shares * price
     return total
 
@@ -40,7 +56,7 @@ def historical_var(returns: np.ndarray, confidence: float = 0.95) -> float:
     """历史模拟 VaR：取收益率分布的第 (1-confidence) 分位数。"""
     if len(returns) == 0:
         return 0.0
-    return float(np.percentile(returns, (1 - confidence) * 100))
+    return _safe_float(np.percentile(returns, (1 - confidence) * 100))
 
 
 def parametric_var(returns: np.ndarray, confidence: float = 0.95) -> float:
@@ -49,8 +65,8 @@ def parametric_var(returns: np.ndarray, confidence: float = 0.95) -> float:
         return 0.0
     from scipy.stats import norm
 
-    mu = float(np.mean(returns))
-    sigma = float(np.std(returns, ddof=1))
+    mu = _safe_float(np.mean(returns))
+    sigma = _safe_float(np.std(returns, ddof=1))
     z = norm.ppf(1 - confidence)
     return mu - z * sigma
 
@@ -63,7 +79,7 @@ def cvar(returns: np.ndarray, confidence: float = 0.95) -> float:
     tail = returns[returns <= threshold]
     if len(tail) == 0:
         return threshold
-    return float(tail.mean())
+    return _safe_float(tail.mean())
 
 
 # ── 最大回撤 ──────────────────────────────────────────────
@@ -92,8 +108,8 @@ def max_drawdown(values: np.ndarray) -> dict:
 
     return {
         "max_drawdown_pct": round(mdd * 100, 2),
-        "peak_value": round(float(values[mdd_peak_idx]), 2),
-        "trough_value": round(float(values[mdd_trough_idx]), 2),
+        "peak_value": round(_safe_float(values[mdd_peak_idx]), 2),
+        "trough_value": round(_safe_float(values[mdd_trough_idx]), 2),
         "peak_index": int(mdd_peak_idx),
         "trough_index": int(mdd_trough_idx),
     }
@@ -116,7 +132,7 @@ def correlation_matrix(returns_dict: dict[str, np.ndarray]) -> dict:
     codes = list(returns_dict.keys())
     for i in range(len(codes)):
         for j in range(i + 1, len(codes)):
-            val = float(corr.iloc[i, j]) if not pd.isna(corr.iloc[i, j]) else 0.0
+            val = _safe_float(corr.iloc[i, j]) if not pd.isna(corr.iloc[i, j]) else 0.0
             pairs.append({"code_a": codes[i], "code_b": codes[j], "correlation": round(val, 4)})
 
     # 高相关警告
@@ -127,7 +143,7 @@ def correlation_matrix(returns_dict: dict[str, np.ndarray]) -> dict:
         warnings.append(f"⚠️ 高相关对（>{0.7}）：{', '.join(names)}")
 
     return {
-        "matrix": {k: {kk: round(float(vv), 4) for kk, vv in v.items()} for k, v in corr.items()},
+        "matrix": {k: {kk: round(_safe_float(vv), 4) for kk, vv in v.items()} for k, v in corr.items()},
         "pairs": pairs,
         "high_correlation_warnings": warnings,
     }
@@ -161,7 +177,7 @@ def _compute_betas(
             aligned = pd.DataFrame({"stock": rets[-min_len:], "index": index_returns[-min_len:]})
             cov = aligned.cov()
             if cov.iloc[1, 1] > 0:
-                betas[code] = float(cov.iloc[0, 1] / cov.iloc[1, 1])
+                betas[code] = _safe_float(cov.iloc[0, 1] / cov.iloc[1, 1])
             else:
                 betas[code] = 1.0
     else:
@@ -187,8 +203,8 @@ def stress_test(
         loss = 0.0
         for p in positions:
             code = str(p.get("code", "")).strip()
-            shares = float(p.get("shares", 0) or 0)
-            cost_price = float(p.get("cost_price", 0) or 0)
+            shares = _safe_float(p.get("shares", 0) or 0)
+            cost_price = _safe_float(p.get("cost_price", 0) or 0)
             position_value = shares * cost_price
 
             beta = betas.get(code, 1.0)
@@ -250,12 +266,12 @@ def _fetch_one(
         close = pd.to_numeric(df["收盘"], errors="coerce").dropna()
         if len(close) < 10:
             fetch_errors.append(f"{code}: K线不足10日")
-            position_details.append(_pos_detail(code, shares, cost_price, float(close.iloc[-1]), "数据不足"))
+            position_details.append(_pos_detail(code, shares, cost_price, _safe_float(close.iloc[-1]), "数据不足"))
             return
 
         rets = _daily_returns(close)
         returns_dict[code] = rets.values[-252:]
-        latest_price = float(close.iloc[-1])
+        latest_price = _safe_float(close.iloc[-1])
         prices[code] = latest_price
         position_value = shares * latest_price
         pnl_pct = (latest_price / cost_price - 1) * 100 if cost_price > 0 else 0
@@ -285,8 +301,8 @@ def _fetch_position_data(
 
     for p in positions:
         code = str(p.get("code", "")).strip()
-        shares = float(p.get("shares", 0) or 0)
-        cost_price = float(p.get("cost_price", 0) or 0)
+        shares = _safe_float(p.get("shares", 0) or 0)
+        cost_price = _safe_float(p.get("cost_price", 0) or 0)
         if not code or shares <= 0:
             continue
         _fetch_one(code, shares, cost_price, start, end, returns_dict, prices, fetch_errors, position_details)
@@ -347,7 +363,7 @@ def _compute_mdd(portfolio_returns: np.ndarray) -> dict:
 def _calc_annual_vol(portfolio_returns: np.ndarray | None, all_returns: np.ndarray) -> float:
     """计算年化波动率。优先用组合收益率，回退到全部收益率。"""
     rets = portfolio_returns if portfolio_returns is not None else all_returns
-    return float(np.std(rets, ddof=1) * np.sqrt(252))
+    return _safe_float(np.std(rets, ddof=1) * np.sqrt(252))
 
 
 def generate_risk_report(positions: list[dict], lookback_days: int = 252) -> dict:

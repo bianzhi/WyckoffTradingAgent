@@ -12,6 +12,22 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 if __name__ == "__main__" or not __package__:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -295,7 +311,7 @@ def _trigger_scores(triggers: dict[str, list[tuple[str, float]]], symbol: str) -
     for trigger, rows in triggers.items():
         for code, score in rows:
             if code == symbol:
-                out[trigger] = max(out.get(trigger, 0.0), float(score))
+                out[trigger] = max(out.get(trigger, 0.0), _safe_float(score))
     return out
 
 
@@ -363,7 +379,7 @@ def _numeric_series(df: pd.DataFrame, column: str) -> pd.Series:
 def _float_or_none(value: Any) -> float | None:
     try:
         if pd.notna(value):
-            return float(value)
+            return _safe_float(value)
     except (TypeError, ValueError):
         return None
     return None

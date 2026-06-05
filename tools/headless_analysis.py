@@ -15,6 +15,22 @@ from datetime import date, timedelta
 
 from core.holding_diagnostic import diagnose_one_stock
 from integrations.stock_hist_repository import get_stock_hist
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 
 def _safe_value(v):
@@ -25,7 +41,7 @@ def _safe_value(v):
     if isinstance(v, (np.integer,)):
         return int(v)
     if isinstance(v, (np.floating,)):
-        return float(v)
+        return _safe_float(v)
     if isinstance(v, (pd.Timestamp,)):
         return str(v)
     if isinstance(v, np.ndarray):

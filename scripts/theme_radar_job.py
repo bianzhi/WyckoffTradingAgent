@@ -9,6 +9,23 @@ import sys
 from datetime import date
 from html import escape
 from pathlib import Path
+import pandas as pd
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 if __name__ == "__main__" or not __package__:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -192,7 +209,7 @@ def _candidates_by_theme(candidates: list[dict]) -> dict[str, list[dict]]:
         theme = str(item.get("theme", "") or "未分组").strip()
         grouped.setdefault(theme, []).append(item)
     for rows in grouped.values():
-        rows.sort(key=lambda item: (int(item.get("theme_rank") or 999), -float(item.get("stock_score") or 0.0)))
+        rows.sort(key=lambda item: (int(item.get("theme_rank") or 999), -_safe_float(item.get("stock_score") or 0.0)))
     return grouped
 
 
@@ -254,14 +271,14 @@ def _theme_names(themes: list[dict]) -> set[str]:
 
 def _fmt_num(value: object, decimals: int = 2) -> str:
     try:
-        return f"{float(value):.{decimals}f}"
+        return f"{_safe_float(value):.{decimals}f}"
     except (TypeError, ValueError):
         return "-"
 
 
 def _fmt_pct(value: object) -> str:
     try:
-        return f"{float(value):+.0f}%"
+        return f"{_safe_float(value):+.0f}%"
     except (TypeError, ValueError):
         return "-"
 

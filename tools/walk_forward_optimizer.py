@@ -17,6 +17,22 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 logger = logging.getLogger(__name__)
 
@@ -119,14 +135,14 @@ def _calc_sharpe(returns: pd.Series) -> float:
     s = pd.to_numeric(returns, errors="coerce").dropna()
     if len(s) < 2 or s.std() == 0:
         return 0.0
-    return float(s.mean() / s.std() * np.sqrt(252))
+    return _safe_float(s.mean() / s.std() * np.sqrt(252))
 
 
 def _calc_win_rate(returns: pd.Series) -> float:
     s = pd.to_numeric(returns, errors="coerce").dropna()
     if len(s) == 0:
         return 0.0
-    return float((s > 0).sum() / len(s) * 100)
+    return _safe_float((s > 0).sum() / len(s) * 100)
 
 
 def _calc_max_drawdown(returns: pd.Series) -> float:
@@ -136,7 +152,7 @@ def _calc_max_drawdown(returns: pd.Series) -> float:
     cum = (1 + s / 100).cumprod()
     peak = cum.cummax()
     dd = (cum - peak) / peak * 100
-    return float(abs(dd.min()))
+    return _safe_float(abs(dd.min()))
 
 
 def run_walk_forward(
@@ -201,15 +217,15 @@ def run_walk_forward(
             all_params.setdefault(k, []).append(v)
 
     n_windows = len(windows)
-    oos_sharpe = float(np.mean([w.test_sharpe for w in windows])) if n_windows else 0.0
-    oos_win_rate = float(np.mean([w.test_win_rate for w in windows])) if n_windows else 0.0
+    oos_sharpe = _safe_float(np.mean([w.test_sharpe for w in windows])) if n_windows else 0.0
+    oos_win_rate = _safe_float(np.mean([w.test_win_rate for w in windows])) if n_windows else 0.0
 
     param_stability = {}
     recommendation = {}
     for k, vals in all_params.items():
         if len(vals) >= 2:
-            param_stability[k] = float(np.std(vals))
-        recommendation[k] = float(np.median(vals))
+            param_stability[k] = _safe_float(np.std(vals))
+        recommendation[k] = _safe_float(np.median(vals))
 
     return {
         "n_windows": n_windows,

@@ -25,6 +25,22 @@ from dataclasses import asdict
 from datetime import datetime
 
 import pandas as pd
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 # Ensure project root is on sys.path for direct script invocation
 if __name__ == "__main__" or not __package__:
@@ -94,7 +110,7 @@ def _load_from_supabase(portfolio_id: str) -> list[tuple[str, str, float]]:
         for pos in positions:
             code = pos.get("code", "").strip()
             name = pos.get("name", "--").strip()
-            cost = float(pos.get("cost", 0.0))
+            cost = _safe_float(pos.get("cost", 0.0))
             if code and cost > 0:
                 holdings.append((code, name, cost))
         return holdings
@@ -216,7 +232,7 @@ def main():
 
         for i, (code, cost_str) in enumerate(zip(codes, costs_raw)):
             try:
-                cost = float(cost_str)
+                cost = _safe_float(cost_str)
             except ValueError:
                 print(f"  ✘ 成本价格式错误: {cost_str}", file=sys.stderr)
                 sys.exit(1)

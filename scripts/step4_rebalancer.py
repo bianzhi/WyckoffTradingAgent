@@ -19,6 +19,22 @@ from datetime import date, datetime
 from uuid import uuid4
 
 import pandas as pd
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 # Ensure project root is on sys.path for direct script invocation
 if __name__ == "__main__" or not __package__:
@@ -69,7 +85,7 @@ from tools.debug_io import dump_model_input as _dump_model_input_shared
 
 STEP4_MAX_OUTPUT_TOKENS = 8192
 STEP4_ATR_PERIOD = int(os.getenv("STEP4_ATR_PERIOD", "14"))
-STEP4_ATR_MULTIPLIER = float(os.getenv("STEP4_ATR_MULTIPLIER", "2.0"))
+STEP4_ATR_MULTIPLIER = _safe_float(os.getenv("STEP4_ATR_MULTIPLIER", "2.0"))
 STEP4_MAX_WORKERS = int(os.getenv("STEP4_MAX_WORKERS", "8"))
 STEP4_BUY_HARD_STOP_ENABLED = os.getenv("STEP4_BUY_HARD_STOP_ENABLED", "1").strip().lower() in {
     "1",
@@ -78,24 +94,24 @@ STEP4_BUY_HARD_STOP_ENABLED = os.getenv("STEP4_BUY_HARD_STOP_ENABLED", "1").stri
     "on",
 }
 STEP4_BUY_HARD_STOP_PCT = max(
-    float(os.getenv("STEP4_BUY_HARD_STOP_PCT", "8.0")),
+    _safe_float(os.getenv("STEP4_BUY_HARD_STOP_PCT", "8.0")),
     0.0,
 )
 STEP4_BUY_STOP_MODE = os.getenv("STEP4_BUY_STOP_MODE", "floor").strip().lower()
 if STEP4_BUY_STOP_MODE not in {"fixed", "floor"}:
     STEP4_BUY_STOP_MODE = "floor"
-STEP4_ATR_SLIPPAGE_FACTOR = float(os.getenv("STEP4_ATR_SLIPPAGE_FACTOR", "0.25"))
-STEP4_PROBE_BUDGET_LIMIT = min(max(float(os.getenv("STEP4_PROBE_BUDGET_LIMIT", "0.10")), 0.0), 1.0)
-STEP4_ATTACK_BUDGET_LIMIT = min(max(float(os.getenv("STEP4_ATTACK_BUDGET_LIMIT", "0.20")), 0.0), 1.0)
+STEP4_ATR_SLIPPAGE_FACTOR = _safe_float(os.getenv("STEP4_ATR_SLIPPAGE_FACTOR", "0.25"))
+STEP4_PROBE_BUDGET_LIMIT = min(max(_safe_float(os.getenv("STEP4_PROBE_BUDGET_LIMIT", "0.10")), 0.0), 1.0)
+STEP4_ATTACK_BUDGET_LIMIT = min(max(_safe_float(os.getenv("STEP4_ATTACK_BUDGET_LIMIT", "0.20")), 0.0), 1.0)
 STEP4_BUY_BLOCK_REGIMES = {
     x.strip().upper()
     for x in os.getenv("STEP4_BUY_BLOCK_REGIMES", "CRASH,BLACK_SWAN").split(",")
     if x.strip() and x.strip().upper() != "COOLDOWN"
 }
-STEP4_CHASE_GAP_PCT_MIN = max(float(os.getenv("STEP4_CHASE_GAP_PCT_MIN", "1.2")), 0.2)
-STEP4_CHASE_GAP_PCT_MAX = max(float(os.getenv("STEP4_CHASE_GAP_PCT_MAX", "5.5")), STEP4_CHASE_GAP_PCT_MIN)
-STEP4_CHASE_ATR_MULT_MIN = max(float(os.getenv("STEP4_CHASE_ATR_MULT_MIN", "0.8")), 0.1)
-STEP4_CHASE_ATR_MULT_MAX = max(float(os.getenv("STEP4_CHASE_ATR_MULT_MAX", "2.4")), STEP4_CHASE_ATR_MULT_MIN)
+STEP4_CHASE_GAP_PCT_MIN = max(_safe_float(os.getenv("STEP4_CHASE_GAP_PCT_MIN", "1.2")), 0.2)
+STEP4_CHASE_GAP_PCT_MAX = max(_safe_float(os.getenv("STEP4_CHASE_GAP_PCT_MAX", "5.5")), STEP4_CHASE_GAP_PCT_MIN)
+STEP4_CHASE_ATR_MULT_MIN = max(_safe_float(os.getenv("STEP4_CHASE_ATR_MULT_MIN", "0.8")), 0.1)
+STEP4_CHASE_ATR_MULT_MAX = max(_safe_float(os.getenv("STEP4_CHASE_ATR_MULT_MAX", "2.4")), STEP4_CHASE_ATR_MULT_MIN)
 
 
 def _resolve_step4_trade_context() -> tuple[date, TradingWindow, str]:
@@ -105,8 +121,8 @@ def _resolve_step4_trade_context() -> tuple[date, TradingWindow, str]:
 
 
 # --- OMS 防追高与滑点保护配置 ---
-STEP4_MAX_GAP_UP_PCT = float(os.getenv("STEP4_MAX_GAP_UP_PCT", "3.0"))  # 最大允许跳空/追高幅度(%)
-STEP4_MAX_GAP_UP_ATR_MULT = float(os.getenv("STEP4_MAX_GAP_UP_ATR_MULT", "1.5"))  # 最大允许追高 ATR 倍数
+STEP4_MAX_GAP_UP_PCT = _safe_float(os.getenv("STEP4_MAX_GAP_UP_PCT", "3.0"))  # 最大允许跳空/追高幅度(%)
+STEP4_MAX_GAP_UP_ATR_MULT = _safe_float(os.getenv("STEP4_MAX_GAP_UP_ATR_MULT", "1.5"))  # 最大允许追高 ATR 倍数
 STEP4_MAX_NEW_BUYS_RISK_ON = max(int(os.getenv("STEP4_MAX_NEW_BUYS_RISK_ON", "2")), 0)
 STEP4_MAX_NEW_BUYS_CAUTION = max(int(os.getenv("STEP4_MAX_NEW_BUYS_CAUTION", "1")), 0)
 STEP4_MAX_NEW_BUYS_NEUTRAL = max(int(os.getenv("STEP4_MAX_NEW_BUYS_NEUTRAL", "1")), 0)
@@ -229,7 +245,7 @@ def _parse_float_like(raw: object) -> float | None:
         text = str(raw).strip()
         if not text:
             return None
-        return float(text)
+        return _safe_float(text)
     except Exception:
         logger.debug("_parse_float_like failed for %s", raw, exc_info=True)
         return None
@@ -453,8 +469,8 @@ def _resolve_chase_limits(dec: DecisionItem, market_regime: str) -> tuple[float,
     stage = _normalize_stage(dec.wyckoff_stage) or _infer_stage_from_text(dec.wyckoff_tag)
     tag = _clean_text(dec.wyckoff_tag)
 
-    pct_limit = float(max(STEP4_MAX_GAP_UP_PCT, 0.0))
-    atr_limit = float(max(STEP4_MAX_GAP_UP_ATR_MULT, 0.0))
+    pct_limit = _safe_float(max(STEP4_MAX_GAP_UP_PCT, 0.0))
+    atr_limit = _safe_float(max(STEP4_MAX_GAP_UP_ATR_MULT, 0.0))
     profile_parts = [regime]
 
     regime_mult = {
@@ -537,8 +553,8 @@ class WyckoffOrderEngine:
         atr_map: dict[str, float] | None = None,
         market_regime: str | None = None,
     ) -> None:
-        self.total_equity = float(max(total_equity, 0.0))
-        self.free_cash = float(max(free_cash, 0.0))
+        self.total_equity = _safe_float(max(total_equity, 0.0))
+        self.free_cash = _safe_float(max(free_cash, 0.0))
         self.position_map = position_map
         self.latest_price_map = latest_price_map
         self.atr_map = atr_map or {}
@@ -617,7 +633,7 @@ class WyckoffOrderEngine:
                 if effective_stop_loss is None or trailing_stop > effective_stop_loss:
                     effective_stop_loss = trailing_stop
                     audit_parts.append(
-                        f"atr_trailing_raise({(original_stop_loss if original_stop_loss is not None else float('nan')):.2f}->{effective_stop_loss:.2f})"
+                        f"atr_trailing_raise({(original_stop_loss if original_stop_loss is not None else _safe_float('nan')):.2f}->{effective_stop_loss:.2f})"
                     )
             elif dec.action in {"PROBE", "ATTACK"}:
                 if effective_stop_loss is None:
@@ -795,10 +811,10 @@ class WyckoffOrderEngine:
                 self.market_regime,
             )
             limit_by_pct = current_price * (1.0 + gap_pct_limit / 100.0)
-            limit_by_atr = float("inf")
+            limit_by_atr = _safe_float("inf")
             if atr14 is not None and atr14 > 0:
                 limit_by_atr = current_price + (atr_mult_limit * atr14)
-            limit_by_ai = dec.entry_zone_max if dec.entry_zone_max is not None else float("inf")
+            limit_by_ai = dec.entry_zone_max if dec.entry_zone_max is not None else _safe_float("inf")
 
             max_entry_price = min(limit_by_pct, limit_by_atr, limit_by_ai)
             audit_parts.append(f"chase_profile={chase_profile}")
@@ -841,7 +857,7 @@ class WyckoffOrderEngine:
 
         # 计算每股真实风险（静态滑点 + ATR 跳空保护）
         base_slippage = current_price * self.SLIPPAGE_BPS
-        atr_slippage = max(float(atr14), 0.0) * max(STEP4_ATR_SLIPPAGE_FACTOR, 0.0) if atr14 is not None else 0.0
+        atr_slippage = max(_safe_float(atr14), 0.0) * max(STEP4_ATR_SLIPPAGE_FACTOR, 0.0) if atr14 is not None else 0.0
         slippage_abs = max(base_slippage, atr_slippage)
         fill_price = current_price + slippage_abs
         # 对称滑点口径：入场更贵，止损成交更差，避免低估极端风险。
@@ -935,9 +951,9 @@ class WyckoffOrderEngine:
 def _build_portfolio_from_dict(data: dict) -> PortfolioState:
     if not isinstance(data, dict):
         raise ValueError("portfolio data 必须是对象")
-    free_cash = float(data.get("free_cash", 0.0) or 0.0)
+    free_cash = _safe_float(data.get("free_cash", 0.0) or 0.0)
     total_equity_raw = data.get("total_equity")
-    total_equity = float(total_equity_raw) if total_equity_raw is not None else None
+    total_equity = _safe_float(total_equity_raw) if total_equity_raw is not None else None
     positions_raw = data.get("positions", []) or []
     if not isinstance(positions_raw, list):
         raise ValueError("positions 必须是数组")
@@ -955,10 +971,10 @@ def _build_portfolio_from_dict(data: dict) -> PortfolioState:
             PositionItem(
                 code=code,
                 name=str(item.get("name", code)).strip() or code,
-                cost=float(item.get("cost", 0.0) or 0.0),
+                cost=_safe_float(item.get("cost", 0.0) or 0.0),
                 buy_dt=str(item.get("buy_dt", "")).strip(),
                 shares=int(item.get("shares", 0) or 0),
-                stop_loss=float(item.get("stop_loss")) if item.get("stop_loss") is not None else None,
+                stop_loss=_safe_float(item.get("stop_loss")) if item.get("stop_loss") is not None else None,
             )
         )
     return PortfolioState(free_cash=free_cash, total_equity=total_equity, positions=positions)
@@ -1058,7 +1074,7 @@ def _fetch_latest_real_close(code: str, window) -> float | None:
                         f"latest_trade_date={latest_trade_date}, target_trade_date={window.end_trade_date}"
                     )
                     continue
-            return float(df.iloc[-1]["close"])
+            return _safe_float(df.iloc[-1]["close"])
         except Exception:
             logger.debug("%s fetch_latest_real_close failed (%s)", code, label, exc_info=True)
             continue
@@ -1087,7 +1103,7 @@ def _calc_atr(df: pd.DataFrame, period: int = STEP4_ATR_PERIOD) -> float | None:
     atr = tr.rolling(max(int(period), 2)).mean()
     if atr.dropna().empty:
         return None
-    return float(atr.iloc[-1])
+    return _safe_float(atr.iloc[-1])
 
 
 def _extract_stock_codes(text: str) -> list[str]:
@@ -1133,7 +1149,7 @@ def _process_one_position(
         latest_close = _fetch_latest_real_close(pos.code, window)
         failure_msg = ""
         if latest_close is None:
-            latest_close = float(df_qfq.iloc[-1]["close"])
+            latest_close = _safe_float(df_qfq.iloc[-1]["close"])
             failure_msg = f"{pos.code}:real_close_fallback_to_qfq"
         hold_trade_days = _calc_holding_trade_days(df_qfq, pos.buy_dt, window.end_trade_date)
 
@@ -1272,7 +1288,7 @@ def _process_one_candidate(
         atr14 = _calc_atr(df_qfq, STEP4_ATR_PERIOD)
         latest_close = _fetch_latest_real_close(code, window)
         if latest_close is None:
-            latest_close = float(df_qfq.iloc[-1]["close"])
+            latest_close = _safe_float(df_qfq.iloc[-1]["close"])
 
         payload = generate_stock_payload(
             stock_code=code,
@@ -1350,11 +1366,11 @@ def _parse_confidence_like(v: object) -> float | None:
         return None
     try:
         if s.endswith("%"):
-            pct = float(s[:-1].strip())
+            pct = _safe_float(s[:-1].strip())
             if 0.0 <= pct <= 100.0:
                 return pct / 100.0
             return None
-        x = float(s)
+        x = _safe_float(s)
         if 0.0 <= x <= 1.0:
             return x
         if 1.0 < x <= 100.0:
@@ -1399,8 +1415,8 @@ def _parse_decisions(
         zone = item.get("entry_zone")
         if isinstance(zone, list) and len(zone) >= 2:
             try:
-                z1 = float(zone[0])
-                z2 = float(zone[1])
+                z1 = _safe_float(zone[0])
+                z2 = _safe_float(zone[1])
                 entry_zone_min = min(z1, z2)
                 entry_zone_max = max(z1, z2)
             except Exception:
@@ -1409,14 +1425,14 @@ def _parse_decisions(
         stop_loss = None
         if item.get("stop_loss") is not None:
             try:
-                stop_loss = float(item.get("stop_loss"))
+                stop_loss = _safe_float(item.get("stop_loss"))
             except Exception:
                 logger.debug("stop_loss parse failed for %s", code, exc_info=True)
 
         trim_ratio = None
         if item.get("trim_ratio") is not None:
             try:
-                trim_ratio = float(item.get("trim_ratio"))
+                trim_ratio = _safe_float(item.get("trim_ratio"))
             except Exception:
                 logger.debug("trim_ratio parse failed for %s", code, exc_info=True)
 
@@ -1472,7 +1488,7 @@ def _trim_new_buy_decisions(
 
     def _rank_key(dec: DecisionItem) -> tuple[float, float, int]:
         confidence = dec.confidence if dec.confidence is not None else -1.0
-        funnel_score = dec.funnel_score if dec.funnel_score is not None else float("-inf")
+        funnel_score = dec.funnel_score if dec.funnel_score is not None else _safe_float("-inf")
         action_rank = 1 if dec.action == "ATTACK" else 0
         return (confidence, funnel_score, action_rank)
 
@@ -1628,7 +1644,7 @@ def _build_user_message(
         benchmark_text
         + "[账户状态]\n"
         + f"free_cash={portfolio.free_cash:.2f}\n"
-        + f"total_equity={float(total_equity):.2f}\n"
+        + f"total_equity={_safe_float(total_equity):.2f}\n"
         + f"position_count={len(portfolio.positions)}\n"
         + f"candidate_count={len(candidate_codes)}\n"
         + f"allowed_codes={','.join(sorted(allowed_codes))}\n\n"
@@ -1715,13 +1731,13 @@ def run(
         window,
     )
     # 风控基数统一按“最新价格口径”重算，避免沿用旧 total_equity 导致仓位偏差。
-    computed_total_equity = float(portfolio.free_cash + live_value)
+    computed_total_equity = _safe_float(portfolio.free_cash + live_value)
     if portfolio.total_equity is not None:
-        drift = abs(float(portfolio.total_equity) - computed_total_equity)
+        drift = abs(_safe_float(portfolio.total_equity) - computed_total_equity)
         if drift >= 1e-6:
             print(
                 f"[step4] total_equity 已按实时口径重算: "
-                f"input={float(portfolio.total_equity):.2f}, computed={computed_total_equity:.2f}, drift={drift:.2f}"
+                f"input={_safe_float(portfolio.total_equity):.2f}, computed={computed_total_equity:.2f}, drift={drift:.2f}"
             )
     total_equity = computed_total_equity
 
@@ -1896,7 +1912,7 @@ def run(
                     latest_price_map[c] = px
 
     engine = WyckoffOrderEngine(
-        total_equity=float(total_equity),
+        total_equity=_safe_float(total_equity),
         free_cash=portfolio.free_cash,
         position_map={p.code: p for p in portfolio.positions},
         latest_price_map=latest_price_map,
@@ -1947,7 +1963,7 @@ def run(
 
     report = _render_trade_ticket(
         market_view=rendered_market_view,
-        total_equity=float(total_equity),
+        total_equity=_safe_float(total_equity),
         free_cash_before=portfolio.free_cash,
         free_cash_after=free_cash_after,
         tickets=tickets,
@@ -1980,12 +1996,12 @@ def run(
     else:
         logger.warning("AI 订单记录写入失败（已忽略，不阻断流程） | portfolio_id=%s", portfolio_id)
 
-    positions_value = max(float(total_equity) - float(free_cash_after), 0.0)
+    positions_value = max(_safe_float(total_equity) - _safe_float(free_cash_after), 0.0)
     if upsert_daily_nav(
         portfolio_id=portfolio_id,
         trade_date=trade_date,
-        free_cash=float(free_cash_after),
-        total_equity=float(total_equity),
+        free_cash=_safe_float(free_cash_after),
+        total_equity=_safe_float(total_equity),
         positions_value=positions_value,
     ):
         print(f"[step4] 已写入 {portfolio_id} 日净值快照: {trade_date}")

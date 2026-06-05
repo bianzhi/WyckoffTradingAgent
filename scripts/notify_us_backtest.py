@@ -13,6 +13,23 @@ from pathlib import Path
 from typing import Any
 
 import requests
+import pandas as pd
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 
 @dataclass(frozen=True)
@@ -36,7 +53,7 @@ def _as_float(value: Any) -> float | None:
     if value in {None, ""}:
         return None
     try:
-        val = float(value)
+        val = _safe_float(value)
     except (TypeError, ValueError):
         return None
     return None if math.isnan(val) or math.isinf(val) else val
@@ -104,8 +121,8 @@ def load_cells(artifacts_dir: Path) -> list[UsBacktestCell]:
 
 
 def _rank_key(cell: UsBacktestCell) -> tuple[float, float, int]:
-    sharpe = cell.sharpe if cell.sharpe is not None else float("-inf")
-    avg = cell.avg_ret if cell.avg_ret is not None else float("-inf")
+    sharpe = cell.sharpe if cell.sharpe is not None else _safe_float("-inf")
+    avg = cell.avg_ret if cell.avg_ret is not None else _safe_float("-inf")
     return (sharpe, avg, cell.trades)
 
 

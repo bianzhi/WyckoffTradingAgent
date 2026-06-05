@@ -11,6 +11,23 @@ import os
 from dataclasses import fields as dataclass_fields
 
 from core.wyckoff_engine import FunnelConfig
+import pandas as pd
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 
 def parse_int_env(name: str, default: int) -> int:
@@ -19,7 +36,7 @@ def parse_int_env(name: str, default: int) -> int:
     if not raw:
         return default
     try:
-        return int(float(raw))
+        return int(_safe_float(raw))
     except Exception:
         return default
 
@@ -53,9 +70,9 @@ def apply_funnel_cfg_overrides(cfg: FunnelConfig) -> None:
             if isinstance(current, bool):
                 parsed = parse_bool(val)
             elif isinstance(current, int) and not isinstance(current, bool):
-                parsed = int(float(val))
+                parsed = int(_safe_float(val))
             elif isinstance(current, float):
-                parsed = float(val)
+                parsed = _safe_float(val)
             else:
                 parsed = val
             setattr(cfg, f.name, parsed)

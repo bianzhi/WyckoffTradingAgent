@@ -161,8 +161,8 @@ def compute_tail_features(df_1m: pd.DataFrame, daily_context: dict[str, Any] | N
     day_low = _safe_float(low.min(), last_close)
     day_range = max(day_high - day_low, 1e-8)
 
-    total_volume = float(volume.sum())
-    total_amount = float(amount.sum())
+    total_volume = _safe_float(volume.sum())
+    total_amount = _safe_float(amount.sum())
     vwap, vwap_volume_scale = _infer_session_vwap(close, total_volume, total_amount)
     close_pos = max(0.0, min(1.0, (last_close - day_low) / day_range))
 
@@ -178,8 +178,8 @@ def compute_tail_features(df_1m: pd.DataFrame, daily_context: dict[str, Any] | N
     last30_ret_pct = _ret_pct(close, 30)
     last15_ret_pct = _ret_pct(close, 15)
     day_ret_pct = ((last_close / first_open - 1.0) * 100.0) if first_open > 0 else 0.0
-    tail30_volume_share = float(volume.tail(min(30, len(volume))).sum()) / total_volume if total_volume > 0 else 0.0
-    tail15_volume_share = float(volume.tail(min(15, len(volume))).sum()) / total_volume if total_volume > 0 else 0.0
+    tail30_volume_share = _safe_float(volume.tail(min(30, len(volume))).sum()) / total_volume if total_volume > 0 else 0.0
+    tail15_volume_share = _safe_float(volume.tail(min(15, len(volume))).sum()) / total_volume if total_volume > 0 else 0.0
     drop_from_high_pct = (last_close / day_high - 1.0) * 100.0 if day_high > 0 else 0.0
     dist_vwap_pct = (last_close / vwap - 1.0) * 100.0 if vwap > 0 else 0.0
 
@@ -543,7 +543,7 @@ def parse_llm_decision(raw_text: str) -> dict[str, Any] | None:
     risk = str(parsed.get("risk", "") or "").strip()
     confidence = parsed.get("confidence")
     try:
-        conf_value = float(confidence)
+        conf_value = _safe_float(confidence)
     except Exception:
         conf_value = None
     if conf_value is not None:
@@ -616,7 +616,7 @@ def merge_rule_and_llm(
             conf = llm.get("confidence")
             conf_val: float | None
             try:
-                conf_val = float(conf) if conf is not None else None
+                conf_val = _safe_float(conf) if conf is not None else None
                 if conf_val is not None and math.isnan(conf_val):
                     conf_val = None
             except Exception:

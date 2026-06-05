@@ -462,10 +462,10 @@ def _latest_volume_ratio(df: pd.DataFrame) -> float | None:
     ma_latest = vol_ma20.dropna()
     if latest.empty or ma_latest.empty:
         return None
-    base = float(ma_latest.iloc[-1])
+    base = _safe_float(ma_latest.iloc[-1])
     if base <= 0:
         return None
-    return float(latest.iloc[-1]) / base
+    return _safe_float(latest.iloc[-1]) / base
 
 
 def _rank_etf_candidates(

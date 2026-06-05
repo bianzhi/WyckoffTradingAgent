@@ -8,6 +8,23 @@ from typing import Any
 
 from core.signal_feedback import BLOCKED_REGISTRY_STATUSES, normalize_signal_type, signal_track
 from core.wyckoff_engine import fit_ai_candidate_quotas
+import pandas as pd
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 
 def dynamic_policy_mode() -> str:
@@ -19,7 +36,7 @@ def _float(raw: Any, default: float = 1.0) -> float:
     try:
         if raw is None or str(raw).strip() == "":
             return default
-        return float(raw)
+        return _safe_float(raw)
     except (TypeError, ValueError):
         return default
 
@@ -93,7 +110,7 @@ def build_signal_weight_map(
 def _track_weights(signal_weights: dict[str, float]) -> tuple[float, float]:
     trend = [w for sig, w in signal_weights.items() if signal_track(sig) == "Trend"]
     accum = [w for sig, w in signal_weights.items() if signal_track(sig) == "Accum"]
-    return (float(mean(trend)) if trend else 1.0, float(mean(accum)) if accum else 1.0)
+    return (_safe_float(mean(trend)) if trend else 1.0, _safe_float(mean(accum)) if accum else 1.0)
 
 
 def _apply_breadth_bias(trend_weight: float, accum_weight: float, breadth: dict | None) -> tuple[float, float]:

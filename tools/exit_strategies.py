@@ -24,6 +24,23 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
+import pandas as pd
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 logger = logging.getLogger(__name__)
 
@@ -661,7 +678,7 @@ def benchmark_exit_strategies(
         for t in trades:
             code = str(t.get("code", ""))
             entry_date_val = t.get("entry_date")
-            entry_price_val = float(t.get("entry_price", 0))
+            entry_price_val = _safe_float(t.get("entry_price", 0))
             if not code or entry_date_val is None or entry_price_val <= 0:
                 continue
             ohlc = ohlc_data.get(code)
@@ -707,8 +724,8 @@ def _score_single_strategy_exits(exits: list[ExitResult]) -> dict[str, Any]:
     losses = [r for r in rets if r <= 0]
     avg_ret = sum(rets) / len(rets)
     win_rate = len(wins) / len(rets) * 100 if rets else 0
-    avg_win = float(sum(wins) / len(wins)) if wins else 0.0
-    avg_loss = float(sum(losses) / len(losses)) if losses else 0.0
+    avg_win = _safe_float(sum(wins) / len(wins)) if wins else 0.0
+    avg_loss = _safe_float(sum(losses) / len(losses)) if losses else 0.0
     profit_factor = abs(sum(wins) / sum(losses)) if losses and sum(losses) != 0 else (999 if wins else 0)
     mean_r = sum(rets) / len(rets)
     var_r = sum((r - mean_r) ** 2 for r in rets) / len(rets) if len(rets) > 1 else 0
@@ -735,10 +752,10 @@ def _compute_exit_quality_metrics(
     mae_list: list[float] = []
 
     for e in exits:
-        entry = float(e.get("entry_price", 0))
-        exit_px = float(e.get("exit_price", 0))
-        peak = float(e.get("peak_high", exit_px))
-        trough = float(e.get("trough_low", entry))
+        entry = _safe_float(e.get("entry_price", 0))
+        exit_px = _safe_float(e.get("exit_price", 0))
+        peak = _safe_float(e.get("peak_high", exit_px))
+        trough = _safe_float(e.get("trough_low", entry))
 
         if entry <= 0:
             continue

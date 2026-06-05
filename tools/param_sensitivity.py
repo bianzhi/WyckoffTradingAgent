@@ -11,6 +11,22 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 logger = logging.getLogger(__name__)
 
@@ -25,15 +41,15 @@ def _calc_metrics(trades: pd.DataFrame) -> dict[str, float]:
     n = len(rets)
     if n == 0:
         return {"win_rate": 0, "sharpe": 0, "max_dd": 0, "avg_ret": 0, "n_trades": 0}
-    wr = float((rets > 0).mean() * 100)
-    avg = float(rets.mean())
-    std = float(rets.std())
-    sharpe = float(avg / std * np.sqrt(252)) if std > 0 else 0.0
+    wr = _safe_float((rets > 0).mean() * 100)
+    avg = _safe_float(rets.mean())
+    std = _safe_float(rets.std())
+    sharpe = _safe_float(avg / std * np.sqrt(252)) if std > 0 else 0.0
     # 最大回撤：用累计收益曲线
     cum = (1 + rets / 100).cumprod()
     peak = cum.expanding().max()
     dd = (cum / peak - 1) * 100
-    mdd = float(dd.min())
+    mdd = _safe_float(dd.min())
     return {
         "win_rate": round(wr, 2),
         "sharpe": round(sharpe, 3),

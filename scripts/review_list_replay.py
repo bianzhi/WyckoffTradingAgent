@@ -14,6 +14,22 @@ from collections import Counter
 from datetime import date
 
 import pandas as pd
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 # Ensure project root is on sys.path for direct script invocation
 if __name__ == "__main__" or not __package__:
@@ -57,7 +73,7 @@ def _explain_l1_fail(
     if "ST" in name.upper():
         return "ST股票"
     if market_cap_map:
-        cap = float(market_cap_map.get(code, 0.0) or 0.0)
+        cap = _safe_float(market_cap_map.get(code, 0.0) or 0.0)
         if cap < cfg.min_market_cap_yi:
             return f"市值不足: {cap:.2f}亿 < {cfg.min_market_cap_yi:.2f}亿"
     df = df_map.get(code)
@@ -66,8 +82,8 @@ def _explain_l1_fail(
     s = _sorted_if_needed(df)
     if "amount" in s.columns:
         avg_amt = pd.to_numeric(s["amount"], errors="coerce").tail(cfg.amount_avg_window).mean()
-        if pd.notna(avg_amt) and float(avg_amt) < cfg.min_avg_amount_wan * 10000:
-            return f"成交额不足: {float(avg_amt) / 10000.0:.1f}万 < {cfg.min_avg_amount_wan:.1f}万"
+        if pd.notna(avg_amt) and _safe_float(avg_amt) < cfg.min_avg_amount_wan * 10000:
+            return f"成交额不足: {_safe_float(avg_amt) / 10000.0:.1f}万 < {cfg.min_avg_amount_wan:.1f}万"
     return "未通过L1（综合条件不满足）"
 
 
@@ -122,21 +138,21 @@ def _latest_pct_and_open(df: pd.DataFrame) -> tuple[float | None, float | None, 
     open_pct = None
     previous_pct = None
     if len(close) >= 2:
-        prev_close = float(close.iloc[-2])
+        prev_close = _safe_float(close.iloc[-2])
         if prev_close > 0:
-            latest_pct = (float(close.iloc[-1]) / prev_close - 1.0) * 100.0
+            latest_pct = (_safe_float(close.iloc[-1]) / prev_close - 1.0) * 100.0
             if open_s is not None and len(open_s) >= len(close) and pd.notna(open_s.iloc[-1]):
-                open_pct = (float(open_s.iloc[-1]) / prev_close - 1.0) * 100.0
+                open_pct = (_safe_float(open_s.iloc[-1]) / prev_close - 1.0) * 100.0
     if len(close) >= 3:
-        prev_prev_close = float(close.iloc[-3])
+        prev_prev_close = _safe_float(close.iloc[-3])
         if prev_prev_close > 0:
-            previous_pct = (float(close.iloc[-2]) / prev_prev_close - 1.0) * 100.0
+            previous_pct = (_safe_float(close.iloc[-2]) / prev_prev_close - 1.0) * 100.0
 
     pct = pd.to_numeric(s.get("pct_chg", pd.Series(dtype=float)), errors="coerce")
     if latest_pct is None and len(pct) >= 1 and pd.notna(pct.iloc[-1]):
-        latest_pct = float(pct.iloc[-1])
+        latest_pct = _safe_float(pct.iloc[-1])
     if previous_pct is None and len(pct) >= 2 and pd.notna(pct.iloc[-2]):
-        previous_pct = float(pct.iloc[-2])
+        previous_pct = _safe_float(pct.iloc[-2])
     return latest_pct, open_pct, previous_pct
 
 
@@ -190,15 +206,15 @@ def _find_big_gainers_from_spot(
             if pct is None:
                 continue
             usable += 1
-            pct_f = float(pct)
+            pct_f = _safe_float(pct)
             if pct_f < threshold:
                 continue
             open_v = snap.get("open")
             close_v = snap.get("close")
             if open_v is not None and close_v is not None and pct_f != -100.0:
-                pre_close = float(close_v) / (1.0 + pct_f / 100.0)
+                pre_close = _safe_float(close_v) / (1.0 + pct_f / 100.0)
                 if pre_close > 0:
-                    open_pct = (float(open_v) / pre_close - 1.0) * 100.0
+                    open_pct = (_safe_float(open_v) / pre_close - 1.0) * 100.0
                     if open_pct > open_max:
                         continue
             codes.append(code)
@@ -228,7 +244,7 @@ def _fetch_and_filter_review_codes(codes: list[str], name_map: dict[str, str], w
 
 def _review_spot_min_coverage() -> float:
     try:
-        value = float(os.getenv("REVIEW_SPOT_MIN_COVERAGE", "0.8"))
+        value = _safe_float(os.getenv("REVIEW_SPOT_MIN_COVERAGE", "0.8"))
     except ValueError:
         value = 0.8
     return min(max(value, 0.0), 1.0)
@@ -303,7 +319,7 @@ def _explain_risk_reject(
     parts = [signal_label]
     if price is not None:
         with contextlib.suppress(Exception):
-            parts.append(f"参考价={float(price):.2f}")
+            parts.append(f"参考价={_safe_float(price):.2f}")
     if trigger_labels:
         parts.append(f"L4命中={trigger_labels}")
     if reason:

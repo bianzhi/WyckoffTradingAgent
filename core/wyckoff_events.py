@@ -8,6 +8,23 @@ trigger facts into readable, testable event labels.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import pandas as pd
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 
 @dataclass(frozen=True)
@@ -51,7 +68,7 @@ def classify_wyckoff_event(
     if regime_s:
         reasons.append(f"水温={regime_s}")
     if score:
-        reasons.append(f"分数={float(score):.2f}")
+        reasons.append(f"分数={_safe_float(score):.2f}")
 
     if "sos" in trigger_set and stage_s == "Markup":
         return WyckoffEvent(

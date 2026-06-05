@@ -18,6 +18,23 @@ from integrations.llm_client import call_llm, provider_fallbacks, provider_route
 from integrations.supabase_portfolio import load_portfolio_state
 from integrations.tickflow_client import TickFlowClient
 from scripts.tail_buy_intraday_job import (
+import pandas as pd
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
     _analyze_holdings_actions,
     _build_holdings_markdown,
 )
@@ -68,7 +85,7 @@ def _build_holding_llm_prompt(advice: Any, free_cash: float, total_equity: float
 
 def _sf(v: Any) -> float:
     try:
-        return float(v or 0)
+        return _safe_float(v or 0)
     except Exception:
         return 0.0
 
@@ -94,7 +111,7 @@ def _parse_holding_llm(text: str) -> dict[str, Any] | None:
     reason = str(parsed.get("reason", "")).strip()
     conf = parsed.get("confidence")
     try:
-        conf = max(0.0, min(1.0, float(conf)))
+        conf = max(0.0, min(1.0, _safe_float(conf)))
     except Exception:
         conf = None
     return {"action": action, "reason": reason, "confidence": conf}
@@ -208,8 +225,8 @@ def _run_llm_and_report(
     t0: float,
 ) -> str:
     state = load_portfolio_state(portfolio_id)
-    free_cash = float(state.get("free_cash", 0)) if isinstance(state, dict) else 0
-    total_equity = float(state.get("total_equity") or 0) if isinstance(state, dict) else 0
+    free_cash = _safe_float(state.get("free_cash", 0)) if isinstance(state, dict) else 0
+    total_equity = _safe_float(state.get("total_equity") or 0) if isinstance(state, dict) else 0
     if total_equity <= 0:
         total_equity = free_cash + sum(h.current_price * h.shares for h in holdings)
 

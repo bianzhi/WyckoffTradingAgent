@@ -51,6 +51,23 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+import pandas as pd
+def _safe_float(v, default=0.0):
+    """安全 float 转换，pd.NA/NaN/None → default。"""
+    import builtins
+    try:
+        if v is None:
+            return default
+        if isinstance(v, (int, float)):
+            try:
+                if v != v:
+                    return default
+            except Exception:
+                pass
+            return builtins.float(v)
+        return builtins.float(v)
+    except (TypeError, ValueError, AttributeError):
+        return default
 
 # ── 配置 ────────────────────────────────────────────────
 
@@ -115,8 +132,8 @@ def load_alerts() -> list[AlertRule]:
                 AlertCondition(
                     type=str(c.get("type", "")),
                     symbol=str(c.get("symbol", "")),
-                    threshold=float(c.get("threshold", 0)),
-                    multiplier=float(c.get("multiplier", 1.0)),
+                    threshold=_safe_float(c.get("threshold", 0)),
+                    multiplier=_safe_float(c.get("multiplier", 1.0)),
                     index_code=str(c.get("index_code", "")),
                     regime_value=str(c.get("regime_value", "")),
                 )
@@ -226,13 +243,13 @@ def _fetch_latest_price(symbol: str) -> float | None:
 
         snap = fetch_stock_spot_snapshot(symbol)
         if snap and snap.get("close") is not None:
-            return float(snap["close"])
+            return _safe_float(snap["close"])
 
         today = datetime.now().strftime("%Y%m%d")
         start = (datetime.now() - timedelta(days=10)).strftime("%Y%m%d")
         df = fetch_stock_hist(symbol, start=start, end=today, adjust="qfq")
         if df is not None and not df.empty and "收盘" in df.columns:
-            return float(df["收盘"].iloc[-1])
+            return _safe_float(df["收盘"].iloc[-1])
     except Exception as e:
         print(f"[alert_engine] 获取 {symbol} 价格失败: {e}")
     return None
@@ -249,7 +266,7 @@ def _fetch_volume_avg(symbol: str, days: int = 20) -> float | None:
         if df is not None and not df.empty and "成交量" in df.columns:
             vols = df["成交量"].tail(days).astype(float)
             if len(vols) >= max(days // 2, 3):
-                return float(vols.mean())
+                return _safe_float(vols.mean())
     except Exception as e:
         print(f"[alert_engine] 获取 {symbol} 均量失败: {e}")
     return None
@@ -266,7 +283,7 @@ def _fetch_index_pct(index_code: str) -> float | None:
         if df is not None and not df.empty and "收盘" in df.columns:
             closes = df["收盘"].tail(2).astype(float)
             if len(closes) >= 2:
-                return float((closes.iloc[-1] - closes.iloc[-2]) / closes.iloc[-2] * 100)
+                return _safe_float((closes.iloc[-1] - closes.iloc[-2]) / closes.iloc[-2] * 100)
     except Exception as e:
         print(f"[alert_engine] 获取指数 {index_code} 涨跌幅失败: {e}")
     return None
@@ -294,7 +311,7 @@ def _eval_pct_change(cond: AlertCondition) -> tuple[bool, str]:
         start = (datetime.now() - timedelta(days=5)).strftime("%Y%m%d")
         end = datetime.now().strftime("%Y%m%d")
         df = fetch_stock_hist(cond.symbol, start=start, end=end, adjust="qfq")
-        prev_close = float(df["收盘"].iloc[-2]) if df is not None and not df.empty and len(df) >= 2 else None
+        prev_close = _safe_float(df["收盘"].iloc[-2]) if df is not None and not df.empty and len(df) >= 2 else None
         if prev_close is None or prev_close == 0:
             return (False, f"{cond.symbol}: 无法获取前收盘价")
         pct = abs((price_now - prev_close) / prev_close * 100)
@@ -317,7 +334,7 @@ def _eval_volume_spike(cond: AlertCondition) -> tuple[bool, str]:
         df = fetch_stock_hist(cond.symbol, start=start, end=end, adjust="qfq")
         if df is None or df.empty or "成交量" not in df.columns:
             return (False, f"{cond.symbol}: 无法获取最新成交量")
-        latest_vol = float(df["成交量"].iloc[-1])
+        latest_vol = _safe_float(df["成交量"].iloc[-1])
         ratio = latest_vol / vol_avg if vol_avg > 0 else 0
         ok = ratio > cond.multiplier
         return (ok, f"{cond.symbol}: 量比 {ratio:.1f}x {'>' if ok else '<='} {cond.multiplier}x")
@@ -494,8 +511,8 @@ def add_rule(rule_dict: dict[str, Any]) -> dict[str, Any]:
         AlertCondition(
             type=str(c.get("type", "")),
             symbol=str(c.get("symbol", "")),
-            threshold=float(c.get("threshold", 0)),
-            multiplier=float(c.get("multiplier", 1.0)),
+            threshold=_safe_float(c.get("threshold", 0)),
+            multiplier=_safe_float(c.get("multiplier", 1.0)),
             index_code=str(c.get("index_code", "")),
             regime_value=str(c.get("regime_value", "")),
         )

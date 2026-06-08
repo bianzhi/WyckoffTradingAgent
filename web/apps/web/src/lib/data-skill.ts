@@ -134,9 +134,19 @@ export const dataSkill = {
   },
 
   /** 信号观察池列表 */
-  async fetchSignalObservations(status: string, limit?: number, offset?: number): Promise<{ observations: Array<Record<string, unknown>>; total: number; error?: string }> {
-    const params = new URLSearchParams({ status, limit: String(limit ?? 50), offset: String(offset ?? 0) })
-    const res = (await authFetch(`/api/data/signal-observations?${params}`)) as unknown as Record<string, unknown>
+  async fetchSignalObservations(params: {
+    status?: string; limit?: number; offset?: number
+    sortBy?: string; sortOrder?: string; signalType?: string; track?: string
+  }): Promise<{ observations: Array<Record<string, unknown>>; total: number; error?: string }> {
+    const qs = new URLSearchParams()
+    qs.set('status', params.status ?? 'all')
+    qs.set('limit', String(params.limit ?? 50))
+    qs.set('offset', String(params.offset ?? 0))
+    if (params.sortBy) qs.set('sort_by', params.sortBy)
+    if (params.sortOrder) qs.set('sort_order', params.sortOrder)
+    if (params.signalType) qs.set('signal_type', params.signalType)
+    if (params.track) qs.set('track', params.track)
+    const res = (await authFetch(`/api/data/signal-observations?${qs}`)) as unknown as Record<string, unknown>
     return {
       observations: (res.observations as Array<Record<string, unknown>>) || [],
       total: Number(res.total || 0),

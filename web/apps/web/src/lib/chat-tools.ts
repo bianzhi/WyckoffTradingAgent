@@ -576,10 +576,10 @@ export async function execViewSignals(
   _deps: ToolDeps, status?: string | null, limit?: number | null,
 ): Promise<string> {
   const effectiveLimit = limit && limit > 0 ? limit : 20
-  const { observations, error } = await dataSkill.fetchSignalObservations(
-    status || 'all',
-    effectiveLimit,
-  )
+  const { observations, error } = await dataSkill.fetchSignalObservations({
+    status: status || 'all',
+    limit: effectiveLimit,
+  })
   if (error) return `信号观测数据获取失败：${error}`
   if (!observations || observations.length === 0) {
     return status

@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Activity, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Activity, ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Filter, X } from 'lucide-react'
 import { usePreferences } from '@/lib/preferences'
 import { useDocTitle } from '@/lib/doc-title'
 import { Breadcrumb } from '@/components/ux/breadcrumb'
@@ -10,6 +10,9 @@ import { dataSkill } from '@/lib/data-skill'
 
 const STATUS_TABS = ['all', 'active', 'confirmed', 'expired'] as const
 type StatusFilter = (typeof STATUS_TABS)[number]
+
+type SortKey = 'code' | 'signal_type' | 'track' | 'trigger_score' | 'trade_date' | 'lifecycle_status'
+type SortOrder = 'asc' | 'desc'
 
 const PAGE_SIZE = 50
 
@@ -37,10 +40,17 @@ export function SignalPage() {
 
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [page, setPage] = useState(0)
+  const [sortBy, setSortBy] = useState<SortKey>('trade_date')
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
+  const [signalTypeFilter, setSignalTypeFilter] = useState('')
+  const [trackFilter, setTrackFilter] = useState('')
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['signal-observations', filter, page],
-    queryFn: () => dataSkill.fetchSignalObservations(filter, PAGE_SIZE, page * PAGE_SIZE),
+    queryKey: ['signal-observations', filter, page, sortBy, sortOrder, signalTypeFilter, trackFilter],
+    queryFn: () => dataSkill.fetchSignalObservations({
+      status: filter, limit: PAGE_SIZE, offset: page * PAGE_SIZE,
+      sortBy, sortOrder, signalType: signalTypeFilter, track: trackFilter,
+    }),
     staleTime: 120_000,
     retry: 1,
   })
@@ -49,6 +59,24 @@ export function SignalPage() {
   const total = data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const breadcrumbItems = [{ label: isZh ? '信号池' : 'Signals' }]
+
+  const handleSort = useCallback((key: SortKey) => {
+    if (key === sortBy) {
+      setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))
+    } else {
+      setSortBy(key)
+      setSortOrder('desc')
+    }
+    setPage(0)
+  }, [sortBy])
+
+  const resetFilters = useCallback(() => {
+    setSignalTypeFilter('')
+    setTrackFilter('')
+    setPage(0)
+  }, [])
+
+  const hasColumnFilters = signalTypeFilter || trackFilter
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
@@ -63,12 +91,25 @@ export function SignalPage() {
             </p>
           )}
         </div>
+        {hasColumnFilters && (
+          <button
+            onClick={resetFilters}
+            className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <X size={12} />
+            {isZh ? '清除筛选' : 'Clear filters'}
+          </button>
+        )}
       </header>
       <FilterTabs filter={filter} onFilter={(f) => { setFilter(f); setPage(0) }} t={t} />
       <SignalContent
         observations={observations} total={total} totalPages={totalPages}
         page={page} onPage={setPage} isLoading={isLoading}
         error={error ? String(error) : null} isZh={isZh} t={t as (key: string) => string}
+        sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort}
+        signalTypeFilter={signalTypeFilter} trackFilter={trackFilter}
+        onSignalTypeChange={(v) => { setSignalTypeFilter(v); setPage(0) }}
+        onTrackChange={(v) => { setTrackFilter(v); setPage(0) }}
       />
     </div>
   )
@@ -94,11 +135,15 @@ function FilterTabs({ filter, onFilter, t }: { filter: StatusFilter; onFilter: (
 
 function SignalContent({
   observations, total: _total, totalPages, page, onPage, isLoading, error, isZh, t,
+  sortBy, sortOrder, onSort, signalTypeFilter, trackFilter, onSignalTypeChange, onTrackChange,
 }: {
   observations: Array<Record<string, unknown>>
   total: number; totalPages: number; page: number
   onPage: (p: number) => void; isLoading: boolean
   error: string | null; isZh: boolean; t: (key: string) => string
+  sortBy: SortKey; sortOrder: SortOrder; onSort: (key: SortKey) => void
+  signalTypeFilter: string; trackFilter: string
+  onSignalTypeChange: (v: string) => void; onTrackChange: (v: string) => void
 }) {
   if (isLoading) return <SkeletonTable rows={8} cols={7} />
   if (error) return (
@@ -110,23 +155,151 @@ function SignalContent({
   if (observations.length === 0) return <EmptyState isZh={isZh} t={t} />
   return (
     <>
-      <SignalTable observations={observations} isZh={isZh} t={t} />
+      <SignalTable
+        observations={observations} isZh={isZh} t={t}
+        sortBy={sortBy} sortOrder={sortOrder} onSort={onSort}
+        signalTypeFilter={signalTypeFilter} trackFilter={trackFilter}
+        onSignalTypeChange={onSignalTypeChange} onTrackChange={onTrackChange}
+      />
       {totalPages > 1 && <Pagination page={page} totalPages={totalPages} onPage={onPage} />}
     </>
   )
 }
 
+function SortIcon({ active, order }: { active: boolean; order: SortOrder }) {
+  if (!active) return <ArrowUpDown size={11} className="text-muted-foreground/50" />
+  return order === 'asc'
+    ? <ArrowUp size={11} className="text-primary" />
+    : <ArrowDown size={11} className="text-primary" />
+}
+
+function ColumnFilterDropdown({
+  options, value, onChange, label,
+}: {
+  options: { value: string; label: string }[]
+  value: string
+  onChange: (v: string) => void
+  label: string
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  return (
+    <div className="relative inline-block" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`rounded p-0.5 transition-colors hover:bg-muted ${value ? 'text-primary' : 'text-muted-foreground/50'}`}
+        aria-label={label}
+      >
+        <Filter size={10} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-30 mt-1 min-w-[120px] rounded-lg border border-border bg-card p-1 shadow-lg">
+          <button
+            onClick={() => { onChange(''); setOpen(false) }}
+            className={`w-full rounded px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted ${!value ? 'font-medium text-primary' : 'text-foreground'}`}
+          >
+            All
+          </button>
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => { onChange(opt.value); setOpen(false) }}
+              className={`w-full rounded px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted ${value === opt.value ? 'font-medium text-primary' : 'text-foreground'}`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const SIGNAL_TYPE_OPTIONS = Object.entries(SIGNAL_LABELS).map(([v, l]) => ({ value: v, label: l }))
+const TRACK_OPTIONS = Object.entries(TRACK_BADGE).map(([v]) => ({ value: v, label: v }))
+
 function SignalTable({
-  observations, isZh, t,
+  observations, isZh, t, sortBy, sortOrder, onSort,
+  signalTypeFilter, trackFilter, onSignalTypeChange, onTrackChange,
 }: {
   observations: Array<Record<string, unknown>>
   isZh: boolean
   t: (key: string) => string
+  sortBy: SortKey; sortOrder: SortOrder; onSort: (key: SortKey) => void
+  signalTypeFilter: string; trackFilter: string
+  onSignalTypeChange: (v: string) => void; onTrackChange: (v: string) => void
 }) {
   return (
     <div className="overflow-x-auto rounded-xl border border-border bg-card">
       <table className="w-full text-xs">
-        <SignalTableHead t={t} />
+        <thead>
+          <tr className="border-b border-border bg-muted/40 text-muted-foreground">
+            <th className="px-3 py-2.5 text-left font-medium">
+              <button type="button" onClick={() => onSort('code')} className="inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-muted">
+                <span>{t('common.code')}</span>
+                <SortIcon active={sortBy === 'code'} order={sortOrder} />
+              </button>
+            </th>
+            <th className="px-3 py-2.5 text-left font-medium">{t('common.name')}</th>
+            <th className="px-3 py-2.5 text-left font-medium">
+              <div className="inline-flex items-center gap-1">
+                <button type="button" onClick={() => onSort('signal_type')} className="inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-muted">
+                  <span>{t('signal.type')}</span>
+                  <SortIcon active={sortBy === 'signal_type'} order={sortOrder} />
+                </button>
+                <ColumnFilterDropdown
+                  options={SIGNAL_TYPE_OPTIONS}
+                  value={signalTypeFilter}
+                  onChange={onSignalTypeChange}
+                  label={isZh ? '筛选信号类型' : 'Filter signal type'}
+                />
+              </div>
+            </th>
+            <th className="px-3 py-2.5 text-left font-medium">
+              <div className="inline-flex items-center gap-1">
+                <button type="button" onClick={() => onSort('track')} className="inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-muted">
+                  <span>{t('signal.track')}</span>
+                  <SortIcon active={sortBy === 'track'} order={sortOrder} />
+                </button>
+                <ColumnFilterDropdown
+                  options={TRACK_OPTIONS}
+                  value={trackFilter}
+                  onChange={onTrackChange}
+                  label={isZh ? '筛选跟踪阶段' : 'Filter track'}
+                />
+              </div>
+            </th>
+            <th className="px-3 py-2.5 text-right font-medium">
+              <button type="button" onClick={() => onSort('trigger_score')} className="inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-muted">
+                <span>{t('signal.score')}</span>
+                <SortIcon active={sortBy === 'trigger_score'} order={sortOrder} />
+              </button>
+            </th>
+            <th className="px-3 py-2.5 text-left font-medium">
+              <button type="button" onClick={() => onSort('trade_date')} className="inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-muted">
+                <span>{t('signal.date')}</span>
+                <SortIcon active={sortBy === 'trade_date'} order={sortOrder} />
+              </button>
+            </th>
+            <th className="px-3 py-2.5 text-center font-medium">
+              <button type="button" onClick={() => onSort('lifecycle_status')} className="inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-muted">
+                <span>{t('signal.status')}</span>
+                <SortIcon active={sortBy === 'lifecycle_status'} order={sortOrder} />
+              </button>
+            </th>
+          </tr>
+        </thead>
         <tbody>
           {observations.map((obs, i) => (
             <SignalRow key={obs.id != null ? String(obs.id) : `${i}`} obs={obs} isZh={isZh} />
@@ -134,22 +307,6 @@ function SignalTable({
         </tbody>
       </table>
     </div>
-  )
-}
-
-function SignalTableHead({ t }: { t: (key: string) => string }) {
-  return (
-    <thead>
-      <tr className="border-b border-border bg-muted/40 text-muted-foreground">
-        <th className="px-3 py-2.5 text-left font-medium">{t('common.code')}</th>
-        <th className="px-3 py-2.5 text-left font-medium">{t('common.name')}</th>
-        <th className="px-3 py-2.5 text-left font-medium">{t('signal.type')}</th>
-        <th className="px-3 py-2.5 text-left font-medium">{t('signal.track')}</th>
-        <th className="px-3 py-2.5 text-right font-medium">{t('signal.score')}</th>
-        <th className="px-3 py-2.5 text-left font-medium">{t('signal.date')}</th>
-        <th className="px-3 py-2.5 text-center font-medium">{t('signal.status')}</th>
-      </tr>
-    </thead>
   )
 }
 

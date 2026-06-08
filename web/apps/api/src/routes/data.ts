@@ -589,14 +589,31 @@ dataRoutes.get('/signal-observations', async (c) => {
     const env = (c as any).env || {}
     const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY)
 
+    const sortBy = c.req.query('sort_by') || 'trade_date'
+    const sortOrder = c.req.query('sort_order') || 'desc'
+    const signalType = c.req.query('signal_type') || ''
+    const track = c.req.query('track') || ''
+
+    const allowedSort = ['trade_date', 'trigger_score', 'code', 'signal_type', 'track', 'lifecycle_status']
+    const safeSortBy = allowedSort.includes(sortBy) ? sortBy : 'trade_date'
+    const safeSortOrder = sortOrder === 'asc' ? true : false
+
     let query = supabase
       .from('signal_observations')
       .select('*', { count: 'exact' })
-      .order('trade_date', { ascending: false })
-      .order('trigger_score', { ascending: false })
+      .order(safeSortBy, { ascending: safeSortOrder })
+      if (safeSortBy !== 'trade_date') {
+        query = query.order('trade_date', { ascending: false })
+      }
 
     if (status !== 'all') {
       query = query.eq('lifecycle_status', status.toUpperCase())
+    }
+    if (signalType) {
+      query = query.eq('signal_type', signalType)
+    }
+    if (track) {
+      query = query.eq('track', track)
     }
 
     const { data, count, error } = await query.range(offset, offset + limit - 1)

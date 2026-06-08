@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { BarChart3, Briefcase, Clock3, FileText, History, Search, Swords, Trash2, type LucideIcon } from 'lucide-react'
+import { BarChart3, Briefcase, History, Search, Swords, Trash2, type LucideIcon } from 'lucide-react'
 import { MarkdownContent } from '@/components/markdown'
 import { KlineChart } from '@/components/kline-chart'
 import { MultiStockChart, type ComparisonSeries } from '@/components/multi-stock-chart'
@@ -166,10 +166,8 @@ export function HistoryPage() {
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <HistoryHeader copy={copy} total={history.records.length} />
       <HistoryToolbar copy={copy} records={history.records} filter={filter} query={query} setFilter={setFilter} setQuery={setQuery} onClear={() => history.clear(filter)} />
-      <div className="grid min-h-0 flex-1 border-t border-border lg:grid-cols-[420px_minmax(0,1fr)]">
-        <HistoryList copy={copy} records={filtered} selectedId={selected?.id ?? null} loading={history.loading} onSelect={setSelectedId} />
-        <HistoryDetail copy={copy} record={selected} onDelete={history.remove} />
-      </div>
+      <RecordSelector copy={copy} records={filtered} selectedId={selected?.id ?? null} onSelect={setSelectedId} onDelete={history.remove} />
+      <HistoryDetail copy={copy} record={selected} />
     </div>
   )
 }
@@ -264,44 +262,53 @@ function SearchBox({ copy, value, onChange }: { copy: HistoryCopy; value: string
   )
 }
 
-function HistoryList({ copy, records, selectedId, loading, onSelect }: { copy: HistoryCopy; records: HistoryRecord[]; selectedId: string | null; loading: boolean; onSelect: (id: string) => void }) {
-  if (loading) return <aside className="border-r border-border p-6 text-sm text-muted-foreground">Loading...</aside>
-  if (records.length === 0) return <EmptyList copy={copy} />
-  return (
-    <aside className="min-h-0 overflow-auto border-r border-border bg-sidebar/40 p-3">
-      <div className="space-y-2">
-        {records.map((record) => <HistoryListItem key={record.id} copy={copy} record={record} selected={record.id === selectedId} onSelect={() => onSelect(record.id)} />)}
-      </div>
-    </aside>
-  )
-}
+function RecordSelector({ copy, records, selectedId, onSelect, onDelete }: { copy: HistoryCopy; records: HistoryRecord[]; selectedId: string | null; onSelect: (id: string) => void; onDelete: (id: string) => void }) {
+  const selected = records.find((r) => r.id === selectedId) ?? records[0] ?? null
+  const groups = useMemo(() => {
+    const map = new Map<AnalysisHistoryKind, HistoryRecord[]>()
+    for (const r of records) {
+      const list = map.get(r.kind) ?? []
+      list.push(r)
+      map.set(r.kind, list)
+    }
+    return map
+  }, [records])
 
-function EmptyList({ copy }: { copy: HistoryCopy }) {
-  return (
-    <aside className="flex border-r border-border p-6">
-      <div className="m-auto max-w-xs text-center">
-        <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-muted-foreground"><FileText size={18} /></div>
-        <h2 className="text-sm font-semibold">{copy.emptyTitle}</h2>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">{copy.emptyDesc}</p>
-      </div>
-    </aside>
-  )
-}
+  if (records.length === 0) return null
 
-function HistoryListItem({ copy, record, selected, onSelect }: { copy: HistoryCopy; record: HistoryRecord; selected: boolean; onSelect: () => void }) {
-  const metrics = recordMetrics(record)
+  function handleDelete() {
+    if (selected && window.confirm(copy.deleteConfirm)) void onDelete(selected.id)
+  }
+
   return (
-    <button type="button" onClick={onSelect} className={`block w-full rounded-lg border p-3 text-left transition ${selected ? 'border-primary bg-primary/5 shadow-sm' : 'border-border bg-background hover:border-primary/40'}`}>
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <KindBadge copy={copy} kind={record.kind} />
-        <span className="flex items-center gap-1 text-[11px] text-muted-foreground"><Clock3 size={12} />{formatHistoryTime(record.createdAt)}</span>
-      </div>
-      <h3 className="truncate text-sm font-semibold">{record.title}</h3>
-      <p className="mt-1 truncate text-xs text-muted-foreground">{record.subtitle || record.symbols.join(', ')}</p>
-      <SymbolChips symbols={record.symbols} />
-      <MetricStrip metrics={metrics} />
-      <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">{reportExcerpt(record) || '--'}</p>
-    </button>
+    <div className="flex items-center gap-3 border-b border-border px-6 py-2.5">
+      <select
+        value={selected?.id ?? ''}
+        onChange={(e) => onSelect(e.target.value)}
+        className="h-8 max-w-md flex-1 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring/20"
+      >
+        {(['single-analysis', 'stock-battle', 'portfolio-diagnosis'] as const).map((kind) => {
+          const group = groups.get(kind)
+          if (!group || group.length === 0) return null
+          return (
+            <optgroup key={kind} label={kindLabel(copy, kind)}>
+              {group.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.title} — {formatHistoryTime(r.createdAt)}
+                </option>
+              ))}
+            </optgroup>
+          )
+        })}
+      </select>
+      <span className="text-xs text-muted-foreground">{records.length}</span>
+      {selected && <KindBadge copy={copy} kind={selected.kind} />}
+      {selected && (
+        <button type="button" onClick={handleDelete} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm text-muted-foreground hover:text-destructive">
+          <Trash2 size={14} />{copy.delete}
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -315,58 +322,14 @@ function KindBadge({ copy, kind }: { copy: HistoryCopy; kind: AnalysisHistoryKin
   )
 }
 
-function SymbolChips({ symbols }: { symbols: string[] }) {
-  if (symbols.length === 0) return null
-  return (
-    <div className="mt-2 flex flex-wrap gap-1">
-      {symbols.slice(0, 5).map((symbol) => <span key={symbol} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">{symbol}</span>)}
-      {symbols.length > 5 && <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">+{symbols.length - 5}</span>}
-    </div>
-  )
-}
-
-function MetricStrip({ metrics }: { metrics: MetricItem[] }) {
-  return (
-    <div className="mt-3 grid grid-cols-3 gap-2">
-      {metrics.slice(0, 3).map((metric) => (
-        <div key={metric.label} className="min-w-0 rounded-md bg-muted/50 px-2 py-1.5">
-          <div className="truncate text-[10px] text-muted-foreground">{metric.label}</div>
-          <div className={`truncate text-xs font-semibold ${metricClass(metric.tone)}`}>{metric.value}</div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function HistoryDetail({ copy, record, onDelete }: { copy: HistoryCopy; record: HistoryRecord | null; onDelete: (id: string) => void }) {
+function HistoryDetail({ copy, record }: { copy: HistoryCopy; record: HistoryRecord | null }) {
   if (!record) return <section className="p-6 text-sm text-muted-foreground">{copy.emptyDesc}</section>
   return (
-    <section className="flex min-h-0 flex-col">
-      <DetailHeader copy={copy} record={record} onDelete={onDelete} />
-      <div className="min-h-0 flex-1 overflow-auto p-5">
-        {record.kind === 'single-analysis' && <SingleDetail copy={copy} payload={singlePayload(record)} />}
-        {record.kind === 'stock-battle' && <BattleDetail copy={copy} payload={battlePayload(record)} />}
-        {record.kind === 'portfolio-diagnosis' && <PortfolioDetail copy={copy} payload={portfolioPayload(record)} />}
-      </div>
+    <section className="min-h-0 flex-1 overflow-auto p-5">
+      {record.kind === 'single-analysis' && <SingleDetail copy={copy} payload={singlePayload(record)} />}
+      {record.kind === 'stock-battle' && <BattleDetail copy={copy} payload={battlePayload(record)} />}
+      {record.kind === 'portfolio-diagnosis' && <PortfolioDetail copy={copy} payload={portfolioPayload(record)} />}
     </section>
-  )
-}
-
-function DetailHeader({ copy, record, onDelete }: { copy: HistoryCopy; record: HistoryRecord; onDelete: (id: string) => void }) {
-  function handleDelete() {
-    if (window.confirm(copy.deleteConfirm)) void onDelete(record.id)
-  }
-  return (
-    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-5 py-4">
-      <div>
-        <div className="mb-2 flex items-center gap-2"><KindBadge copy={copy} kind={record.kind} /><span className="text-xs text-muted-foreground">{formatFullTime(record.createdAt)}</span></div>
-        <h2 className="text-lg font-semibold">{record.title}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">{record.subtitle}</p>
-      </div>
-      <button type="button" onClick={handleDelete} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground hover:text-destructive">
-        <Trash2 size={15} />{copy.delete}
-      </button>
-    </div>
   )
 }
 
@@ -536,34 +499,6 @@ function searchableText(record: HistoryRecord): string {
   return [record.title, record.subtitle, record.symbols.join(' '), reportExcerpt(record)].join(' ').toLowerCase()
 }
 
-function recordMetrics(record: HistoryRecord): MetricItem[] {
-  if (record.kind === 'single-analysis') {
-    const payload = singlePayload(record)
-    return payload ? singleMetrics(payload) : []
-  }
-  if (record.kind === 'stock-battle') {
-    const payload = battlePayload(record)
-    return payload ? battleMetrics(payload) : []
-  }
-  const payload = portfolioPayload(record)
-  return payload ? portfolioMetrics(payload) : []
-}
-
-function singleMetrics(payload: SinglePayload): MetricItem[] {
-  const latest = payload.klineData.at(-1)
-  return [{ label: '最新价', value: formatNumber(latest?.close) }, { label: 'K线', value: `${payload.klineData.length}` }, { label: '价值源', value: sourceLabel(payload.valueSnapshot) }]
-}
-
-function battleMetrics(payload: BattlePayload): MetricItem[] {
-  const strongest = strongestBattleStock(payload)
-  return [{ label: '标的', value: `${payload.stocks.length}` }, { label: '最强', value: strongest?.code || '--' }, { label: '强度', value: strongest ? strongest.stats.score.toFixed(1) : '--' }]
-}
-
-function portfolioMetrics(payload: PortfolioPayload): MetricItem[] {
-  const stats = payload.result.summaryStats
-  return [{ label: '持仓', value: `${stats.count}` }, { label: '盈亏', value: formatPercent(stats.pnlPct), tone: pnlTone(stats.pnlPct) }, { label: '市值', value: formatCompactMoney(stats.totalMarket) }]
-}
-
 function countByKind(records: HistoryRecord[]): Record<AnalysisHistoryKind, number> {
   return {
     'single-analysis': records.filter((record) => record.kind === 'single-analysis').length,
@@ -712,10 +647,6 @@ function formatHistoryTime(value: string): string {
   return new Date(value).toLocaleString(undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
-function formatFullTime(value: string): string {
-  return new Date(value).toLocaleString()
-}
-
 function formatNumber(value: number | undefined): string {
   return Number.isFinite(value) ? (value as number).toFixed(2) : '--'
 }
@@ -732,9 +663,3 @@ function formatMoney(value: number | undefined): string {
   return Number.isFinite(value) ? `¥${Math.round(value as number).toLocaleString()}` : '--'
 }
 
-function formatCompactMoney(value: number | undefined): string {
-  if (!Number.isFinite(value)) return '--'
-  const numeric = value as number
-  if (Math.abs(numeric) >= 10000) return `¥${(numeric / 10000).toFixed(1)}万`
-  return `¥${Math.round(numeric).toLocaleString()}`
-}

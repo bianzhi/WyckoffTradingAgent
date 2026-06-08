@@ -80,6 +80,7 @@ export function KlineChart({ data, height = 400, wyckoffMarkers, tradingRange, s
   useChartInit(containerRef, chartRefs, themeRef, height)
   useChartData(chartRefs, themeRef, data, wyckoffMarkers, tradingRange)
   useBollingerOverlay(chartRefs, data, indicators.boll)
+  useKeyboardNav(containerRef, chartRefs)
 
   const closes = useMemo(() => data.map((d) => d.close), [data])
   const dates = useMemo(() => data.map((d) => d.date), [data])
@@ -87,7 +88,7 @@ export function KlineChart({ data, height = 400, wyckoffMarkers, tradingRange, s
   return (
     <div className="space-y-3">
       {structure && <StructureMetrics structure={structure} />}
-      <div ref={containerRef} className="h-[350px] w-full overflow-hidden rounded-lg border border-border bg-background sm:h-auto" />
+      <div ref={containerRef} className="h-[350px] w-full cursor-text overflow-hidden rounded-lg border border-border bg-background focus-within:ring-1 focus-within:ring-primary/30 sm:h-auto" />
       {showIndicators && <IndicatorBar indicators={indicators} setIndicators={setIndicators} />}
       {indicators.rsi && <RSISubChart closes={closes} dates={dates} />}
       {indicators.macd && <MACDSubChart closes={closes} dates={dates} />}
@@ -187,6 +188,55 @@ function useBollingerOverlay(chartRefs: React.MutableRefObject<ChartRefs | null>
   }, [data, active])
 }
 
+function useKeyboardNav(
+  containerRef: React.RefObject<HTMLDivElement | null>,
+  chartRefs: React.MutableRefObject<ChartRefs | null>,
+) {
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+
+    el.tabIndex = 0
+    el.style.outline = 'none'
+
+    const handler = (e: KeyboardEvent) => {
+      const refs = chartRefs.current
+      if (!refs) return
+      const ts = refs.chart.timeScale()
+
+      switch (e.key) {
+        case 'ArrowLeft':
+          e.preventDefault()
+          ts.scrollToPosition(ts.scrollPosition() + 3, false)
+          break
+        case 'ArrowRight':
+          e.preventDefault()
+          ts.scrollToPosition(ts.scrollPosition() - 3, false)
+          break
+        case 'ArrowUp': {
+          e.preventDefault()
+          const opts = refs.chart.options()
+          const cur = opts.timeScale?.barSpacing ?? 6
+          const next = Math.min(cur * 1.15, 50)
+          refs.chart.applyOptions({ timeScale: { barSpacing: next } })
+          break
+        }
+        case 'ArrowDown': {
+          e.preventDefault()
+          const opts = refs.chart.options()
+          const cur = opts.timeScale?.barSpacing ?? 6
+          const next = Math.max(cur / 1.15, 1)
+          refs.chart.applyOptions({ timeScale: { barSpacing: next } })
+          break
+        }
+      }
+    }
+
+    el.addEventListener('keydown', handler)
+    return () => { el.removeEventListener('keydown', handler) }
+  }, [containerRef, chartRefs])
+}
+
 function StructureMetrics({ structure }: { structure: StructureSnapshot }) {
   return (
     <div className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
@@ -229,6 +279,7 @@ function ChartLegend({ boll, wyckoffMarkers }: { boll: boolean; wyckoffMarkers: 
           <Legend color="#10b981" label="供应风险" />
         </>
       )}
+      <span className="ml-auto text-muted-foreground/60">← → 移动 · ↑ ↓ 缩放</span>
     </div>
   )
 }

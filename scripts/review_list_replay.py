@@ -110,7 +110,7 @@ def _explain_l2_fail(
     rps_universe = ctx.get("rps_universe", [code])
 
     # 用引擎做单票 L2 判断
-    passed, channel_map, _ = layer2_strength_detailed(
+    passed, channel_map, _, _, _ = layer2_strength_detailed(
         [code],
         df_map,
         bench_df_raw,

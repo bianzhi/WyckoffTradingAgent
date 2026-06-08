@@ -77,7 +77,7 @@ def _patch_funnel_job_layers(monkeypatch, channel_map: dict[str, str], calls: li
         return {"trend_pullback": [(symbols[0], 0.4)]} if symbols else {"trend_pullback": []}
 
     monkeypatch.setattr(funnel, "layer1_filter", lambda symbols, *_args, **_kwargs: symbols)
-    monkeypatch.setattr(funnel, "layer2_strength_detailed", lambda *_args, **_kwargs: (["000001"], channel_map, []))
+    monkeypatch.setattr(funnel, "layer2_strength_detailed", lambda *_args, **_kwargs: (["000001"], channel_map, [], {}, {}))
     monkeypatch.setattr(funnel, "layer3_sector_resonance", lambda symbols, *_args, **_kwargs: (symbols, ["科技"]))
     monkeypatch.setattr(funnel, "analyze_sector_rotation", lambda *_args, **_kwargs: {"headline": "", "state_map": {}})
     monkeypatch.setattr(funnel, "layer4_triggers", fake_layer4)

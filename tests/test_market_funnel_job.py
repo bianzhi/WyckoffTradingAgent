@@ -43,7 +43,7 @@ def test_run_layers_passes_l2_channel_map_to_l4(monkeypatch):
     monkeypatch.setattr(
         market_job,
         "layer2_strength_detailed",
-        lambda *_args, **_kwargs: (["AAPL.US"], {"AAPL.US": "趋势延续"}, []),
+        lambda *_args, **_kwargs: (["AAPL.US"], {"AAPL.US": "趋势延续"}, [], {}, {}),
     )
     monkeypatch.setattr(market_job, "layer3_sector_resonance", lambda symbols, *_args, **_kwargs: (symbols, []))
     monkeypatch.setattr(market_job, "layer4_triggers", fake_layer4)

@@ -548,7 +548,7 @@ def _run_etf_enhancement(
         etf_cfg = _build_etf_funnel_config(base_cfg)
         etf_l1 = layer1_filter(list(etf_df_map.keys()), {}, {}, etf_df_map, etf_cfg)
         if etf_l1:
-            etf_l2, etf_channel_map, _ = layer2_strength_detailed(
+            etf_l2, etf_channel_map, _, _, _ = layer2_strength_detailed(
                 etf_l1,
                 etf_df_map,
                 bench_df,
@@ -1387,7 +1387,7 @@ def run_funnel_job(
     l1_passed = layer1_filter(l1_input, name_map, market_cap_map, all_df_map, cfg, financial_map=financial_map)
 
     report_progress("L2 通道甄别", f"L1 通过 {len(l1_passed)} 只", 0.58)
-    l2_passed, l2_channel_map, l2_pre_ignition = layer2_strength_detailed(
+    l2_passed, l2_channel_map, l2_pre_ignition, rps_fast_map, rps_slow_map = layer2_strength_detailed(
         l1_passed,
         all_df_map,
         bench_df,
@@ -1549,6 +1549,8 @@ def run_funnel_job(
         "layer2_trend_cont": l2_trend_cont,
         "layer2_sos": l2_sos,
         "layer2_channel_map": l2_channel_map,
+        "rps_fast_map": rps_fast_map,
+        "rps_slow_map": rps_slow_map,
         "layer3": len(l3_passed),
         "top_sectors": top_sectors,
         "concept_heat": concept_heat[:20],

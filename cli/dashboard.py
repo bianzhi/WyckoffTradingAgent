@@ -246,6 +246,8 @@ def _build_and_persist_funnel(triggers: dict, metrics: dict) -> dict:
         accum_stage_map = metrics.get("accum_stage_map", {}) or {}
         l3_symbols = metrics.get("layer3_symbols", []) or []
         latest_close_map = metrics.get("latest_close_map", {}) or {}
+        rps_fast_map = metrics.get("rps_fast_map", {}) or {}
+        rps_slow_map = metrics.get("rps_slow_map", {}) or {}
 
         # Collect L4 trigger scores per code
         trigger_scores: dict[str, float] = {}
@@ -273,6 +275,8 @@ def _build_and_persist_funnel(triggers: dict, metrics: dict) -> dict:
                     "tag": tag,
                     "initial_price": initial_price,
                     "score": score,
+                    "rps50": rps_fast_map.get(code, 0.0),
+                    "rps120": rps_slow_map.get(code, 0.0),
                 }
             )
 
@@ -293,6 +297,8 @@ def _build_and_persist_funnel(triggers: dict, metrics: dict) -> dict:
                     "tag": tag,
                     "initial_price": initial_price,
                     "score": trigger_scores[code],
+                    "rps50": rps_fast_map.get(code, 0.0),
+                    "rps120": rps_slow_map.get(code, 0.0),
                 }
             )
 
@@ -361,6 +367,8 @@ def _build_stocks(triggers: dict, metrics: dict) -> list[dict]:
     latest_close_map = metrics.get("latest_close_map", {}) or {}
     exit_signals = metrics.get("exit_signals", {}) or {}
     name_map = metrics.get("name_map", {}) or {}
+    rps_fast_map = metrics.get("rps_fast_map", {}) or {}
+    rps_slow_map = metrics.get("rps_slow_map", {}) or {}
 
     stock_signals: dict[str, list[str]] = {}
     stock_score: dict[str, float] = {}
@@ -387,6 +395,8 @@ def _build_stocks(triggers: dict, metrics: dict) -> list[dict]:
                 "latest_close": _safe_num(latest_close_map.get(code)),
                 "exit_signal": exit_signals.get(code, {}).get("signal", ""),
                 "remark": remark,
+                "rps50": round(_safe_num(rps_fast_map.get(code)), 1),
+                "rps120": round(_safe_num(rps_slow_map.get(code)), 1),
             }
         )
     return stocks

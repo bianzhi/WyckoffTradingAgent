@@ -974,7 +974,7 @@ def layer2_strength_detailed(
                 _pre_ign = _has_structure and _has_rps and _has_vol
             if _pre_ign:
                 pre_ignition_list.append(sym)
-    return passed, channel_map, pre_ignition_list
+    return passed, channel_map, pre_ignition_list, rps_fast_map, rps_slow_map
 
 
 # Layer 3: 板块共振
@@ -2168,7 +2168,7 @@ def run_funnel(
     report_progress("L1剥离垃圾", f"通过{len(l1)}只, 剔除{total - len(l1)}只", 0.20)
 
     report_progress("L2强弱甄别", f"输入{len(l1)}只, 七通道甄选", 0.25)
-    l2, channel_map, _pre_ign = layer2_strength_detailed(
+    l2, channel_map, _pre_ign, _rps_fast, _rps_slow = layer2_strength_detailed(
         l1,
         prepared_df_map,
         bench_df,

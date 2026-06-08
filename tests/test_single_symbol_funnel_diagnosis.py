@@ -41,7 +41,7 @@ def test_evaluate_day_reports_selected_trigger(monkeypatch):
 
     monkeypatch.setattr(diag, "layer1_filter", lambda symbols, *_args, **_kwargs: symbols)
     monkeypatch.setattr(
-        diag, "layer2_strength_detailed", lambda symbols, *_args, **_kwargs: (symbols, {"AAPL.US": "main"}, [])
+        diag, "layer2_strength_detailed", lambda symbols, *_args, **_kwargs: (symbols, {"AAPL.US": "main"}, [], {}, {})
     )
     monkeypatch.setattr(diag, "layer3_sector_resonance", lambda symbols, *_args, **_kwargs: (symbols, []))
     monkeypatch.setattr(diag, "layer4_triggers", lambda *_args, **_kwargs: {"sos": [("AAPL.US", 12.5)]})
@@ -60,7 +60,7 @@ def test_evaluate_day_reports_l4_miss(monkeypatch):
     ctx = diag.ReplayContext({"AAPL.US": "Apple"}, {}, {}, None)
 
     monkeypatch.setattr(diag, "layer1_filter", lambda symbols, *_args, **_kwargs: symbols)
-    monkeypatch.setattr(diag, "layer2_strength_detailed", lambda symbols, *_args, **_kwargs: (symbols, {}, []))
+    monkeypatch.setattr(diag, "layer2_strength_detailed", lambda symbols, *_args, **_kwargs: (symbols, {}, [], {}, {}))
     monkeypatch.setattr(diag, "layer3_sector_resonance", lambda symbols, *_args, **_kwargs: (symbols, []))
     monkeypatch.setattr(diag, "layer4_triggers", lambda *_args, **_kwargs: {})
 
@@ -87,7 +87,7 @@ def test_evaluate_day_slices_benchmark_to_replay_day(monkeypatch):
 
     def fake_layer2(symbols, _df_map, bench_arg, *_args, **_kwargs):
         seen["bench"] = bench_arg
-        return symbols, {"603390": "main"}, []
+        return symbols, {"603390": "main"}, [], {}, {}
 
     monkeypatch.setattr(diag, "layer2_strength_detailed", fake_layer2)
     monkeypatch.setattr(diag, "layer3_sector_resonance", lambda symbols, *_args, **_kwargs: (symbols, []))

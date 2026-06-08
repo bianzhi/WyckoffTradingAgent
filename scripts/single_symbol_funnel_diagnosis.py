@@ -294,7 +294,7 @@ def _evaluate_day(
     if spec.symbol not in layer1:
         return _diagnostic(spec, day_df, day, "MISS", "L1", _l1_reason(spec, day_df, ctx, cfg), {}, "")
     rps_df_map, rps_universe = _build_rps_context(df_map, rps_histories, day)
-    layer2, channel_map, _ = layer2_strength_detailed(
+    layer2, channel_map, _, _, _ = layer2_strength_detailed(
         layer1, rps_df_map, _benchmark_for_day(ctx.bench_df, day), cfg, rps_universe=rps_universe
     )
     if spec.symbol not in layer2:

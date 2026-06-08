@@ -1149,6 +1149,8 @@ function FunnelStockRow({ s, i }: { s: FunnelStockResult; i: number }) {
         <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">{s.channel || '-'}</span>
       </td>
       <td className="px-2 py-1.5 text-right font-mono tabular-nums font-semibold">{s.score.toFixed(1)}</td>
+      <td className="px-2 py-1.5 text-right font-mono tabular-nums">{s.rps50 != null ? s.rps50.toFixed(1) : '-'}</td>
+      <td className="px-2 py-1.5 text-right font-mono tabular-nums">{s.rps120 != null ? s.rps120.toFixed(1) : '-'}</td>
       <td className="px-2 py-1.5 text-right font-mono tabular-nums text-muted-foreground">
         {s.latest_close != null ? s.latest_close.toFixed(2) : '-'}
       </td>
@@ -1187,6 +1189,8 @@ function FunnelExitedSection({ isZh, exitedStocks }: {
           <td className="px-2 py-1.5 text-muted-foreground max-w-[120px] truncate">{s.name || '-'}</td>
           <td className="px-2 py-1.5 text-muted-foreground">{s.channel || '-'}</td>
           <td className="px-2 py-1.5 text-right font-mono tabular-nums">{s.score.toFixed(1)}</td>
+          <td className="px-2 py-1.5 text-right font-mono tabular-nums">{s.rps50 != null ? s.rps50.toFixed(1) : '-'}</td>
+          <td className="px-2 py-1.5 text-right font-mono tabular-nums">{s.rps120 != null ? s.rps120.toFixed(1) : '-'}</td>
           <td className="px-2 py-1.5 text-right font-mono tabular-nums">
             {s.latest_close != null ? s.latest_close.toFixed(2) : '-'}
           </td>
@@ -1201,7 +1205,7 @@ function FunnelExitedSection({ isZh, exitedStocks }: {
   )
 }
 
-type StockSortKey = 'code' | 'name' | 'channel' | 'score' | 'price' | 'signals' | 'stage' | 'remark'
+type StockSortKey = 'code' | 'name' | 'channel' | 'score' | 'rps50' | 'rps120' | 'price' | 'signals' | 'stage' | 'remark'
 
 function useStockSort(activeStocks: FunnelStockResult[]) {
   const [sortBy, setSortBy] = useState<StockSortKey>('score')
@@ -1215,6 +1219,8 @@ function useStockSort(activeStocks: FunnelStockResult[]) {
         case 'name': return (a.name || '').localeCompare(b.name || '') * dir
         case 'channel': return (a.channel || '').localeCompare(b.channel || '') * dir
         case 'score': return ((a.score ?? 0) - (b.score ?? 0)) * dir
+        case 'rps50': return ((a.rps50 ?? 0) - (b.rps50 ?? 0)) * dir
+        case 'rps120': return ((a.rps120 ?? 0) - (b.rps120 ?? 0)) * dir
         case 'price': return ((a.latest_close ?? 0) - (b.latest_close ?? 0)) * dir
         case 'signals': return ((a.signals || []).length - (b.signals || []).length) * dir
         case 'stage': return (a.stage || '').localeCompare(b.stage || '') * dir
@@ -1226,7 +1232,7 @@ function useStockSort(activeStocks: FunnelStockResult[]) {
 
   const toggleSort = (col: StockSortKey) => {
     if (sortBy === col) { setSortDir(prev => prev === 'asc' ? 'desc' : 'asc') }
-    else { setSortBy(col); setSortDir(col === 'score' || col === 'price' ? 'desc' : 'asc') }
+    else { setSortBy(col); setSortDir(col === 'score' || col === 'price' || col === 'rps50' || col === 'rps120' ? 'desc' : 'asc') }
   }
 
   const sortArrow = (col: StockSortKey) =>
@@ -1263,6 +1269,8 @@ function FunnelStockTable({
             {th('name', isZh ? '名称' : 'Name')}
             {th('channel', isZh ? 'L2通道' : 'L2 Channel')}
             {th('score', isZh ? 'L3评分' : 'L3 Score', 'right')}
+            {th('rps50', 'RPS50', 'right')}
+            {th('rps120', 'RPS120', 'right')}
             {th('price', isZh ? '最新价' : 'Price', 'right')}
             {th('signals', isZh ? 'L4信号' : 'L4 Signals')}
             {th('stage', isZh ? 'L4阶段' : 'L4 Stage')}

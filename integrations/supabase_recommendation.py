@@ -360,6 +360,8 @@ def _build_recommendation_payload(
             "change_pct": 0.0,
             "recommend_count": new_cnt,
             "funnel_score": _extract_recommendation_score(item),
+            "rps50": _safe_float(item.get("rps50")),
+            "rps120": _safe_float(item.get("rps120")),
             "is_ai_recommended": False,
             "updated_at": datetime.now(UTC).isoformat(),
         }

@@ -113,6 +113,8 @@ CREATE TABLE IF NOT EXISTS public.recommendation_tracking (
     change_pct          DOUBLE PRECISION DEFAULT 0,
     recommend_count     INTEGER DEFAULT 1,
     funnel_score        DOUBLE PRECISION,
+    rps50               DOUBLE PRECISION,
+    rps120              DOUBLE PRECISION,
     is_ai_recommended   BOOLEAN DEFAULT FALSE,
     updated_at          TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE (code, recommend_date)

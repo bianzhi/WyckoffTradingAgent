@@ -440,6 +440,38 @@ CREATE INDEX IF NOT EXISTS idx_signal_outcomes_date
 
 
 -- ──────────────────────────────────────────
+-- RLS: 共享选股/信号表 — 已登录用户可读，仅 service_role 可写
+-- ──────────────────────────────────────────
+
+ALTER TABLE public.recommendation_tracking ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.recommendation_tracking_us ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.recommendation_tracking_hk ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.signal_pending ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.signal_observations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.signal_outcomes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.concept_heat_history ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Authenticated users can read recommendation_tracking" ON public.recommendation_tracking
+  FOR SELECT USING (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated users can read recommendation_tracking_us" ON public.recommendation_tracking_us
+  FOR SELECT USING (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated users can read recommendation_tracking_hk" ON public.recommendation_tracking_hk
+  FOR SELECT USING (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated users can read signal_pending" ON public.signal_pending
+  FOR SELECT USING (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated users can read signal_observations" ON public.signal_observations
+  FOR SELECT USING (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated users can read signal_outcomes" ON public.signal_outcomes
+  FOR SELECT USING (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated users can read concept_heat_history" ON public.concept_heat_history
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+-- tail_buy_history 有 user_id 列，用户可读自己的记录
+ALTER TABLE public.tail_buy_history ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can read own tail_buy_history" ON public.tail_buy_history
+  FOR SELECT USING (auth.uid()::text = user_id);
+
+-- ──────────────────────────────────────────
 -- 20. funnel_requests — 漏斗选股请求队列
 -- ──────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.funnel_requests (

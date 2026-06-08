@@ -77,8 +77,8 @@ def _safe_float(v, default=0.0):
 
 # ── 配置 ────────────────────────────────────────────────
 
-ALERTS_YML = Path.home() / ".wyckoff" / "alerts.yml"
-COOLDOWN_TRACKER = Path.home() / ".wyckoff" / "alert_cooldowns.json"
+ALERTS_YML = Path(os.getenv("WYCKOFF_HOME", Path.home() / ".wyckoff")).expanduser() / "alerts.yml"
+COOLDOWN_TRACKER = Path(os.getenv("WYCKOFF_HOME", Path.home() / ".wyckoff")).expanduser() / "alert_cooldowns.json"
 
 DEFAULT_ALERTS_YML = """\
 # 条件预警规则 — 修改后保存，引擎自动重载

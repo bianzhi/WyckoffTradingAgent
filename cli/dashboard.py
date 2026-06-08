@@ -229,7 +229,7 @@ def _build_and_persist_funnel(triggers: dict, metrics: dict) -> dict:
 
     result: dict = {}
     try:
-        from integrations.supabase_recommendation import upsert_recommendations
+        from integrations.supabase_recommendation import mark_ai_recommendations, upsert_recommendations
 
         end_date = metrics.get("end_trade_date") or ""
         if end_date:
@@ -241,19 +241,70 @@ def _build_and_persist_funnel(triggers: dict, metrics: dict) -> dict:
             recommend_date = int(datetime.now(CN_TZ).strftime("%Y%m%d"))
 
         name_map = metrics.get("name_map", {}) or {}
+        l3_score_map = metrics.get("layer3_score_map", {}) or {}
+        l2_channel_map = metrics.get("layer2_channel_map", {}) or {}
+        accum_stage_map = metrics.get("accum_stage_map", {}) or {}
+        l3_symbols = metrics.get("layer3_symbols", []) or []
+        latest_close_map = metrics.get("latest_close_map", {}) or {}
 
-        seen: dict[str, float] = {}
-        for hits in triggers.values():
+        # Collect L4 trigger scores per code
+        trigger_scores: dict[str, float] = {}
+        trigger_signals: dict[str, list[str]] = {}
+        for sig_type, hits in triggers.items():
             for code, score in hits:
-                seen[code] = max(seen.get(code, 0.0), score)
-        symbols_info = [
-            {"code": code, "name": name_map.get(code, ""), "tag": "", "initial_price": 0.0, "score": score}
-            for code, score in sorted(seen.items())
-        ]
+                trigger_scores[code] = max(trigger_scores.get(code, 0.0), score)
+                trigger_signals.setdefault(code, []).append(sig_type)
+
+        # Build the full set: L3 candidates + any L4-only codes
+        seen_codes: set[str] = set()
+        symbols_info: list[dict] = []
+        for code in l3_symbols:
+            seen_codes.add(code)
+            score = l3_score_map.get(code, trigger_scores.get(code, 0.0))
+            channel = l2_channel_map.get(code, "")
+            sigs = trigger_signals.get(code, [])
+            stage = accum_stage_map.get(code, "")
+            tag = _build_remark(channel, sigs, stage)
+            initial_price = latest_close_map.get(code, 0.0)
+            symbols_info.append(
+                {
+                    "code": code,
+                    "name": name_map.get(code, ""),
+                    "tag": tag,
+                    "initial_price": initial_price,
+                    "score": score,
+                }
+            )
+
+        # Add any L4 trigger-only codes not already in L3
+        for code in sorted(trigger_scores):
+            if code in seen_codes:
+                continue
+            seen_codes.add(code)
+            channel = l2_channel_map.get(code, "")
+            sigs = trigger_signals.get(code, [])
+            stage = accum_stage_map.get(code, "")
+            tag = _build_remark(channel, sigs, stage)
+            initial_price = latest_close_map.get(code, 0.0)
+            symbols_info.append(
+                {
+                    "code": code,
+                    "name": name_map.get(code, ""),
+                    "tag": tag,
+                    "initial_price": initial_price,
+                    "score": trigger_scores[code],
+                }
+            )
+
         if symbols_info:
             ok = upsert_recommendations(recommend_date, symbols_info)
             result["persisted"] = ok
             result["persisted_count"] = len(symbols_info)
+
+            # Mark AI recommendations (L4 trigger hits)
+            ai_codes = list(trigger_scores.keys())
+            if ai_codes:
+                mark_ai_recommendations(recommend_date, ai_codes)
     except Exception as e:
         logger.warning("funnel persist failed: %s", e)
         result["persist_error"] = str(e)
@@ -456,8 +507,6 @@ def _build_funnel_result(triggers: dict, metrics: dict, elapsed: float, stocks, 
         "top_sectors": metrics.get("top_sectors", []),
         "date": metrics.get("end_trade_date", ""),
     }
-    persist = _build_and_persist_funnel(triggers, metrics)
-    result.update(persist)
     return result
 
 
@@ -495,7 +544,8 @@ def _run_funnel_background(payload: dict | None = None) -> dict:
         result["progress_logs"] = list(_funnel_logs)
 
         # 持久化到 Supabase：recommendation_tracking + signal_observations
-        _build_and_persist_funnel(triggers, metrics)
+        persist = _build_and_persist_funnel(triggers, metrics)
+        result.update(persist)
         _persist_signal_observations(triggers, metrics)
 
         _funnel_last_result = result

@@ -121,7 +121,7 @@ async function fetchRecommendations(date?: string) {
     .from('recommendation_tracking')
     .select('code, name, recommend_date, funnel_score, recommend_reason, is_ai_recommended, initial_price, current_price, change_pct')
     .order('recommend_date', { ascending: false })
-    .limit(500)
+    .limit(2000)
 
   if (date) {
     query = query.eq('recommend_date', date)
@@ -199,15 +199,15 @@ export async function fetchFunnelSummary(date?: string): Promise<FunnelSummary |
   const total = latest.length
   const layerBreakdown = {
     L1: latest.length,
-    L2: latest.filter(r => (r.funnel_score ?? 0) >= 5).length,
-    L3: latest.filter(r => (r.funnel_score ?? 0) >= 10).length,
+    L2: latest.filter(r => (r.funnel_score ?? 0) > 0).length,
+    L3: latest.filter(r => (r.funnel_score ?? 0) > 0).length,
     L4: aiSelected.length,
   }
 
   // L2 通道细分
   const l2Detail: Record<string, number> = {}
   for (const r of latest) {
-    if ((r.funnel_score ?? 0) >= 5 && r.recommend_reason) {
+    if ((r.funnel_score ?? 0) > 0 && r.recommend_reason) {
       for (const keyword of Object.keys(TRIGGER_KEYWORDS)) {
         if (r.recommend_reason.includes(keyword)) {
           l2Detail[keyword] = (l2Detail[keyword] || 0) + 1

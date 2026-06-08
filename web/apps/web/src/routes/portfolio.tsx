@@ -85,6 +85,37 @@ async function fetchPortfolio(userId: string): Promise<Portfolio> {
   return { free_cash: Number(pf?.free_cash || 0), positions: positions || [] }
 }
 
+const MANUAL_PORTFOLIO_KEY = 'wyckoff.manualPortfolio'
+
+function loadManualPortfolio(): Portfolio {
+  try {
+    const raw = localStorage.getItem(MANUAL_PORTFOLIO_KEY)
+    if (!raw) return { free_cash: 0, positions: [] }
+    const parsed = JSON.parse(raw) as Portfolio
+    if (!parsed || !Array.isArray(parsed.positions)) return { free_cash: 0, positions: [] }
+    return parsed
+  } catch {
+    return { free_cash: 0, positions: [] }
+  }
+}
+
+function saveManualPortfolio(portfolio: Portfolio) {
+  try {
+    localStorage.setItem(MANUAL_PORTFOLIO_KEY, JSON.stringify(portfolio))
+  } catch { /* quota exceeded, ignore */ }
+}
+
+function useManualPortfolio(): [Portfolio, (p: Portfolio) => void] {
+  const [portfolio, setPortfolio] = useState<Portfolio>(loadManualPortfolio)
+
+  const setAndPersist = (p: Portfolio) => {
+    setPortfolio(p)
+    saveManualPortfolio(p)
+  }
+
+  return [portfolio, setAndPersist]
+}
+
 export function PortfolioPage() {
   const user = useAuthStore((s) => s.user)
   const portfolioData = usePortfolioData(user?.id)
@@ -92,7 +123,7 @@ export function PortfolioPage() {
   const isZh = locale === 'zh-CN'
   useDocTitle(t('portfolio.title') + ' - Wyckoff')
   const fullDiag = useFullDiagnosisRunner()
-  const [manualPortfolio, setManualPortfolio] = useState<Portfolio>({ free_cash: 0, positions: [] })
+  const [manualPortfolio, setManualPortfolio] = useManualPortfolio()
   const source = portfolioData.isWhitelisted ? 'database' : 'manual'
   usePortfolioHistory(user?.id, fullDiag.result, source)
 

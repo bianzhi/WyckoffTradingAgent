@@ -2,8 +2,10 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
 import { PROVIDERS, PROVIDER_LABELS } from '@wyckoff/shared'
+import { usePreferences, type TranslationKey } from '@/lib/preferences'
 
 type UserRole = 'admin' | 'member'
+type SettingsTab = 'account' | 'memory'
 
 interface AdminSectionProps {
   loading: boolean
@@ -179,6 +181,7 @@ export function SettingsPage() {
   const [toast, setToast] = useState('')
   const [toastKind, setToastKind] = useState<'success' | 'error'>('success')
   const toastTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('account')
 
   useEffect(() => { if (!user) return; loadRole() }, [user])
   useEffect(() => () => clearTimeout(toastTimerRef.current), [])
@@ -237,6 +240,8 @@ export function SettingsPage() {
     return <div className="h-full flex items-center justify-center text-sm text-muted-foreground">加载中…</div>
   }
 
+  const { t } = usePreferences()
+
   return (
     <div className="h-full overflow-auto p-6">
       <div className="mx-auto max-w-2xl">
@@ -246,25 +251,156 @@ export function SettingsPage() {
           </div>
         )}
 
-        <AccountSection user={user} role={role} />
+        <SettingsTabBar activeTab={settingsTab} onTabChange={setSettingsTab} t={t} />
 
-        {role === 'admin' && (
+        {settingsTab === 'account' && (
           <>
-            <AdminLLMSection loading={systemLoading} settings={systemSettings} onChange={updateSystemSetting} />
-            <AdminDataSection loading={systemLoading} settings={systemSettings} onChange={updateSystemSetting} />
-            <AdminNotifySection loading={systemLoading} settings={systemSettings} onChange={updateSystemSetting} />
-            <button
-              onClick={handleAdminSave}
-              disabled={saving || systemLoading}
-              className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
-            >
-              {saving ? '保存中…' : '保存系统配置'}
-            </button>
+            <AccountSection user={user} role={role} />
+
+            {role === 'admin' && (
+              <>
+                <AdminLLMSection loading={systemLoading} settings={systemSettings} onChange={updateSystemSetting} />
+                <AdminDataSection loading={systemLoading} settings={systemSettings} onChange={updateSystemSetting} />
+                <AdminNotifySection loading={systemLoading} settings={systemSettings} onChange={updateSystemSetting} />
+                <button
+                  onClick={handleAdminSave}
+                  disabled={saving || systemLoading}
+                  className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+                >
+                  {saving ? '保存中…' : '保存系统配置'}
+                </button>
+              </>
+            )}
+
+            {role === 'member' && <MemberNotice />}
           </>
         )}
 
-        {role === 'member' && <MemberNotice />}
+        {settingsTab === 'memory' && <MemorySection userId={user?.id} t={t} />}
       </div>
     </div>
+  )
+}
+
+function SettingsTabBar({ activeTab, onTabChange, t }: { activeTab: SettingsTab; onTabChange: (v: SettingsTab) => void; t: (key: TranslationKey) => string }) {
+  const tabs: { key: SettingsTab; label: string }[] = [
+    { key: 'account', label: t('settings.account') },
+    { key: 'memory', label: t('settings.memory') },
+  ]
+  return (
+    <div className="mb-6 flex gap-1 rounded-lg border border-border p-1 w-fit">
+      {tabs.map(({ key, label }) => (
+        <button
+          key={key}
+          type="button"
+          onClick={() => onTabChange(key)}
+          className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${activeTab === key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function MemorySection({ userId, t }: { userId: string | undefined; t: (key: TranslationKey) => string }) {
+  const [items, setItems] = useState<Array<{ key: string; value: string }>>([])
+  const [loading, setLoading] = useState(true)
+  const [searchKey, setSearchKey] = useState('')
+
+  useEffect(() => {
+    if (!userId) return
+    loadMemory()
+  }, [userId])
+
+  async function loadMemory() {
+    setLoading(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+      const res = await fetch('/api/data/memory?action=list', { headers })
+      if (res.ok) {
+        const json = await res.json() as Record<string, unknown>
+        const entries = Array.isArray(json.items) ? json.items as Array<{ key: string; value: string }> : []
+        setItems(entries)
+      }
+    } catch { /* keep defaults */ }
+    setLoading(false)
+  }
+
+  async function deleteItem(key: string) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+      await fetch(`/api/data/memory?key=${encodeURIComponent(key)}`, { method: 'DELETE', headers })
+      setItems((prev) => prev.filter((i) => i.key !== key))
+    } catch { /* ignore */ }
+  }
+
+  async function clearAll() {
+    if (!confirm(t('settings.memoryClearConfirm'))) return
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+      await fetch('/api/data/memory?action=clear', { method: 'DELETE', headers })
+      setItems([])
+    } catch { /* ignore */ }
+  }
+
+  const filtered = searchKey
+    ? items.filter((i) => i.key.toLowerCase().includes(searchKey.toLowerCase()) || i.value.toLowerCase().includes(searchKey.toLowerCase()))
+    : items
+
+  if (loading) return <div className="text-sm text-muted-foreground">{t('common.loading')}</div>
+
+  return (
+    <section className="mb-8">
+      <h2 className="mb-1 text-sm font-medium text-muted-foreground">{t('settings.memory')}</h2>
+      <p className="mb-3 text-xs text-muted-foreground">{t('settings.memoryDesc')}</p>
+      <div className="mb-4 flex items-center gap-3">
+        <input
+          type="text"
+          value={searchKey}
+          onChange={(e) => setSearchKey(e.target.value)}
+          placeholder={t('settings.memorySearch')}
+          className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm"
+        />
+        <button
+          onClick={clearAll}
+          className="rounded-lg border border-red-200 px-3 py-2 text-xs text-red-600 hover:bg-red-50 dark:border-red-500/30 dark:text-red-200 dark:hover:bg-red-500/10"
+        >
+          {t('settings.memoryClear')}
+        </button>
+      </div>
+      {filtered.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{t('settings.memoryEmpty')}</p>
+      ) : (
+        <div className="overflow-hidden rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/40">
+                <th className="px-3 py-2 text-left font-medium">{t('settings.memoryKey')}</th>
+                <th className="px-3 py-2 text-left font-medium">{t('settings.memoryValue')}</th>
+                <th className="px-3 py-2 text-center font-medium">{t('settings.memoryAction')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((item) => (
+                <tr key={item.key} className="border-b border-border/50 hover:bg-muted/20">
+                  <td className="px-3 py-2 font-mono text-xs">{item.key}</td>
+                  <td className="px-3 py-2 text-xs max-w-[300px] truncate">{item.value}</td>
+                  <td className="px-3 py-2 text-center">
+                    <button onClick={() => deleteItem(item.key)} className="text-xs text-red-500 hover:text-red-700">{t('action.delete')}</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   )
 }

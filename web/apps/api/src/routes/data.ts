@@ -938,3 +938,51 @@ dataRoutes.get('/data-source-health', async (c) => {
     return c.json({ error: err.message }, 500)
   }
 })
+
+// ── GET /api/data/memory?action=list ────────────────────────
+
+dataRoutes.get('/memory', async (c) => {
+  try {
+    const userId = (c as any).get('auth').userId
+    const action = c.req.query('action') || 'list'
+    const env = (c as any).env || {}
+    if (action === 'list') {
+      const { data, error } = await (await getSupabaseAdmin(env)).from('agent_memory').select('key, value').eq('user_id', userId).order('updated_at', { ascending: false }).limit(100)
+      if (error) return c.json({ error: error.message }, 500)
+      return c.json({ items: data || [] })
+    }
+    return c.json({ error: 'unknown action' }, 400)
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500)
+  }
+})
+
+// ── DELETE /api/data/memory?key=xxx || ?action=clear ────────
+
+dataRoutes.delete('/memory', async (c) => {
+  try {
+    const userId = (c as any).get('auth').userId
+    const key = c.req.query('key')
+    const action = c.req.query('action')
+    const env = (c as any).env || {}
+    const admin = await getSupabaseAdmin(env)
+    if (action === 'clear') {
+      const { error } = await admin.from('agent_memory').delete().eq('user_id', userId)
+      if (error) return c.json({ error: error.message }, 500)
+      return c.json({ ok: true })
+    }
+    if (key) {
+      const { error } = await admin.from('agent_memory').delete().eq('user_id', userId).eq('key', key)
+      if (error) return c.json({ error: error.message }, 500)
+      return c.json({ ok: true })
+    }
+    return c.json({ error: 'key or action=clear required' }, 400)
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500)
+  }
+})
+
+async function getSupabaseAdmin(env: Record<string, unknown>) {
+  const { createClient } = await import('@supabase/supabase-js')
+  return createClient(String(env.SUPABASE_URL || ''), String(env.SUPABASE_SERVICE_ROLE_KEY || ''))
+}

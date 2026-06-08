@@ -397,6 +397,7 @@ def _build_stocks(triggers: dict, metrics: dict) -> list[dict]:
                 "remark": remark,
                 "rps50": round(_safe_num(rps_fast_map.get(code)), 1),
                 "rps120": round(_safe_num(rps_slow_map.get(code)), 1),
+                "isAiRecommended": code in stock_signals,
             }
         )
     return stocks

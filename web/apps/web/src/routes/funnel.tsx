@@ -44,6 +44,8 @@ export function FunnelPage() {
   const [funnelRunning, setFunnelRunning] = useState(false)
   const [funnelProgress, setFunnelProgress] = useState<FunnelProgressState>({ stage: '', detail: '', progress: -1 })
   const [funnelLogs, setFunnelLogs] = useState<FunnelProgressLog[]>([])
+  const [showAiOnly, setShowAiOnly] = useState(false)
+  const stocksRef = useRef<HTMLDivElement>(null)
   const queryClient = useQueryClient()
 
   // ── 页面加载时检查是否有正在运行的漏斗 ──────────────────────
@@ -250,6 +252,11 @@ export function FunnelPage() {
   const isZh = locale === 'zh-CN'
   useDocTitle(isZh ? '威科夫漏斗 - Wyckoff' : 'Wyckoff Funnel - Wyckoff')
 
+  const scrollToAiStocks = () => {
+    setShowAiOnly(true)
+    setTimeout(() => stocksRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+  }
+
   if (isLoading) return <FunnelPageSkeleton />
   if (!summary) {
     const agentOnline = agentHealth?.reachable
@@ -301,6 +308,7 @@ export function FunnelPage() {
         onTriggerFunnel={triggerFunnel}
         onStopFunnel={stopFunnel}
         agentHealth={agentHealth}
+        onAiCountClick={scrollToAiStocks}
       />
       <FunnelRunPanel isZh={isZh} funnelState={funnelState} logs={funnelLogs} error={funnelError} />
 
@@ -331,21 +339,27 @@ export function FunnelPage() {
       <SignalQualitySection isZh={isZh} />
 
       {/* Phase 4.0: 筛选结果个股列表 + 报告下载 */}
-      {funnelResult?.ok && funnelResult.stocks && funnelResult.stocks.length > 0 ? (
-        <FunnelStocksSection
-          isZh={isZh}
-          stocks={funnelResult.stocks}
-          date={funnelResult.date}
-          onDownloadReport={downloadFunnelReport}
-        />
-      ) : summary.stocks.length > 0 ? (
-        <FunnelStocksSection
-          isZh={isZh}
-          stocks={summary.stocks}
-          date={summary.date}
-          onDownloadReport={downloadFunnelReport}
-        />
-      ) : null}
+      <div ref={stocksRef}>
+        {funnelResult?.ok && funnelResult.stocks && funnelResult.stocks.length > 0 ? (
+          <FunnelStocksSection
+            isZh={isZh}
+            stocks={funnelResult.stocks}
+            date={funnelResult.date}
+            onDownloadReport={downloadFunnelReport}
+            showAiOnly={showAiOnly}
+            onClearAiOnly={() => setShowAiOnly(false)}
+          />
+        ) : summary.stocks.length > 0 ? (
+          <FunnelStocksSection
+            isZh={isZh}
+            stocks={summary.stocks}
+            date={summary.date}
+            onDownloadReport={downloadFunnelReport}
+            showAiOnly={showAiOnly}
+            onClearAiOnly={() => setShowAiOnly(false)}
+          />
+        ) : null}
+      </div>
       <ScrollToTop />
     </div>
   )
@@ -407,8 +421,9 @@ function FunnelHeader(props: {
   onTriggerFunnel: () => void
   onStopFunnel: () => void
   agentHealth?: { reachable: boolean; error?: string; detail?: string }
+  onAiCountClick: () => void
 }) {
-  const { isZh, summary, dates, selectedDate, onDateChange, funnelState, funnelError, funnelProgress, funnelLogs, onTriggerFunnel, onStopFunnel, agentHealth } = props
+  const { isZh, summary, dates, selectedDate, onDateChange, funnelState, funnelError, funnelProgress, funnelLogs, onTriggerFunnel, onStopFunnel, agentHealth, onAiCountClick } = props
   const { locale } = usePreferences()
   const relTime = useMemo(() => summary.date ? relativeTime(summary.date, locale) : null, [summary.date, locale])
   return (
@@ -419,8 +434,8 @@ function FunnelHeader(props: {
         <h1 className="text-lg font-bold">{isZh ? '威科夫漏斗' : 'Wyckoff Funnel'}</h1>
         <p className="text-xs text-muted-foreground">
           {isZh
-            ? `数据日期: ${summary.date} · 扫描 ${summary.totalScanned} 只 · AI 精选 ${summary.aiCount} 只`
-            : `Data date: ${summary.date} · Scanned ${summary.totalScanned} · AI picked ${summary.aiCount}`}
+            ? <>数据日期: {summary.date} · 扫描 {summary.totalScanned} 只 · AI 精选 <button type="button" onClick={onAiCountClick} className="text-primary hover:underline font-medium">{summary.aiCount}</button> 只</>
+            : <>Data date: {summary.date} · Scanned {summary.totalScanned} · AI picked <button type="button" onClick={onAiCountClick} className="text-primary hover:underline font-medium">{summary.aiCount}</button></>}
           {relTime && <span className="ml-2 rounded-full bg-muted/50 px-2 py-0.5 text-[11px]">{relTime}</span>}
         </p>
         {funnelError && <p className="text-xs text-red-500 mt-1">{funnelError}</p>}
@@ -965,12 +980,14 @@ function FunnelLayerConditions({ isZh, layers }: { isZh: boolean; layers: Record
 // ── Phase 4.0: 个股结果表格 + 报告下载 ───────────────────────────────────────
 
 function FunnelStocksSection({
-  isZh, stocks, date, onDownloadReport,
+  isZh, stocks, date, onDownloadReport, showAiOnly, onClearAiOnly,
 }: {
   isZh: boolean
   stocks: FunnelStockResult[]
   date: string
   onDownloadReport: () => void
+  showAiOnly: boolean
+  onClearAiOnly: () => void
 }) {
   const [downloading, setDownloading] = useState(false)
   const activeStocks = stocks.filter(s => !s.exit_signal)
@@ -997,23 +1014,33 @@ function FunnelStocksSection({
 
   const filtered = useMemo(() => {
     let result = activeStocks
+    if (showAiOnly) result = result.filter(s => s.isAiRecommended)
     if (channelFilter.size > 0) result = result.filter(s => channelFilter.has(s.channel))
     if (signalFilter.size > 0) result = result.filter(s => s.signals.some(sig => signalFilter.has(sig)))
     return result
-  }, [activeStocks, channelFilter, signalFilter])
+  }, [activeStocks, showAiOnly, channelFilter, signalFilter])
 
-  const filterCount = channelFilter.size + signalFilter.size
+  const filterCount = channelFilter.size + signalFilter.size + (showAiOnly ? 1 : 0)
 
   return (
     <section className="rounded-xl border border-border bg-card/50 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <h2 className="text-sm font-semibold">
-          {isZh ? '筛选结果' : 'Screened Stocks'}
+          {showAiOnly ? (isZh ? 'AI 精选结果' : 'AI-Picked Stocks') : (isZh ? '筛选结果' : 'Screened Stocks')}
           <span className="ml-2 text-xs font-normal text-muted-foreground">
             {filtered.length}/{activeStocks.length} {isZh ? '只' : ''}{filterCount > 0 ? ` · ${filterCount} ${isZh ? '个筛选' : 'filters'}` : ''} · {date}
           </span>
         </h2>
         <div className="flex items-center gap-2">
+          {showAiOnly && (
+            <button
+              type="button"
+              onClick={onClearAiOnly}
+              className="inline-flex items-center gap-1 rounded-md border border-indigo-500/30 bg-indigo-500/10 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-500/20 transition-colors"
+            >
+              ✕ {isZh ? '显示全部' : 'Show All'}
+            </button>
+          )}
           {channels.length > 1 && (
             <MultiSelect
               label={isZh ? '通道' : 'Channel'}
@@ -1133,7 +1160,7 @@ function MultiSelect({
 
 function FunnelStockRow({ s, i }: { s: FunnelStockResult; i: number }) {
   return (
-    <tr key={s.code} className="border-b border-border/50 hover:bg-muted/20">
+    <tr key={s.code} className={`border-b border-border/50 hover:bg-muted/20 ${s.isAiRecommended ? 'bg-indigo-500/[0.03] dark:bg-indigo-500/[0.05]' : ''}`}>
       <td className="px-2 py-1.5 text-muted-foreground tabular-nums">{i + 1}</td>
       <td className="px-2 py-1.5">
         <Link to={`/analysis?code=${s.code}`} className="font-mono font-medium text-primary hover:underline">
@@ -1156,6 +1183,7 @@ function FunnelStockRow({ s, i }: { s: FunnelStockResult; i: number }) {
       </td>
       <td className="px-2 py-1.5">
         <div className="flex flex-wrap gap-0.5">
+          {s.isAiRecommended && <span className="rounded bg-indigo-500/10 px-1 py-0.5 text-[10px] text-indigo-500 font-medium">AI</span>}
           {s.signals.map(sig => (
             <span key={sig} className="rounded bg-emerald-500/10 px-1 py-0.5 text-[10px] text-emerald-400">
               {SIGNAL_LABELS[sig] ?? sig}

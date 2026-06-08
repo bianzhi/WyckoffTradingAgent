@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, memo } from 'react'
-import { Send, RotateCcw, ChevronDown, ChevronRight, Wrench, Brain } from 'lucide-react'
+import { Send, RotateCcw, ChevronDown, ChevronRight, Wrench, Brain, Download } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth'
 import { loadLLMConfig, loadAllModels, runChatAgentStream, createReasoningCache, type LLMConfig, type ModelOption, type StepInfo } from '@/lib/chat-agent'
 import { MarkdownContent } from '@/components/markdown'
@@ -19,6 +19,7 @@ const TOOL_LABEL_KEYS: Record<string, TranslationKey> = {
   analyze_stock: 'tool.analyze_stock',
   screen_stocks: 'tool.screen_stocks',
   trigger_funnel_screening: 'tool.trigger_funnel_screening',
+  view_signals: 'tool.view_signals',
   generate_ai_report: 'tool.generate_ai_report',
   generate_strategy_decision: 'tool.generate_strategy_decision',
 }
@@ -235,6 +236,7 @@ function ChatHeader(props: {
   onToggleModelPicker: () => void
   onSelectModel: (m: ModelOption) => void
   onNewChat: () => void
+  onExportSession: () => void
   sessionId: string
   sessionList: ChatSessionMeta[]
   onSwitchSession: (sId: string) => void
@@ -252,6 +254,11 @@ function ChatHeader(props: {
       <div className="flex items-center gap-2">
         <ChatSessionDropdown sessions={props.sessionList} sessionId={props.sessionId}
           show={showSessions} onToggle={() => setShowSessions(!showSessions)} onSwitch={props.onSwitchSession} t={props.t} />
+        <button onClick={props.onExportSession}
+          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-muted/50">
+          <Download size={14} />
+          {props.t('chat.exportSession')}
+        </button>
         <button onClick={props.onNewChat}
           className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-muted/50">
           <RotateCcw size={14} />
@@ -645,6 +652,23 @@ export function ChatPage() {
     setLoading(false)
   }, [messages])
 
+  const handleExportSession = useCallback(() => {
+    const exportData = {
+      sessionId: currentSessionIdRef.current,
+      exportedAt: new Date().toISOString(),
+      messages: messages
+        .filter((m) => !m.isError)
+        .map((m) => ({ role: m.role, content: m.content })),
+    }
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `chat-${currentSessionIdRef.current}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [messages])
+
   return (
     <div className="flex h-full flex-col">
       <ChatHeader
@@ -659,6 +683,7 @@ export function ChatPage() {
           setShowModelPicker(false)
         }}
         onNewChat={handleNewChat}
+        onExportSession={handleExportSession}
         sessionId={sessionId}
         sessionList={sessionList}
         onSwitchSession={handleSwitchSession}

@@ -14,6 +14,7 @@ import {
   execWalkForwardOptimize, execMonteCarloSimulate,
   execBenchmarkExitStrategies, execAnalyzeExitQuality,
   execDataSourceHealth, execTriggerFunnel, execRunBacktest,
+  execViewSignals,
  } from './chat-tools'
 
 const SYSTEM_PROMPT = `# 角色设定
@@ -42,6 +43,7 @@ const SYSTEM_PROMPT = `# 角色设定
 15. **信号质量** — get_signal_quality：查询信号注册表健康状态、胜率、均收益
 16. **条件预警** — manage_alerts：管理价格预警/放量异动/指数波动等条件规则，支持增删查和立即评估
 17. **数据源健康** — data_source_health：查看各数据源成功率/延迟/熔断状态，诊断数据拉取问题
+18. **信号确认池** — view_signals：查看信号观察池中的待确认、已确认、过期、拒绝记录
 
 # 工具路由原则
 
@@ -59,6 +61,7 @@ const SYSTEM_PROMPT = `# 角色设定
 - "盘中怎么样" / "现在能买吗" / "今天走势如何" → intraday_analysis
 - "快速诊断" / "不看AI" / "直接诊断" / "跳过LLM" / "headless" → headless_analysis
 - "信号质量""信号表现怎么样""哪个信号最准""信号胜率" → get_signal_quality
+- "信号池""信号确认""活跃信号""过期信号""待确认信号" → view_signals
 - "预警规则""创建预警""删除预警""设置价格预警""放量预警""跑一下预警" → manage_alerts
 - "风险分析""组合风险""VaR""压力测试""回撤""相关性" → portfolio_risk
 - "参数调优""自适应""收紧阈值""放松阈值""当前应该用什么参数""水温调参" → tune_parameters
@@ -648,6 +651,15 @@ function buildTools(userId: string, config: LLMConfig, reasoningCache: string[])
       description: '信号质量评分报告：查询当前所有信号类型（sos/spring/lps/evr/compression/trend_pullback）的健康状态、胜率、平均收益、样本量等统计指标。用于评估威科夫信号在当前市场环境下的有效性。',
       inputSchema: z.object({}),
       execute: () => execGetSignalQuality(),
+    }),
+
+    view_signals: tool({
+      description: '信号确认池：查看待确认、已确认、过期、拒绝等信号观察记录。status 可选 all/active/confirmed/expired，返回信号列表及触发评分。',
+      inputSchema: z.object({
+        status: z.enum(['all', 'active', 'confirmed', 'expired']).default('all').optional(),
+        limit: z.number().default(30).optional(),
+      }),
+      execute: ({ status, limit }) => execViewSignals(progressDeps('view_signals'), status ?? 'all', limit ?? 30),
     }),
 
     manage_alerts: tool({

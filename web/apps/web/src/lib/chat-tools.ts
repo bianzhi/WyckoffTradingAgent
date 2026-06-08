@@ -570,6 +570,36 @@ export async function execGetSignalQuality(): Promise<string> {
   return report
 }
 
+// ── view_signals ───────────────────────────────────────────
+
+export async function execViewSignals(
+  _deps: ToolDeps, status?: string | null, limit?: number | null,
+): Promise<string> {
+  const effectiveLimit = limit && limit > 0 ? limit : 20
+  const { observations, error } = await dataSkill.fetchSignalObservations(
+    status || 'all',
+    effectiveLimit,
+  )
+  if (error) return `信号观测数据获取失败：${error}`
+  if (!observations || observations.length === 0) {
+    return status
+      ? `暂无状态为"${status}"的信号观测记录`
+      : '暂无信号观测记录'
+  }
+
+  return observations.map((r: Record<string, unknown>) => {
+    const code6 = r.code ? String(r.code).padStart(6, '0') : ''
+    const parts = [`${code6} ${r.name || ''}`]
+    if (r.signal_type) parts.push(`类型: ${r.signal_type}`)
+    if (r.status) parts.push(`状态: ${r.status}`)
+    if (r.direction) parts.push(`方向: ${r.direction}`)
+    if (r.score != null) parts.push(`评分: ${r.score}`)
+    if (r.observed_at) parts.push(`时间: ${r.observed_at}`)
+    if (r.reason) parts.push(`理由: ${String(r.reason).slice(0, 120)}`)
+    return `- ${parts.join(' | ')}`
+  }).join('\n')
+}
+
 // ── headless_analysis ───────────────────────────────────────
 
 export async function execHeadlessAnalysis(deps: ToolDeps, code: string): Promise<string> {

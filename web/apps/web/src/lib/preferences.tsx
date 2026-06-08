@@ -388,6 +388,19 @@ const ZH = {
   'signal.empty': '暂无信号记录',
   'signal.emptyHint': '每天收盘后运行漏斗筛选会自动生成信号观察样本。',
   'signal.totalSignals': '条信号',
+  'tool.view_signals': '信号确认池',
+  'tracking.tabPerformance': '业绩跟踪',
+  'tracking.tabRecommend': '推荐明细',
+  'settings.memory': '记忆管理',
+  'settings.memoryDesc': '管理 Agent 记忆片段，支持搜索、删除',
+  'settings.memorySearch': '搜索记忆',
+  'settings.memoryClear': '清除全部',
+  'settings.memoryClearConfirm': '确认清除所有记忆？此操作不可恢复',
+  'settings.memoryEmpty': '暂无记忆片段',
+  'settings.memoryKey': '键',
+  'settings.memoryValue': '值',
+  'settings.memoryAction': '操作',
+  'chat.exportSession': '导出会话',
 } as const
 
 const EN: Record<keyof typeof ZH, string> = {
@@ -772,6 +785,19 @@ const EN: Record<keyof typeof ZH, string> = {
   'signal.empty': 'No signal records yet',
   'signal.emptyHint': 'Signals are automatically generated after each daily funnel screening run.',
   'signal.totalSignals': 'signals',
+  'tool.view_signals': 'Signal Pool',
+  'tracking.tabPerformance': 'Performance',
+  'tracking.tabRecommend': 'Recommendations',
+  'settings.memory': 'Memory',
+  'settings.memoryDesc': 'Manage Agent memory chunks, search and delete',
+  'settings.memorySearch': 'Search memory',
+  'settings.memoryClear': 'Clear all',
+  'settings.memoryClearConfirm': 'Clear all memory? This cannot be undone',
+  'settings.memoryEmpty': 'No memory items',
+  'settings.memoryKey': 'Key',
+  'settings.memoryValue': 'Value',
+  'settings.memoryAction': 'Action',
+  'chat.exportSession': 'Export session',
 }
 
 export type TranslationKey = keyof typeof ZH

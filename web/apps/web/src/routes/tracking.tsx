@@ -156,8 +156,11 @@ function TrackingPageSkeleton() {
   )
 }
 
+type TrackingViewTab = 'performance' | 'recommend'
+
 export function TrackingPage() {
   const [market, setMarket] = useState<MarketTab>('cn')
+  const [viewTab, setViewTab] = useState<TrackingViewTab>('performance')
   const { locale, t } = usePreferences()
   const isZh = locale === 'zh-CN'
   useDocTitle(t('tracking.title') + ' - Wyckoff')
@@ -185,6 +188,7 @@ export function TrackingPage() {
     <TrackingPageLayout
       isZh={isZh} t={t}
       market={market} onMarketChange={setMarket}
+      viewTab={viewTab} onViewTabChange={setViewTab}
       needsGate={needsGate} isWhitelisted={isWhitelisted}
       fetchError={fetchError} loading={loading}
       latestDate={latestDate} oldestDate={oldestDate}
@@ -205,6 +209,8 @@ function TrackingPageLayout(props: {
   t: (key: TranslationKey, vars?: Record<string, string | number | null | undefined>) => string
   market: MarketTab
   onMarketChange: (m: MarketTab) => void
+  viewTab: TrackingViewTab
+  onViewTabChange: (v: TrackingViewTab) => void
   needsGate: boolean
   isWhitelisted: boolean
   fetchError: Error | null
@@ -213,15 +219,19 @@ function TrackingPageLayout(props: {
   oldestDate: number | null
   fc: TrackingReadyContentProps
 }) {
-  const { isZh, t, market, onMarketChange, needsGate, isWhitelisted, fetchError,
+  const { isZh, t, market, onMarketChange, viewTab, onViewTabChange, needsGate, isWhitelisted, fetchError,
     loading, latestDate, oldestDate, fc } = props
 
   return (
     <div className="h-full overflow-auto p-6">
       <Breadcrumb items={[{ label: isZh ? '首页' : 'Home', href: '/' }, { label: t('tracking.title') }]} />
       <TrackingHeader latestDate={latestDate} oldestDate={oldestDate} />
-      <MarketTabs market={market} onMarketChange={onMarketChange} />
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <MarketTabs market={market} onMarketChange={onMarketChange} />
+        <ViewTabs viewTab={viewTab} onViewTabChange={onViewTabChange} t={t} />
+      </div>
       <TrackingBody
+        viewTab={viewTab}
         needsGate={needsGate} isWhitelisted={isWhitelisted}
         fetchError={fetchError} loading={loading} fc={fc}
       />
@@ -231,11 +241,12 @@ function TrackingPageLayout(props: {
 }
 
 function TrackingBody(props: {
+  viewTab: TrackingViewTab
   needsGate: boolean; isWhitelisted: boolean
   fetchError: Error | null; loading: boolean
   fc: TrackingReadyContentProps
 }) {
-  const { needsGate, isWhitelisted, fetchError, loading, fc } = props
+  const { viewTab, needsGate, isWhitelisted, fetchError, loading, fc } = props
 
   if (needsGate && !isWhitelisted) return <BetaLocked />
   if (fetchError) return (
@@ -245,6 +256,7 @@ function TrackingBody(props: {
   )
   if (loading) return <TrackingPageSkeleton />
 
+  if (viewTab === 'recommend') return <RecommendListView fc={fc} />
   return (<TrackingReadyContent {...fc} />)
 }
 
@@ -292,7 +304,7 @@ function MarketTabs({ market, onMarketChange }: { market: MarketTab; onMarketCha
     { key: 'hk', label: t('tracking.tabHK') },
   ]
   return (
-    <div className="mb-4 flex gap-1 rounded-lg border border-border p-1 w-fit">
+    <div className="flex gap-1 rounded-lg border border-border p-1 w-fit">
       {tabs.map(({ key, label }) => (
         <button
           key={key}
@@ -304,6 +316,95 @@ function MarketTabs({ market, onMarketChange }: { market: MarketTab; onMarketCha
         </button>
       ))}
     </div>
+  )
+}
+
+function ViewTabs({ viewTab, onViewTabChange, t }: { viewTab: TrackingViewTab; onViewTabChange: (v: TrackingViewTab) => void; t: (key: TranslationKey) => string }) {
+  const tabs: { key: TrackingViewTab; label: string }[] = [
+    { key: 'performance', label: t('tracking.tabPerformance') },
+    { key: 'recommend', label: t('tracking.tabRecommend') },
+  ]
+  return (
+    <div className="flex gap-1 rounded-lg border border-border p-1 w-fit">
+      {tabs.map(({ key, label }) => (
+        <button
+          key={key}
+          type="button"
+          onClick={() => onViewTabChange(key)}
+          className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${viewTab === key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function RecommendListView({ fc }: { fc: TrackingReadyContentProps }) {
+  const { filtered, market, search, onSearchChange } = fc
+  const { t } = usePreferences()
+  const rows = search
+    ? filtered.filter((r) => {
+        const q = search.toLowerCase()
+        return String(r.code).includes(q) || (r.name ?? '').toLowerCase().includes(q)
+      })
+    : filtered
+  return (
+    <>
+      <div className="mb-4 flex items-center gap-3">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => onSearchChange(e.target.value)}
+          placeholder={t('tracking.searchPlaceholder')}
+          className="rounded-lg border border-border px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring/20"
+        />
+        <span className="text-xs text-muted-foreground">{rows.length} {t('common.stocks')}</span>
+      </div>
+      <div className="overflow-hidden rounded-lg border border-border">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+              <tr>
+                <th className="px-3 py-2 text-left font-medium">{t('common.code')}</th>
+                <th className="px-3 py-2 text-left font-medium">{t('common.name')}</th>
+                <th className="px-3 py-2 text-left font-medium">{t('tracking.recommendDate')}</th>
+                <th className="px-3 py-2 text-left font-medium">{t('tracking.score')}</th>
+                <th className="px-3 py-2 text-left font-medium">{t('signal.aiRecommended')}</th>
+                <th className="px-3 py-2 text-left font-medium">{t('tracking.initialPrice')}</th>
+                <th className="px-3 py-2 text-left font-medium">{t('tracking.currentPrice')}</th>
+                <th className="px-3 py-2 text-left font-medium">{t('tracking.changePct')}</th>
+              </tr>
+            </thead>
+            <tbody style={{ contentVisibility: 'auto', containIntrinsicSize: '0 40000px' }}>
+              {rows.length === 0 ? (
+                <tr className="border-t border-border">
+                  <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">{t('tracking.empty')}</td>
+                </tr>
+              ) : rows.map((row) => (
+                <RecommendListRow key={`${row.code}-${row.recommend_date}`} row={row} market={market} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  )
+}
+
+function RecommendListRow({ row, market }: { row: Recommendation; market: MarketTab }) {
+  const codeDisplay = market === 'cn' ? String(row.code).padStart(6, '0') : String(row.code)
+  return (
+    <tr className={`border-t border-border hover:bg-muted/20 ${row.rag_vetoed ? 'opacity-60 line-through' : ''}`}>
+      <td className="px-3 py-2 font-mono">{codeDisplay}</td>
+      <td className="px-3 py-2">{row.name || '-'}</td>
+      <td className="px-3 py-2 text-muted-foreground">{formatDate(row.recommend_date)}</td>
+      <td className="px-3 py-2 text-right">{formatScore(row.funnel_score)}</td>
+      <td className="px-3 py-2 text-center">{row.is_ai_recommended && <span className="inline-block h-2 w-2 rounded-full bg-indigo-500" />}</td>
+      <td className="px-3 py-2 text-right">{row.initial_price?.toFixed(2) || '-'}</td>
+      <td className="px-3 py-2 text-right">{row.current_price?.toFixed(2) || '-'}</td>
+      <td className={`px-3 py-2 text-right font-medium ${pctColor(row.change_pct)}`}>{formatPct(row.change_pct)}</td>
+    </tr>
   )
 }
 

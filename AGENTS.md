@@ -100,11 +100,11 @@ ruff check . && ruff format --check . && python scripts/quality_gate.py --check-
 ### 高优先级
 
 1. ✅ **funnel 页面加"发起筛选"按钮** — 已修复：按钮 → API 代理 → Agent `run_funnel_job()` → Supabase，带状态轮询。
-2. **Signal 信号池页** — 新增 `/signal` 路由或 chat tool `view_signals`，展示 pending/confirmed/expired 信号状态。
-3. **Recommend 原始推荐列表** — tracking 页加 tab 切换「业绩跟踪」/「推荐明细」，或 chat tool `view_recommendations`。
+2. ✅ **Signal 信号池页** — 已修复：`/signal` 路由展示信号池 + chat tool `view_signals` 查看信号观察记录。
+3. ✅ **Recommend 原始推荐列表** — 已修复：tracking 页加 tab 切换「业绩跟踪」/「推荐明细」。
 
 ### 低优先级
 
-4. **Memory 管理** — `/settings` 加「记忆管理」tab，或 chat tool `manage_memory`。
-5. **回测一键运行** — backtest 页加表单（hold_days/months），POST 到 background job。
-6. **Session export/fork** — chat.tsx 会话菜单加导出按钮。
+4. ✅ **Memory 管理** — 已修复：`/settings` 加「记忆管理」tab，支持搜索、删除、清除全部。
+5. ✅ **回测一键运行** — 已修复：backtest 页已有 Run tab，直接运行回测。
+6. ✅ **Session export** — 已修复：chat.tsx 会话菜单加导出按钮，下载 JSON 格式会话。

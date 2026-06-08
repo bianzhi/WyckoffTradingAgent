@@ -51,6 +51,7 @@ export interface FunnelStockResult {
   score: number            // 综合评分
   rps50: number | null     // RPS50 动量排名
   rps120: number | null    // RPS120 动量排名
+  isAiRecommended: boolean  // AI 精选标记
   signals: string[]        // L4 触发信号列表
   stage: string            // 威科夫阶段
   latest_close: number | null
@@ -165,6 +166,7 @@ function toStockResult(r: {
   current_price: number | null
   rps50: number | null
   rps120: number | null
+  is_ai_recommended: boolean
 }): FunnelStockResult {
   const reason = r.recommend_reason || ''
   // Try to parse channel keywords from reason
@@ -179,6 +181,7 @@ function toStockResult(r: {
     score: r.funnel_score ?? 0,
     rps50: r.rps50,
     rps120: r.rps120,
+    isAiRecommended: r.is_ai_recommended,
     signals: parseSignals(reason),
     stage: '',
     latest_close: r.current_price,

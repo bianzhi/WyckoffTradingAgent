@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Loader2, LayoutDashboard, Plus, Trash2 } from 'lucide-react'
+import { Loader2, LayoutDashboard, Plus, Trash2, Search } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
 import { SkeletonCard } from '@/components/ux/skeleton'
@@ -26,6 +26,7 @@ import { avg } from '@/lib/math'
 import { saveAnalysisHistory } from '@/lib/local-history'
 import { buildValueDigest, buildValueScore, formatValuePercent, metricToneClass, numberTone, reverseNumberTone, signalClass, sourceLabel, valueScoreClass, valueUnavailableText, type ValueScore, type ValueTone, type ValueView } from '@/lib/value-analysis'
 import { useDocTitle } from '@/lib/doc-title'
+import { searchStocks, type StockSearchResult } from '@/lib/market-search'
 
 interface Position {
   code: string | number
@@ -420,10 +421,61 @@ function ManualInput({
 function ManualPositionRow({ position, onChange, onRemove }: { position: Position; onChange: (patch: Partial<Position>) => void; onRemove: () => void }) {
   const { t } = usePreferences()
   const cls = 'rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none'
+  const [query, setQuery] = useState(String(position.code || ''))
+  const [suggestions, setSuggestions] = useState<StockSearchResult[]>([])
+  const [showDropdown, setShowDropdown] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+
+  // 当 position.code 外部变化时（如清空），同步 query
+  useEffect(() => {
+    setQuery(String(position.code || ''))
+  }, [position.code])
+
+  function handleSearch(value: string) {
+    setQuery(value)
+    if (!value.trim()) {
+      setSuggestions([])
+      setShowDropdown(false)
+      onChange({ code: '', name: null })
+      return
+    }
+    onChange({ code: value, name: null })
+    clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(async () => {
+      const results = await searchStocks(value, 6)
+      setSuggestions(results)
+      setShowDropdown(results.length > 0)
+    }, 200)
+  }
+
+  function pickStock(s: StockSearchResult) {
+    setQuery(s.code)
+    setShowDropdown(false)
+    onChange({ code: s.analysisCode, name: s.name })
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-3 px-4 py-3">
-      <input value={String(position.code)} onChange={(e) => onChange({ code: e.target.value })} placeholder={t('portfolio.code')} className={`${cls} w-28`} />
-      <input value={position.name || ''} onChange={(e) => onChange({ name: e.target.value || null })} placeholder={t('portfolio.name')} className={`${cls} w-24`} />
+      <div className="relative w-44">
+        <div className="relative">
+          <Search size={14} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input value={query} onChange={(e) => handleSearch(e.target.value)} onFocus={() => suggestions.length > 0 && setShowDropdown(true)}
+            onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+            placeholder={t('portfolio.code') + '/' + t('portfolio.name')} className={`${cls} w-full pl-7`} />
+        </div>
+        {showDropdown && suggestions.length > 0 && (
+          <div className="absolute left-0 top-full z-50 mt-1 w-64 rounded-lg border border-border bg-popover shadow-lg">
+            {suggestions.map((s) => (
+              <button key={s.analysisCode} type="button" onMouseDown={() => pickStock(s)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted">
+                <span className="font-mono font-medium">{s.code}</span>
+                <span className="flex-1 truncate">{s.name}</span>
+                <span className="text-muted-foreground">{s.market.toUpperCase()}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <input type="number" min={0} value={position.shares || ''} onChange={(e) => onChange({ shares: Number(e.target.value) || 0 })} placeholder={t('portfolio.shares')} className={`${cls} w-20`} />
       <input type="number" min={0} step={0.01} value={position.cost_price || ''} onChange={(e) => onChange({ cost_price: Number(e.target.value) || 0 })} placeholder={t('portfolio.costPrice')} className={`${cls} w-24`} />
       <input type="date" value={position.buy_dt || ''} onChange={(e) => onChange({ buy_dt: e.target.value || null })} className={`${cls} w-36`} aria-label={t('portfolio.buyDate')} />

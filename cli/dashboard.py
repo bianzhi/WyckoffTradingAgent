@@ -260,6 +260,33 @@ def _build_and_persist_funnel(triggers: dict, metrics: dict) -> dict:
     return result
 
 
+def _persist_signal_observations(triggers: dict, metrics: dict) -> None:
+    """漏斗完成后将 L4 信号写入 signal_observations 表。"""
+    try:
+        from core.signal_feedback import build_signal_observations
+        from integrations.supabase_signal_feedback import upsert_signal_observations
+
+        trade_date = (metrics.get("end_trade_date") or "").replace("-", "")
+        rows = build_signal_observations(
+            trade_date,
+            triggers,
+            regime=metrics.get("regime", "NEUTRAL"),
+            selected_for_ai=metrics.get("selected_for_ai", []) or [],
+            ai_recommended=metrics.get("selected_for_ai", []) or [],
+            name_map=metrics.get("name_map", {}) or {},
+            sector_map=metrics.get("sector_map", {}) or {},
+            score_map=metrics.get("priority_score_map", {}) or {},
+            stage_map=metrics.get("accum_stage_map", {}) or {},
+            channel_map=metrics.get("layer2_channel_map", {}) or {},
+            latest_close_map=metrics.get("latest_close_map", {}) or {},
+        )
+        if rows:
+            upsert_signal_observations(rows)
+            logger.info("signal_observations persisted: %d rows", len(rows))
+    except Exception as e:
+        logger.warning("signal_observations persist failed: %s", e)
+
+
 def _build_stocks(triggers: dict, metrics: dict) -> list[dict]:
     """从触发信号和 metrics 构建个股维度的结果列表。"""
     import pandas as pd
@@ -466,6 +493,11 @@ def _run_funnel_background(payload: dict | None = None) -> dict:
         result = _build_funnel_result(triggers, metrics, elapsed, stocks, layer_conditions)
         result["cache_mode"] = cache_mode
         result["progress_logs"] = list(_funnel_logs)
+
+        # 持久化到 Supabase：recommendation_tracking + signal_observations
+        _build_and_persist_funnel(triggers, metrics)
+        _persist_signal_observations(triggers, metrics)
+
         _funnel_last_result = result
         return result
     except FunnelInterrupted:
